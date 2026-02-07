@@ -1,0 +1,27 @@
+name: DeepSeek Stock Bot
+
+on:
+  schedule:
+    - cron: '30 9 * * 1-5' # 每天下午 5:30 自动跑
+  workflow_dispatch:      # 允许手动按钮运行
+
+jobs:
+  run_analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        
+      - name: Run Stock Analysis
+        env:
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python main.py
