@@ -1,0 +1,36 @@
+name: DeepSeek Stock Bot
+
+on:
+  schedule:
+    - cron: '30 17 * * 1-5'  # 每个工作日下午 5:30 (UTC+8) 自动运行
+  workflow_dispatch:         # 允许手动触发
+
+jobs:
+  run_analysis:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          cache: 'pip'  # 缓存 pip 依赖以加快安装
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+        
+      - name: Run Stock Analysis
+        env:
+          Deep_Seek_Key: ${{ secrets.Deep_Seek_Key }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python main.py
+        
+      - name: Notify on failure
+        if: failure()
+        run: echo "Stock analysis failed"
