@@ -1,163 +1,136 @@
+"""
+Bursa Bot — 每日马股 & 美股技术信号 Telegram 推送
+使用 stock_data.py 共用数据模块
+"""
 import os
-import yfinance as yf
-import pandas_ta as ta
+import time
 import requests
 from openai import OpenAI
-import time
 
-# === 1. 配置区域 ===
-# 你的自选股列表 (马股代码记得加 .KL)
-WATCHLIST = [
-    "1155.KL",  # Maybank
-    "1023.KL",  # Public Bank
-    "5183.KL",  # Petronas Chemicals
-    "5296.KL",  # MR DIY
-    "0083.KL",  # Press Metal
-    "5168.KL"   # Hartalega
-]
-
-# === 2. 初始化 DeepSeek 客户端 ===
-# 关键修改点：base_url 必须是 deepseek 的地址
-client = OpenAI(
-    api_key=os.environ.get("DEEPSEEK_KEY"),  # 从 GitHub Secrets 读取密码
-    base_url="https://api.deepseek.com"      # 👈 这里指定连接 DeepSeek
+from stock_data import (
+    MY_WATCHLIST, US_WATCHLIST,
+    get_stock_info, get_price_history, get_news,
+    scan_signals,
 )
 
-TG_TOKEN = os.environ.get("TG_TOKEN")
+# ============================================================
+# 配置
+# ============================================================
+WATCHLIST_MY = list(MY_WATCHLIST.keys())
+WATCHLIST_US = list(US_WATCHLIST.keys())
+
+# DeepSeek / OpenAI 兼容客户端
+client = OpenAI(
+    api_key=os.environ.get("DEEPSEEK_KEY"),
+    base_url="https://api.deepseek.com",
+)
+
+TG_TOKEN   = os.environ.get("TG_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
-# === 3. 获取数据并计算指标 ===
-def get_stock_data(symbol):
-    print(f"正在分析: {symbol} ...")
-    try:
-        stock = yf.Ticker(symbol)
-        # 获取过去 6 个月的数据以计算均线
-        df = stock.history(period="6mo")
-        
-        if len(df) < 50: 
-            print(f"数据不足: {symbol}")
-            return None
-
-        # 计算技术指标 (RSI 和 均线)
-        df.ta.rsi(length=14, append=True)
-        df.ta.sma(length=50, append=True)
-        df.ta.macd(append=True)
-        
-        #以此获取最新一天的数值
-        latest = df.iloc[-1]
-        prev = df.iloc[-2]
-        
-        return {
-            "symbol": symbol,
-            "close": round(latest['Close'], 3),
-            "rsi": round(latest['RSI_14'], 2),
-            "sma50": round(latest['SMA_50'], 3),
-            "prev_close": prev['Close'],
-            "prev_sma50": prev['SMA_50']
-        }
-    except Exception as e:
-        print(f"获取失败 {symbol}: {e}")
-        return None
-
-# === 4. 简单的筛选策略 ===
-def check_strategy(data):
-    """
-    在这里修改你的筛选条件
-    返回: (是否符合, 原因)
-    """
-    # 策略 A: RSI 超卖 (小于35) -> 可能是反弹机会
-    if data['rsi'] < 35:
-        return True, "📉 RSI 超卖 (数值低于35)"
-    
-    # 策略 B: 黄金交叉 (价格站上 50日均线)
-    # 今天价格 > 50均线 且 昨天价格 < 50均线
-    if data['close'] > data['sma50'] and data['prev_close'] < data['prev_sma50']:
-        return True, "🚀 突破 50日均线 (趋势转强)"
-        
-    # 策略 C: 强制包含第一只股票 (为了让你测试时一定能收到消息)
-    # 测试完成后，可以删除下面这 2 行
-    if data['symbol'] == WATCHLIST[0]:
-        return True, "⚠️ 测试信号 (由系统强制发送)"
-        
-    return False, None
-
-# === 5. 呼叫 DeepSeek 进行分析 ===
-def ask_deepseek(data, reason):
-    prompt = f"""
-    你是专业的马来西亚股市分析师。
-    股票代码: {data['symbol']}
-    触发信号: {reason}
-    
-    基本数据:
-    - 现价: RM {data['close']}
-    - RSI (14): {data['rsi']}
-    - 50日均线: RM {data['sma50']}
-    
-    请用简短的中文 (50字以内)：
-    1. 评价这个信号的可靠性。
-    2. 给出“买入/观望/卖出”建议。
-    """
-    
-    try:
-        response = client.chat.completions.create(
-            model="deepseek-chat",  # 👈 指定使用 DeepSeek V3 模型
-            messages=[
-                {"role": "system", "content": "你是一个严谨的金融助手。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1, # 让回答更稳定
-            max_tokens=100
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"DeepSeek 分析出错: {e}"
-
-# === 6. 发送 Telegram ===
-def send_telegram(message):
+# ============================================================
+# 发送 Telegram 消息
+# ============================================================
+def send_telegram(message: str, parse_mode: str = "Markdown"):
+    if not TG_TOKEN or not TG_CHAT_ID:
+        print("[TG] 未配置 Token / Chat ID，跳过发送")
+        return
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TG_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
-    requests.post(url, json=payload)
+    payload = {"chat_id": TG_CHAT_ID, "text": message, "parse_mode": parse_mode}
+    try:
+        resp = requests.post(url, json=payload, timeout=10)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"[TG] 发送失败: {e}")
 
-# === 主程序 ===
+# ============================================================
+# DeepSeek AI 分析
+# ============================================================
+def ask_deepseek(symbol: str, signals: str, price: float, rsi: float | None,
+                 currency: str = "RM") -> str:
+    price_str = f"{currency} {price:.3f}"
+    rsi_str   = f"{rsi:.1f}" if rsi else "N/A"
+    prompt = f"""你是专业的股票分析师，同时熟悉马来西亚股市和美国股市。
+股票代码: {symbol}
+当前价格: {price_str}
+RSI (14): {rsi_str}
+触发信号: {signals}
+
+请用中文（50字以内）：
+1. 评价信号可靠性
+2. 给出"买入 / 观望 / 卖出"建议
+"""
+    try:
+        resp = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": "你是严谨的金融分析助手，回答简洁专业。"},
+                {"role": "user",   "content": prompt},
+            ],
+            temperature=0.1,
+            max_tokens=120,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        return f"AI 分析出错: {e}"
+
+# ============================================================
+# 主程序
+# ============================================================
 def main():
-    report_content = ""
-    stock_found = False
-    
-    print("开始扫描...")
-    for symbol in WATCHLIST:
-        data = get_stock_data(symbol)
-        if not data: continue
-        
-        is_match, reason = check_strategy(data)
-        
-        if is_match:
-            stock_found = True
-            # 调用 AI 分析
-            ai_comment = ask_deepseek(data, reason)
-            
-            # 拼凑消息
-            msg = (
-                f"🚨 **{symbol} 触发信号**\n"
-                f"原因: {reason}\n"
-                f"📊 现价: {data['close']} | RSI: {data['rsi']}\n"
-                f"💡 **DeepSeek:** {ai_comment}\n"
-                f"-------------------\n"
-            )
-            report_content += msg
-            print(f"✅ 找到机会: {symbol}")
-            # 为了防止 DeepSeek 限制频率，稍微停顿 1 秒
-            time.sleep(1) 
-            
-    if stock_found:
-        header = "📢 **今日马股自动分析报告**\n\n"
-        send_telegram(header + report_content)
-        print("报告已发送到 Telegram")
-    else:
-        print("今日无符合条件的股票")
+    print("=" * 50)
+    print("Bursa Bot — 开始扫描...")
+    print("=" * 50)
+
+    # 扫描马股 + 美股
+    all_symbols = WATCHLIST_MY + WATCHLIST_US
+    signal_results = scan_signals(all_symbols)
+
+    if not signal_results:
+        print("今日无明显技术信号，不发送报告")
+        # 仍发送一条简短日报
+        today_msg = "📊 *今日市场扫描完成*\n今日马股 & 美股自选列表暂无明显技术信号。\n保持观望，耐心等待机会。"
+        send_telegram(today_msg)
+        return
+
+    # 为每只触发信号的股票获取 AI 分析
+    report_lines = ["📢 *今日股票信号报告*\n"]
+
+    for row in signal_results:
+        sym      = row["symbol"]
+        price    = row["price"]
+        rsi_val  = row.get("rsi")
+        signals  = row["signals"]
+        is_my    = sym.endswith(".KL")
+        currency = "RM" if is_my else "USD"
+        flag     = "🇲🇾" if is_my else "🇺🇸"
+
+        print(f"[AI] 分析 {sym}: {signals}")
+        ai_comment = ask_deepseek(sym, signals, price, rsi_val, currency)
+        time.sleep(1)  # 避免 DeepSeek 限速
+
+        block = (
+            f"{flag} *{sym}*  {currency} {price:.3f}\n"
+            f"📡 信号: {signals}\n"
+            f"💡 {ai_comment}\n"
+            f"{'─'*30}\n"
+        )
+        report_lines.append(block)
+
+    # 附加当天最新马股新闻标题
+    report_lines.append("\n📰 *马股最新资讯*")
+    for sym in WATCHLIST_MY[:3]:
+        news_list = get_news(sym, max_items=2)
+        for n in news_list:
+            title = n.get("title", "")
+            link  = n.get("link", "")
+            if title:
+                report_lines.append(f"• [{title[:60]}...]({link})")
+
+    full_report = "\n".join(report_lines)
+    send_telegram(full_report)
+    print(f"[TG] 报告已发送，共 {len(signal_results)} 只股票触发信号")
+
 
 if __name__ == "__main__":
     main()
