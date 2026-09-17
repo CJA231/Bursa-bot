@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>马股自动分析报告</title>
-<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="vendor/lightweight-charts.js"></script>
 <style>
   /* 🎨 图表配色：想换颜色直接改这里的 hex 值即可 (--up / --down / --ema) */
   :root {
@@ -106,12 +106,13 @@
     user-select: none;
   }
   table.data-table th:hover { color: var(--text-primary); }
+  table.data-table .arrow { display: inline-block; width: 0.9em; color: var(--text-primary); }
   table.data-table tbody tr:hover { background: var(--page); }
 </style>
 </head>
 <body>
 <h1>📢 马股自动分析报告</h1>
-<p class="updated">更新时间: 2026-09-18 00:45 (MYT)</p>
+<p class="updated">更新时间: 2026-09-18 01:14 (MYT)</p>
 
 <h2 class="section">🚨 信号 (207)</h2>
 <div class="grid">
@@ -132,7 +133,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
+                <p>SAR转空信号可靠性中等，RSI 48.85偏弱但未超卖。建议：观望，等待价格站稳均线或RSI回升再考虑买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -170,7 +171,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI高达86.17严重超买，SAR转空信号可靠，短期回调风险大。建议：卖出或观望。</p>
+                <p>RSI高达86严重超买，SAR转空信号可靠，短线回调风险大。建议：卖出或观望，勿追高。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -189,7 +190,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号偏弱，RSI 47.69中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑再考虑减仓。</p>
+                <p>SAR转空且RSI偏弱，趋势转淡信号中等可靠。建议：观望，待企稳再介入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -246,7 +247,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📈 价格站上 EMA20</strong>
-                <p>信号偏弱：低价股波动大，站上EMA20但未破50日均线，RSI中性。建议：观望，待放量突破RM0.045再考虑。</p>
+                <p>信号偏弱：低价股波动大，站上EMA20但量能未明。RSI 59未超买，建议观望，待放量突破50日均线再买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -265,7 +266,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI中性，信号偏弱。现价与均线数据缺失，无法确认趋势。建议：观望。</p>
+                <p>SAR转空但RSI仅54.43，未超买，信号偏弱。现价与均线数据缺失，可靠性低。建议：观望。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -284,7 +285,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI近68偏高，短线转弱信号较可靠。建议：观望或减仓，暂不宜买入。</p>
+                <p>SAR转空叠加RSI近68高位，短线转弱信号较可靠。建议：观望或减仓，待回调确认支撑后再考虑买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -303,7 +304,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI中性，信号偏弱。建议观望，待跌破50日均线确认后再卖出。</p>
+                <p>SAR转空信号可靠性中等，RSI 53.67处中性偏弱，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -322,7 +323,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI超买72，短线回调风险高，信号偏可靠。建议：卖出或观望，勿追高。</p>
+                <p>SAR转空叠加RSI超买（72.25），信号偏可靠，短线回调风险大。建议：卖出或观望，勿追高。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -341,7 +342,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，信号偏弱但可靠性中等。建议：观望，待跌破支撑或RSI回落再考虑卖出。</p>
+                <p>SAR转空叠加RSI偏高，信号偏弱但需确认。建议：观望，待跌破均线再减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -379,7 +380,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，等待价格与量能确认后再操作。</p>
+                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -417,7 +418,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍在中性偏强区，信号可靠性中等。建议观望，待价格跌破均线或RSI转弱再考虑卖出。</p>
+                <p>SAR转空信号可靠性中等，RSI 54.8偏中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -436,7 +437,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI高达81.36严重超买，SAR转空信号可靠，趋势转弱概率大。建议：卖出或观望，勿追高。</p>
+                <p>RSI高达81.36严重超买，SAR转空信号可靠，短线回调风险大。建议：卖出或观望。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -455,7 +456,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>数据缺失（现价、均线为nan），SAR转空信号可靠性存疑。RSI 57.93偏中性，建议观望，待数据完整再决策。</p>
+                <p>SAR转空信号可靠性中等，RSI 57.93未超卖，趋势偏弱。建议：观望，待价格站稳均线再考虑买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -493,7 +494,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 44偏弱但未超卖。建议：观望，等待价格企稳或RSI跌破30再考虑。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性中等。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -512,7 +513,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI近67偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
+                <p>SAR转空且RSI偏高，信号偏弱。建议：观望，待确认跌破支撑再考虑卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -531,7 +532,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 25.3属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待数据完整再决策。</p>
+                <p>RSI 25.3属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待价格数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -550,7 +551,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI 55.1偏中性，信号可靠性中等。建议：观望，待跌破50日均线确认后再卖出。</p>
+                <p>SAR转空信号可靠性中等，RSI 55.1偏中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -569,7 +570,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏弱，短线趋势转淡，但现价与均线数据缺失，信号可靠性中等。建议：观望，待数据确认后再操作。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -588,7 +589,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
+                <p>SAR转空叠加RSI偏高，短线转弱信号偏可靠。建议：观望，待回调企稳再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -626,7 +627,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 53.1处中性偏弱，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
+                <p>SAR转空但RSI仅53.1，信号偏弱，可靠性中等。建议：观望，待跌破50日均线或RSI走弱再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -645,7 +646,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 32.79接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待价格数据完整且RSI低于30再考虑。</p>
+                <p>RSI 32.79接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待价格数据完整再判断。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -664,7 +665,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，短线转弱信号中等可靠。建议：观望，待回调确认支撑后再考虑。</p>
+                <p>SAR转空叠加RSI偏高，短线转弱信号中等可靠。建议：观望，待跌破均线确认再减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -683,7 +684,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议观望，待跌破50日均线确认转弱后再卖出。</p>
+                <p>SAR转空信号可靠性中等，RSI 57.57未超买，但现价与均线数据缺失，无法确认趋势强度。建议：观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -702,7 +703,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI 60偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
+                <p>SAR转空叠加RSI 60偏高位，短线趋势转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -721,7 +722,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 54偏中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑再考虑减仓。</p>
+                <p>SAR转空信号偏弱，RSI 54中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑再减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -740,7 +741,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空且RSI偏弱，趋势转淡信号中等可靠。建议：观望，待价格站稳均线再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -759,7 +760,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议观望，待跌破50日均线确认转弱后再卖出。</p>
+                <p>SAR转空信号可靠性中等，RSI 57.49未超买，但现价与均线数据缺失，无法确认趋势强度。建议：观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -797,7 +798,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 33.61接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议：观望，待数据完整再决策。</p>
+                <p>RSI 33.61接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待价格数据完整再判断。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -816,7 +817,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号偏弱，RSI中性，数据缺失难判趋势。建议：观望。</p>
+                <p>SAR转空信号偏弱，RSI中性，数据缺失难判趋势。建议：观望，待确认量价再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -873,7 +874,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再决策。</p>
+                <p>数据缺失（现价、均线为nan），SAR转空信号可靠性存疑。RSI 46.79偏弱但未超卖。建议：观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -892,7 +893,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 31.84属超卖但未极端，现价与均线数据缺失，信号可靠性中等。建议观望，待价格企稳或RSI回升确认后再考虑买入。</p>
+                <p>RSI 31.84属超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待价格数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -930,7 +931,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 55.91偏中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
+                <p>SAR转空信号偏弱，RSI 55.91仍在中性偏强区，数据缺失无法确认趋势。建议：观望，待价格与均线数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -949,7 +950,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 30.49 接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议：观望，待价格与量能确认后再操作。</p>
+                <p>RSI 30.49接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待价格数据完整再判断。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -987,7 +988,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 24.82属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待价格数据确认后再操作。</p>
+                <p>RSI 24.82属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1006,7 +1007,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 45.53偏弱但未超卖。建议：观望，等待价格企稳或RSI跌破30再考虑。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1025,7 +1026,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 32.48接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议：观望，待价格数据确认后再操作。</p>
+                <p>RSI 32.48接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议：观望，待数据完整或RSI跌破30再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1063,7 +1064,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仅51.34，信号偏弱，可靠性一般。建议观望，待跌破50日均线或RSI走弱再考虑卖出。</p>
+                <p>SAR转空信号偏弱，RSI中性51，缺乏均线数据佐证。建议：观望，待确认跌破支撑再考虑减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1082,7 +1083,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI近70超买，信号偏可靠。建议：卖出或观望，暂不宜买入。</p>
+                <p>SAR转空叠加RSI近70超买，信号偏可靠。建议：观望或减仓，暂不宜买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1101,7 +1102,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议观望，待跌破50日均线确认后再卖出。</p>
+                <p>SAR转空信号可靠性中等，RSI 57.59未超买，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1139,7 +1140,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性中等偏低。建议：观望，待数据完整再操作。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1158,7 +1159,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，短线转弱信号可信。建议：观望或减仓，待回稳再介入。</p>
+                <p>SAR转空叠加RSI偏高，信号偏可靠，短线转弱概率大。建议：观望或减仓，暂不买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1177,7 +1178,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 57.55未超买，但现价与均线数据缺失，无法确认趋势强度。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空信号可靠性中等，RSI 57.55未超买，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1196,7 +1197,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI超买(73.37)叠加SAR转空，信号偏可靠，短线回调风险高。建议：卖出或观望，勿追高。</p>
+                <p>RSI超买(73.37)叠加SAR转空，信号偏可靠，短线回调风险高。建议：卖出或观望。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1215,7 +1216,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 34.66接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整或RSI跌破30再考虑。</p>
+                <p>RSI 34.66接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1234,7 +1235,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 27超卖但现价与均线数据缺失，信号可靠性存疑。建议观望，待数据完整再操作。</p>
+                <p>RSI 27超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1253,7 +1254,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>数据缺失（现价、均线为nan），SAR转空信号可靠性存疑。RSI中性偏弱，建议观望，待数据完整再操作。</p>
+                <p>数据缺失（现价、均线为nan），SAR转空信号可靠性存疑。RSI中性，建议观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1272,7 +1273,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 27.27属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待数据完整再决策。</p>
+                <p>RSI 27.27属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待价格数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1291,7 +1292,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI超买且SAR转空，信号偏空但需确认。建议：观望，待跌破均线再卖出。</p>
+                <p>SAR转空叠加RSI高达76.64，超买明显，信号可靠性较高。建议：卖出或观望，不宜追高。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1367,7 +1368,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI超买70.5，信号偏可靠，短线趋势转弱。建议：卖出或观望，勿追高。</p>
+                <p>SAR转空叠加RSI超买70.5，短线转弱信号较可靠。建议：卖出或观望，等待回调企稳。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1386,7 +1387,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍偏强，信号可靠性中等。现价与均线数据缺失，建议观望，待确认跌破支撑后再卖出。</p>
+                <p>SAR转空但RSI 57未超买，信号可靠性中等。现价与均线数据缺失，建议观望，待确认跌破支撑再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1405,7 +1406,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI近60，信号中等偏弱，需确认。建议：观望，待跌破支撑或RSI回落再考虑卖出。</p>
+                <p>SAR转空但RSI仍近60，信号偏弱，可靠性一般。现价与均线数据缺失，建议观望，待确认跌破支撑再考虑卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1424,7 +1425,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>数据缺失（现价、均线为nan），信号可靠性低。RSI 71超买，SAR转空偏弱。建议：观望。</p>
+                <p>数据缺失（现价、均线为nan），信号可靠性低。RSI 71超买，SAR转空，建议：观望。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1443,7 +1444,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
+                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，等待趋势确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1462,7 +1463,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍偏强，信号可靠性中等。现价与均线数据缺失，建议观望，待确认跌破支撑再考虑卖出。</p>
+                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议观望，待跌破50日均线确认转弱后再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1481,7 +1482,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议观望，待价格确认跌破均线后再考虑卖出。</p>
+                <p>SAR转空叠加RSI偏高，信号偏弱但可靠性中等。建议：观望，待跌破均线确认后再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1500,7 +1501,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI高达83严重超买，SAR转空信号可靠，短线回调风险大。建议：卖出或观望。</p>
+                <p>SAR转空叠加RSI高达83.11，严重超买，信号可靠性较高。建议：卖出或观望，勿追高。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1519,7 +1520,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 33.21接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议：观望，待数据完整或RSI跌破30再考虑。</p>
+                <p>RSI 33.21接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1538,7 +1539,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再操作。</p>
+                <p>SAR转空叠加RSI偏弱，短线趋势转淡，信号可靠性中等。建议：观望，待企稳再介入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1557,7 +1558,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
+                <p>数据缺失（现价、均线为nan），SAR转空信号可靠性存疑。RSI 60偏强，建议观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1576,7 +1577,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI超买（72.41），信号偏可靠，短期回调风险高。建议：**卖出/观望**，暂不宜买入。</p>
+                <p>SAR转空叠加RSI超买（72.41），信号偏可靠，短线回调风险大。建议：卖出或观望，勿追高。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1595,7 +1596,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，等待价格企稳或均线确认后再操作。</p>
+                <p>数据缺失（现价与均线为nan），SAR转空信号可靠性存疑。RSI中性，建议观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1614,7 +1615,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议观望，待跌破50日均线确认后再卖出。</p>
+                <p>SAR转空叠加RSI偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1633,7 +1634,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 33.85接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待价格数据完整再判断。</p>
+                <p>RSI 33.85接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整或RSI跌破30再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1652,7 +1653,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 56仍偏强，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空信号可靠性中等，RSI 56仍偏强，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1671,7 +1672,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性中等。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性中等。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1690,7 +1691,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 34.18接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议：观望，待数据完整或RSI跌破30再考虑。</p>
+                <p>RSI 34.18接近超卖但未破30，信号偏弱；现价与均线数据缺失，无法确认趋势。建议：观望。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1728,7 +1729,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，但现价与均线数据缺失，RSI中性偏弱。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空信号可靠性中等，RSI 54.87偏中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1766,7 +1767,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI仅17.06，超卖信号强但需警惕下跌趋势未止。建议观望，待价格企稳或RSI回升再考虑买入。</p>
+                <p>RSI仅17.06，严重超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待价格数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1785,7 +1786,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号偏弱，RSI 54.95处中性区，缺乏均线数据佐证。建议：观望，待确认跌破支撑再行动。</p>
+                <p>SAR转空信号可靠性中等，RSI 54.95偏中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1823,7 +1824,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 33.67接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议：观望，待数据完整再决策。</p>
+                <p>RSI 33.67接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整或RSI跌破30再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1842,7 +1843,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI近70超买，短线转弱信号可信。建议：卖出或观望，勿追高。</p>
+                <p>SAR转空叠加RSI近70超买，短线转弱信号可信。建议：观望或减仓，暂不买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1861,7 +1862,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 58未超买，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议观望，待跌破50日均线确认后再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1880,7 +1881,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍近60，信号偏弱。建议：观望，待跌破50日均线确认。</p>
+                <p>SAR转空但RSI仍近60，信号偏弱，可靠性一般。建议观望，待跌破50日均线或RSI回落再考虑卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1899,7 +1900,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI超买70.59，信号偏可靠。建议：卖出或观望，等待回调确认。</p>
+                <p>SAR转空叠加RSI超买70.59，信号偏可靠，短线转弱风险高。建议：卖出或观望。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1918,7 +1919,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 34.62接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整或RSI跌破30再考虑。</p>
+                <p>RSI 34.62接近超卖但未破30，信号偏弱；现价与均线数据缺失，无法确认支撑。建议：观望，待数据完整或RSI跌破30再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1937,7 +1938,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 58.97未超买，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再操作。</p>
+                <p>SAR转空信号可靠性中等，RSI 58.97未超买，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1956,7 +1957,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 56仍偏强，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空信号可靠性中等，RSI 56仍偏强，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -1975,7 +1976,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 20.17严重超卖，信号可靠性中等，需确认基本面。建议：观望，待价格企稳或RSI回升再考虑买入。</p>
+                <p>RSI 20.17严重超卖，信号可靠性中等，需确认基本面。建议：观望，待价格企稳再考虑买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2013,7 +2014,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号偏弱，RSI 53.6中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑再考虑减仓。</p>
+                <p>SAR转空信号偏弱，RSI 53.6中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑再行动。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2032,7 +2033,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，短线转弱信号可信。建议：观望，待回调确认支撑后再考虑。</p>
+                <p>SAR转空叠加RSI 65偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2051,7 +2052,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 33.35接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整或RSI跌破30再考虑。</p>
+                <p>RSI 33.35接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议：观望，待数据完整或RSI跌破30再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2070,7 +2071,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI仅12.3极度超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待价格数据确认后再操作。</p>
+                <p>RSI仅12.3属极度超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2108,7 +2109,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性中等。建议：观望，待数据完整再操作。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2146,7 +2147,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI高达84.33严重超买，SAR转空信号可靠，趋势转弱概率大。建议：卖出或观望，勿追高。</p>
+                <p>RSI高达84.33严重超买，SAR转空确认趋势转弱，信号可靠。建议：卖出或观望，勿追高。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2165,7 +2166,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI 63偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
+                <p>数据缺失（现价、均线为nan），信号可靠性低。RSI 63偏强，SAR转空或为短期回调。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2184,7 +2185,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 27.88属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待价格数据确认后再操作。</p>
+                <p>RSI 27.88属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2203,7 +2204,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏高，信号偏弱。建议：观望，待确认跌破支撑再减仓。</p>
+                <p>SAR转空但RSI仍偏高，信号偏弱需确认。建议：观望，待跌破均线再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2222,7 +2223,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍55偏强，信号可靠性中等。建议观望，待跌破50日均线确认后再卖出。</p>
+                <p>SAR转空信号可靠性中等，RSI 55.28偏中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2260,7 +2261,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，等待价格与均线确认后再操作。</p>
+                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，等待价格企稳或确认跌破支撑后再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2298,7 +2299,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏高，信号偏弱但需确认。建议：观望，待跌破均线再卖出。</p>
+                <p>SAR转空叠加RSI偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2317,7 +2318,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 23.33属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待数据完整再决策。</p>
+                <p>RSI 23.33属深度超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待价格数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2336,7 +2337,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，信号偏弱但可靠性中等。建议：观望，待跌破50日均线确认后再卖出。</p>
+                <p>SAR转空叠加RSI偏高，信号偏弱但需确认。建议：观望，待跌破支撑再减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2355,7 +2356,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 30.86 接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议：观望，待价格数据确认后再操作。</p>
+                <p>RSI 30.86属超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整或RSI跌破30再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2374,7 +2375,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍达60.33，信号偏弱，可靠性一般。建议观望，待跌破50日均线或RSI回落至50以下再考虑卖出。</p>
+                <p>SAR转空叠加RSI 60偏高，信号偏弱但需确认。建议：观望，待跌破50日均线再考虑卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2393,7 +2394,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI超买70，信号偏可靠，短线回调风险大。建议：卖出或观望。</p>
+                <p>SAR转空叠加RSI超70，短线回调风险高，信号偏可靠。建议：观望或减仓，暂不买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2412,7 +2413,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI超买(73)叠加SAR转空，信号偏空但可靠性中等。建议：观望，待回调确认后再操作。</p>
+                <p>SAR转空叠加RSI超买（73.18），信号可靠性中等偏强。建议：卖出或观望，等待回调确认。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2431,7 +2432,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议观望，待跌破50日均线确认转弱后再卖出。</p>
+                <p>数据缺失（现价与均线为nan），SAR转空信号可靠性存疑。RSI 60.96偏强，建议先观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2469,7 +2470,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空信号可靠性中等，RSI 47偏弱但未超卖。建议：观望，等待价格站稳均线或RSI回升再考虑介入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2488,7 +2489,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI超买70.75，短线转弱信号较可靠。建议：卖出或观望，等待回调企稳。</p>
+                <p>SAR转空叠加RSI超买（70.75），信号可靠性中等偏强。建议：卖出或观望，等待回调确认。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2507,7 +2508,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI超买（74.66），短线回调风险偏高，信号偏可靠。建议：卖出或观望，暂不宜买入。</p>
+                <p>RSI超买(74.66)叠加SAR转空，信号可靠性中等偏强。建议：**卖出/减仓**，等待回调企稳后再考虑介入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2545,7 +2546,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议：观望，待跌破50日均线确认后再卖出。</p>
+                <p>SAR转空但RSI 57未超买，信号偏弱。建议：观望，待跌破50日均线确认。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2564,7 +2565,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI仅16.81，超卖信号强但需警惕下跌趋势未止。建议观望，待RSI回升至30以上或价格企稳再考虑买入。</p>
+                <p>RSI仅16.81，超卖信号强烈，但现价与均线数据缺失，可靠性打折。建议观望，待价格数据确认后再考虑买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2583,7 +2584,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 32.34属超卖但未极端，现价与均线数据缺失，信号可靠性中等。建议观望，待价格企稳或RSI回升再考虑买入。</p>
+                <p>RSI 32.34接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待价格数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2602,7 +2603,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 53.98偏中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑再考虑减仓。</p>
+                <p>SAR转空信号可靠性中等，RSI 53.98偏中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2640,7 +2641,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 32.38属超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议：观望，待价格数据确认后再操作。</p>
+                <p>RSI 32.38属超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待价格数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2659,7 +2660,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 23.08属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待数据完整且RSI回升再考虑买入。</p>
+                <p>RSI 23.08属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待价格数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2735,7 +2736,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI近68偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
+                <p>SAR转空叠加RSI近68高位，短线转弱信号较可靠。建议：观望或减仓，待回调企稳再介入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2754,7 +2755,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍达62，信号偏弱且矛盾，可靠性一般。建议观望，待价格与均线数据确认后再操作。</p>
+                <p>SAR转空但RSI仍达62，信号偏弱且矛盾。建议观望，待RSI回落至50以下或价格跌破均线再考虑卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2773,7 +2774,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 58.91未超买，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议观望，待跌破50日均线确认转弱后再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2792,7 +2793,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空信号可靠性中等，RSI 44.77偏弱但未超卖。建议：观望，等待价格企稳或RSI跌破30再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2830,7 +2831,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，趋势转淡信号中等可靠。建议：观望，待价格站稳均线再考虑。</p>
+                <p>SAR转空信号可靠性中等，RSI 47.86偏弱但未超卖。建议：观望，等待价格站稳均线或RSI回升再考虑介入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2868,7 +2869,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 34.8接近超卖但未破30，信号偏弱。现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再决策。</p>
+                <p>RSI 34.8接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整或RSI跌破30再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2906,7 +2907,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 55.92未超卖，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再操作。</p>
+                <p>SAR转空但RSI仍55.92偏强，信号可靠性中等。建议观望，待跌破50日均线确认再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2944,7 +2945,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 23.34属深度超卖，信号偏强但需确认。现价与均线数据缺失，无法判断趋势。建议：观望，待价格企稳或放量反弹再考虑买入。</p>
+                <p>RSI仅23.34，超卖信号较强，但现价与均线数据缺失，可靠性打折。建议：观望，待价格数据确认后再考虑买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2963,7 +2964,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI高达81.52严重超买，叠加SAR转空，信号可靠性高。建议：卖出或观望，勿追高。</p>
+                <p>RSI高达81.52严重超买，SAR转空信号可靠，短线回调风险大。建议：卖出或观望。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -2982,7 +2983,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，短线转弱信号中等可靠。建议：观望，待回调确认支撑后再介入。</p>
+                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议观望，待跌破50日均线确认转弱后再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3001,7 +3002,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，等待价格企稳或均线确认后再操作。</p>
+                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3020,7 +3021,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 45.89偏弱但未超卖。建议：观望，等待价格站稳均线再考虑入场。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性中等。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3058,7 +3059,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 26.27属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待价格数据确认后再操作。</p>
+                <p>RSI 26.27属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待数据完整且RSI回升再考虑买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3077,7 +3078,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI 60偏高位，信号中等可靠。建议：观望，待跌破50日均线确认后再卖出。</p>
+                <p>SAR转空但RSI仍偏强，信号可靠性中等。建议观望，待跌破50日均线确认转弱后再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3115,7 +3116,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI高达77.28已超买，SAR转空信号可靠性中等偏强。建议：卖出或观望，不宜追高。</p>
+                <p>RSI超买(77)叠加SAR转空，信号可靠性中等偏高。建议：卖出或观望，不宜追高。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3134,7 +3135,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 32.92接近超卖但未极端，且现价与均线数据缺失，信号可靠性中等。建议观望，待价格数据确认后再操作。</p>
+                <p>RSI 32.92接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3153,7 +3154,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再操作。</p>
+                <p>SAR转空信号偏弱，RSI 44未超卖，数据缺失难判趋势。建议：观望。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3172,7 +3173,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI超买(73.5)叠加SAR转空，信号偏可靠。建议：卖出或观望，勿追高。</p>
+                <p>RSI超买(73.5)叠加SAR转空，信号偏可靠，短线回调风险高。建议：观望或减仓，暂不买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3191,7 +3192,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI 65.67偏高，短线转弱信号较可靠。建议：观望或减仓，待回踩均线企稳再考虑。</p>
+                <p>SAR转空叠加RSI偏高，短线转弱信号可信。建议：观望，待回调确认支撑后再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3210,7 +3211,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号偏弱，RSI中性，缺乏均线数据佐证。建议：观望，待确认趋势再操作。</p>
+                <p>数据缺失（现价、均线为nan），SAR转空信号可靠性存疑。RSI中性，建议观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3229,7 +3230,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，趋势转淡信号中等可靠。建议：观望，待企稳再介入。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3248,7 +3249,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📈 价格站上 EMA20</strong>
-                <p>信号偏弱：低价股波动大，站上EMA20但RSI中性，可靠性一般。建议观望，待放量突破50日均线再考虑买入。</p>
+                <p>信号偏弱：低价股波动大，站上EMA20但RSI仅53，动能不足。建议观望，待放量突破50日均线再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3286,7 +3287,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏弱，信号可靠性中等。现价与均线数据缺失，建议观望，待确认跌破支撑后再考虑卖出。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3305,7 +3306,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 33.72接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议：观望，待数据完整或RSI跌破30再考虑。</p>
+                <p>RSI 33.72接近超卖但未极端，且现价与均线数据缺失，信号可靠性中等。建议观望，待价格数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3324,7 +3325,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 59未超买，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空但RSI仍近60，信号偏弱需确认。建议：观望，待跌破50日均线再考虑卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3343,7 +3344,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 22.18属深度超卖，信号偏强但需确认。现价与均线数据缺失，无法判断趋势。建议：观望，待价格企稳再考虑买入。</p>
+                <p>RSI 22.18属深度超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待价格数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3362,7 +3363,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 55.88偏中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
+                <p>SAR转空信号偏弱，RSI 55.88处中性偏多，数据缺失难判。建议：观望。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3381,7 +3382,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 32.4接近超卖但未极端，且现价与均线数据缺失，信号可靠性中等。建议观望，待价格数据确认后再操作。</p>
+                <p>RSI 32.4接近超卖但未极端，且现价与均线数据缺失，信号可靠性中等。建议观望，待价格企稳或数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3400,7 +3401,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性中等。建议：观望，待数据完整再操作。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3438,7 +3439,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍达66.57，未超买且现价与均线数据缺失，信号可靠性偏低。建议：观望，待确认跌破支撑再行动。</p>
+                <p>SAR转空叠加RSI偏高，短线转弱信号可信。建议：观望，待回调确认支撑后再介入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3457,7 +3458,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI超买(73.37)叠加SAR转空，信号偏可靠，短期回调风险高。建议：观望或减仓，暂不宜买入。</p>
+                <p>RSI超买(73.37)叠加SAR转空，信号偏可靠。建议：卖出或观望，短线回调风险高。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3476,7 +3477,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，信号偏弱但可靠性中等。建议：观望，待跌破均线确认后再卖出。</p>
+                <p>SAR转空信号可靠性中等，RSI 62仍偏强，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3495,7 +3496,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI中性偏弱，信号可靠性中等。建议：观望，待价格站稳均线再考虑买入。</p>
+                <p>SAR转空且RSI中性偏弱，趋势转弱信号中等可靠。建议：观望，待价格站稳均线再考虑。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3514,7 +3515,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI近70超买，信号偏可靠。建议：卖出或观望，暂不宜买入。</p>
+                <p>SAR转空且RSI近70超买，信号偏可靠。建议：观望或减仓，暂不买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3533,7 +3534,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，短线转弱信号偏可靠。建议：观望，待回调确认支撑后再考虑介入。</p>
+                <p>SAR转空叠加RSI 62.6偏高，信号可靠性中等。建议：观望，待跌破50日均线确认后再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3552,7 +3553,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑减仓。</p>
+                <p>SAR转空信号可靠性中等，RSI中性49.35，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3571,7 +3572,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI超买（74.7），信号偏可靠，短线转弱风险高。建议：卖出或观望，勿追高。</p>
+                <p>SAR转空叠加RSI高达74.74，超买回调风险大，信号可靠性中等。建议：卖出或观望。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3590,7 +3591,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI超买（71.95），信号偏可靠，短线回调风险大。建议：卖出或观望。</p>
+                <p>SAR转空叠加RSI超买（71.95），信号可靠性中等偏强。建议：卖出或观望，等待回调确认。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3609,7 +3610,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>RSI超买（75）叠加SAR转空，信号偏空但需确认。建议：观望，待跌破均线再卖出。</p>
+                <p>RSI超买且SAR转空，信号可靠性中等。建议：观望，待回调确认支撑后再介入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3628,7 +3629,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI 54.81处中性偏弱，但现价与均线数据缺失，无法确认趋势。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空但RSI仅54.81，信号偏弱，可靠性中等。建议观望，待跌破50日均线确认后再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3647,7 +3648,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，短线转弱信号可信。建议：观望，待回调确认支撑后再介入。</p>
+                <p>SAR转空叠加RSI偏高，信号偏弱但需确认。建议：观望，待跌破均线再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3685,7 +3686,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3723,7 +3724,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
+                <p>SAR转空但RSI仍达60.72，信号偏弱，可靠性一般。建议：观望，待跌破50日均线确认后再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3761,7 +3762,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 28.99属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待数据完整且RSI回升再考虑买入。</p>
+                <p>RSI 28.99属超卖，但现价与均线数据缺失，信号可靠性存疑。建议观望，待价格数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3780,7 +3781,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI超买72，信号偏可靠，短线回调风险大。建议：卖出或观望。</p>
+                <p>RSI超买(72)叠加SAR转空，信号偏空但可靠性中等。建议：观望，待回调确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3799,7 +3800,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性存疑。建议：观望，待数据完整再决策。</p>
+                <p>SAR转空信号偏弱，RSI 47.72中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑再减仓。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3818,7 +3819,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI超买72，信号偏可靠，短线趋势转弱。建议：卖出或观望，勿追高。</p>
+                <p>SAR转空叠加RSI超买72，信号偏可靠，短线转弱概率大。建议：卖出或观望，暂不宜买入。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3837,7 +3838,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号可靠性中等，RSI中性偏弱，缺乏均线数据佐证。建议：观望，待确认跌破支撑后再考虑卖出。</p>
+                <p>SAR转空但RSI中性，信号偏弱。建议：观望，待跌破支撑或RSI走弱再卖出。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3856,7 +3857,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空信号偏弱，RSI 48.94中性，缺乏均线数据佐证。建议：观望，待确认跌破支撑再考虑卖出。</p>
+                <p>SAR转空且RSI偏弱，但现价与均线数据缺失，信号可靠性中等偏低。建议：观望，待数据完整再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3894,7 +3895,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 31.72接近超卖但未极端，且现价与均线数据缺失，信号可靠性中等。建议观望，待价格数据确认后再操作。</p>
+                <p>RSI 31.72属超卖但未极端，且现价与均线数据缺失，信号可靠性中等。建议观望，待价格企稳或数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3932,7 +3933,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 33.87接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整或RSI跌破30再考虑。</p>
+                <p>RSI 33.87接近超卖但未极端，且现价与均线数据缺失，信号可靠性中等。建议观望，待价格数据确认后再操作。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3970,7 +3971,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空叠加RSI 66偏高，信号可靠性中等。建议：观望，待跌破50日均线确认后再卖出。</p>
+                <p>SAR转空叠加RSI 66偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -3989,7 +3990,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI仅18.76，超卖信号强但需警惕下跌趋势未止。建议观望，待价格企稳或RSI回升再考虑买入。</p>
+                <p>RSI仅18.76，超卖信号强，但现价与均线数据缺失，可靠性打折。建议观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -4027,7 +4028,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 📉 RSI 超卖 (数值低于35)</strong>
-                <p>RSI 33.55接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整或RSI跌破30再考虑。</p>
+                <p>RSI 33.55接近超卖但未极端，且现价与均线数据缺失，信号可靠性偏低。建议观望，待数据完整再决策。</p>
             </div>
         </section><section class="card">
             <div class="card-head">
@@ -4046,7 +4047,7 @@
             </div>
             <div class="signal">
                 <strong>🚨 🔻 SAR 转空 (趋势转弱)</strong>
-                <p>SAR转空但RSI仍达63，信号偏弱需确认。建议：观望，待跌破50日均线再卖出。</p>
+                <p>SAR转空叠加RSI偏高，短线转弱信号中等可靠。建议：观望，待跌破支撑或RSI回落再决策。</p>
             </div>
         </section>
 </div>
@@ -4056,14 +4057,14 @@
 <table class="data-table" id="watchlist-table">
   <thead>
     <tr>
-      <th data-type="text">代码</th>
-      <th data-type="text">名称</th>
-      <th data-type="num">现价</th>
-      <th data-type="num">RSI</th>
-      <th data-type="num">EMA20</th>
-      <th data-type="num">50日均线</th>
-      <th data-type="text">SAR</th>
-      <th data-type="num">成交量</th>
+      <th data-type="text">代码 <span class="arrow"></span></th>
+      <th data-type="text">名称 <span class="arrow"></span></th>
+      <th data-type="num">现价 <span class="arrow"></span></th>
+      <th data-type="num">RSI <span class="arrow"></span></th>
+      <th data-type="num">EMA20 <span class="arrow"></span></th>
+      <th data-type="num">50日均线 <span class="arrow"></span></th>
+      <th data-type="text">SAR <span class="arrow"></span></th>
+      <th data-type="num">成交量 <span class="arrow"></span></th>
     </tr>
   </thead>
   <tbody>
@@ -5696,9 +5697,10 @@
     ema: styles.getPropertyValue('--ema').trim()
   };
 
-  Object.keys(data).forEach(function (chartId) {
+  function renderChart(chartId) {
     var el = document.getElementById(chartId);
-    if (!el || !window.LightweightCharts) return;
+    if (!el || !window.LightweightCharts || el.dataset.rendered) return;
+    el.dataset.rendered = '1';
 
     var chart = LightweightCharts.createChart(el, {
       width: el.clientWidth,
@@ -5737,13 +5739,29 @@
     new ResizeObserver(function (entries) {
       chart.applyOptions({ width: entries[0].contentRect.width });
     }).observe(el);
+  }
+
+  // 懒加载: 图表滚动到快进入可视范围才真正渲染，避免一次性创建几百个图表卡住页面
+  var lazyObserver = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) {
+        renderChart(entry.target.id);
+        lazyObserver.unobserve(entry.target);
+      }
+    });
+  }, { rootMargin: '200px 0px' });
+
+  Object.keys(data).forEach(function (chartId) {
+    var el = document.getElementById(chartId);
+    if (el) lazyObserver.observe(el);
   });
 
-  // 点表头排序
+  // 点表头排序 (带升/降序箭头)
   var table = document.getElementById('watchlist-table');
   if (table) {
     var tbody = table.querySelector('tbody');
-    Array.from(table.querySelectorAll('th')).forEach(function (th, idx) {
+    var ths = Array.from(table.querySelectorAll('th'));
+    ths.forEach(function (th, idx) {
       var asc = true;
       th.addEventListener('click', function () {
         var rows = Array.from(tbody.querySelectorAll('tr'));
@@ -5758,6 +5776,12 @@
           return 0;
         });
         rows.forEach(function (r) { tbody.appendChild(r); });
+        ths.forEach(function (other) {
+          var arrow = other.querySelector('.arrow');
+          if (arrow) arrow.textContent = '';
+        });
+        var currentArrow = th.querySelector('.arrow');
+        if (currentArrow) currentArrow.textContent = asc ? '▲' : '▼';
         asc = !asc;
       });
     });
