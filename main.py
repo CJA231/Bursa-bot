@@ -46,6 +46,7 @@ MYT = ZoneInfo("Asia/Kuala_Lumpur")
 
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY")
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC")  # 可选：手机推送通知 (ntfy.sh)，不设置则跳过推送
+FORCE_RUN = os.environ.get("FORCE_RUN", "").lower() == "true"  # 手动测试用：跳过交易日检查
 
 if not DEEPSEEK_KEY:
     raise SystemExit(
@@ -499,7 +500,9 @@ def main():
     today_myt = datetime.now(MYT).strftime("%Y-%m-%d")
     print(f"开始扫描 ({today_myt})...")
 
-    if not is_trading_day(today_myt):
+    if FORCE_RUN:
+        print("⚠️ FORCE_RUN 模式：跳过交易日检查，直接用最新可用数据扫描 (用于测试)。")
+    elif not is_trading_day(today_myt):
         print(f"今天 ({today_myt}) 非交易日或数据尚未更新，跳过本次扫描。")
         return
 
