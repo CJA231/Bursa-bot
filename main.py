@@ -198,6 +198,7 @@ def build_html_report(stocks):
 <title>马股自动分析报告</title>
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
+  /* 🎨 图表配色：想换颜色直接改这里的 hex 值即可 (--up / --down / --ema) */
   :root {{
     color-scheme: light;
     --page: #f9f9f7;
@@ -207,9 +208,9 @@ def build_html_report(stocks):
     --muted: #898781;
     --gridline: #e1e0d9;
     --border: rgba(11,11,11,0.10);
-    --up: #0ca30c;
-    --down: #d03b3b;
-    --ema: #2a78d6;
+    --up: #0ca30c;      /* 阳线(上涨) 边框+影线颜色，空心 */
+    --down: #d03b3b;    /* 阴线(下跌) 实心颜色 */
+    --ema: #4a3aa7;     /* EMA20 均线颜色 */
   }}
   @media (prefers-color-scheme: dark) {{
     :root {{
@@ -223,7 +224,7 @@ def build_html_report(stocks):
       --border: rgba(255,255,255,0.10);
       --up: #0ca30c;
       --down: #e66767;
-      --ema: #3987e5;
+      --ema: #9085e9;
     }}
   }}
   * {{ box-sizing: border-box; }}
@@ -262,14 +263,14 @@ def build_html_report(stocks):
   .chart {{ width: 100%; height: 220px; }}
   .legend {{ display: flex; gap: 1rem; align-items: center; color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem; }}
   .dot {{ display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.25rem; vertical-align: middle; }}
-  .dot.up {{ background: var(--up); }}
+  .dot.up {{ background: transparent; border: 2px solid var(--up); }}
   .dot.down {{ background: var(--down); }}
   .dot.ema {{ background: var(--ema); }}
   .signal {{
     margin-top: 0.75rem;
     padding: 0.6rem 0.75rem;
     border-left: 3px solid var(--ema);
-    background: rgba(42, 120, 214, 0.08);
+    background: color-mix(in srgb, var(--ema) 10%, transparent);
     border-radius: 4px;
     font-size: 0.9rem;
   }}
@@ -313,13 +314,15 @@ def build_html_report(stocks):
       crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }}
     }});
 
+    // 空心K线: 上涨只描边(空心)，下跌实心填满
     var candleSeries = chart.addCandlestickSeries({{
-      upColor: colors.up,
+      upColor: 'rgba(0, 0, 0, 0)',
       downColor: colors.down,
       borderUpColor: colors.up,
       borderDownColor: colors.down,
       wickUpColor: colors.up,
-      wickDownColor: colors.down
+      wickDownColor: colors.down,
+      borderVisible: true
     }});
     candleSeries.setData(data[chartId].candles);
 
