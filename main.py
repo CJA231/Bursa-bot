@@ -245,7 +245,7 @@ def build_html_report(stocks):
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>马股自动分析报告</title>
-<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="vendor/lightweight-charts.js"></script>
 <style>
   /* 🎨 图表配色：想换颜色直接改这里的 hex 值即可 (--up / --down / --ema) */
   :root {{
@@ -347,6 +347,7 @@ def build_html_report(stocks):
     user-select: none;
   }}
   table.data-table th:hover {{ color: var(--text-primary); }}
+  table.data-table .arrow {{ display: inline-block; width: 0.9em; color: var(--text-primary); }}
   table.data-table tbody tr:hover {{ background: var(--page); }}
 </style>
 </head>
@@ -364,14 +365,14 @@ def build_html_report(stocks):
 <table class="data-table" id="watchlist-table">
   <thead>
     <tr>
-      <th data-type="text">代码</th>
-      <th data-type="text">名称</th>
-      <th data-type="num">现价</th>
-      <th data-type="num">RSI</th>
-      <th data-type="num">EMA20</th>
-      <th data-type="num">50日均线</th>
-      <th data-type="text">SAR</th>
-      <th data-type="num">成交量</th>
+      <th data-type="text">代码 <span class="arrow"></span></th>
+      <th data-type="text">名称 <span class="arrow"></span></th>
+      <th data-type="num">现价 <span class="arrow"></span></th>
+      <th data-type="num">RSI <span class="arrow"></span></th>
+      <th data-type="num">EMA20 <span class="arrow"></span></th>
+      <th data-type="num">50日均线 <span class="arrow"></span></th>
+      <th data-type="text">SAR <span class="arrow"></span></th>
+      <th data-type="num">成交量 <span class="arrow"></span></th>
     </tr>
   </thead>
   <tbody>
@@ -393,9 +394,10 @@ def build_html_report(stocks):
     ema: styles.getPropertyValue('--ema').trim()
   }};
 
-  Object.keys(data).forEach(function (chartId) {{
+  function renderChart(chartId) {{
     var el = document.getElementById(chartId);
-    if (!el || !window.LightweightCharts) return;
+    if (!el || !window.LightweightCharts || el.dataset.rendered) return;
+    el.dataset.rendered = '1';
 
     var chart = LightweightCharts.createChart(el, {{
       width: el.clientWidth,
@@ -434,13 +436,29 @@ def build_html_report(stocks):
     new ResizeObserver(function (entries) {{
       chart.applyOptions({{ width: entries[0].contentRect.width }});
     }}).observe(el);
+  }}
+
+  // 懒加载: 图表滚动到快进入可视范围才真正渲染，避免一次性创建几百个图表卡住页面
+  var lazyObserver = new IntersectionObserver(function (entries) {{
+    entries.forEach(function (entry) {{
+      if (entry.isIntersecting) {{
+        renderChart(entry.target.id);
+        lazyObserver.unobserve(entry.target);
+      }}
+    }});
+  }}, {{ rootMargin: '200px 0px' }});
+
+  Object.keys(data).forEach(function (chartId) {{
+    var el = document.getElementById(chartId);
+    if (el) lazyObserver.observe(el);
   }});
 
-  // 点表头排序
+  // 点表头排序 (带升/降序箭头)
   var table = document.getElementById('watchlist-table');
   if (table) {{
     var tbody = table.querySelector('tbody');
-    Array.from(table.querySelectorAll('th')).forEach(function (th, idx) {{
+    var ths = Array.from(table.querySelectorAll('th'));
+    ths.forEach(function (th, idx) {{
       var asc = true;
       th.addEventListener('click', function () {{
         var rows = Array.from(tbody.querySelectorAll('tr'));
@@ -455,6 +473,12 @@ def build_html_report(stocks):
           return 0;
         }});
         rows.forEach(function (r) {{ tbody.appendChild(r); }});
+        ths.forEach(function (other) {{
+          var arrow = other.querySelector('.arrow');
+          if (arrow) arrow.textContent = '';
+        }});
+        var currentArrow = th.querySelector('.arrow');
+        if (currentArrow) currentArrow.textContent = asc ? '▲' : '▼';
         asc = !asc;
       }});
     }});
