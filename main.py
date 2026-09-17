@@ -10,8 +10,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 # === 1. 配置区域 ===
-# 你的自选股列表 (马股代码记得加 .KL)
-WATCHLIST = [
+# 默认自选股列表 (马股代码记得加 .KL)：在 data/watchlist.json 还没生成之前使用
+DEFAULT_WATCHLIST = [
     {"symbol": "1155.KL", "name": "Maybank 马银行"},
     {"symbol": "1023.KL", "name": "Public Bank 大众银行"},
     {"symbol": "5183.KL", "name": "Petronas Chemicals 国油化学"},
@@ -19,6 +19,24 @@ WATCHLIST = [
     {"symbol": "0083.KL", "name": "Press Metal 齐力工业"},
     {"symbol": "5168.KL", "name": "Hartalega 哈达维格"},
 ]
+
+WATCHLIST_PATH = os.path.join("data", "watchlist.json")
+
+
+def load_watchlist():
+    # 优先用 scripts/fetch_watchlist.py 生成的全市场清单，
+    # 还没跑过那个脚本时 (或文件为空) 就退回默认的 6 支股票，确保 bot 不会因此坏掉
+    try:
+        with open(WATCHLIST_PATH, encoding="utf-8") as f:
+            watchlist = json.load(f)
+        if watchlist:
+            return watchlist
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return DEFAULT_WATCHLIST
+
+
+WATCHLIST = load_watchlist()
 
 REPORT_PATH = os.path.join("docs", "index.html")
 REPORT_URL = "https://cja231.github.io/Bursa-bot/"
