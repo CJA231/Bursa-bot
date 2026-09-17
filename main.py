@@ -1,9 +1,10 @@
 import os
 import yfinance as yf
 import pandas_ta as ta
-import requests
 from openai import OpenAI
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # === 1. 配置区域 ===
 # 你的自选股列表 (马股代码记得加 .KL)
@@ -16,18 +17,13 @@ WATCHLIST = [
     "5168.KL"   # Hartalega
 ]
 
-DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY")
-TG_TOKEN = os.environ.get("TG_TOKEN")
-TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
+REPORT_PATH = os.path.join("docs", "index.html")
 
-missing = [name for name, value in [
-    ("DEEPSEEK_KEY", DEEPSEEK_KEY),
-    ("TG_TOKEN", TG_TOKEN),
-    ("TG_CHAT_ID", TG_CHAT_ID),
-] if not value]
-if missing:
+DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY")
+
+if not DEEPSEEK_KEY:
     raise SystemExit(
-        f"缺少环境变量: {', '.join(missing)}。"
+        "缺少环境变量: DEEPSEEK_KEY。"
         " 请在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加对应的 Secret。"
     )
 
@@ -124,52 +120,77 @@ def ask_deepseek(data, reason):
     except Exception as e:
         return f"DeepSeek 分析出错: {e}"
 
-# === 6. 发送 Telegram ===
-def send_telegram(message):
-    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TG_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
-    requests.post(url, json=payload)
+# === 6. 生成 HTML 报告 ===
+def build_html_report(hits):
+    now = datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).strftime("%Y-%m-%d %H:%M")
+
+    if hits:
+        rows = "\n".join(
+            f"""<tr>
+                <td>{h['symbol']}</td>
+                <td>{h['close']}</td>
+                <td>{h['rsi']}</td>
+                <td>{h['sma50']}</td>
+                <td>{h['reason']}</td>
+                <td>{h['ai_comment']}</td>
+            </tr>"""
+            for h in hits
+        )
+        body = f"""<table>
+            <thead>
+                <tr><th>股票</th><th>现价</th><th>RSI</th><th>50日均线</th><th>信号</th><th>DeepSeek 分析</th></tr>
+            </thead>
+            <tbody>{rows}</tbody>
+        </table>"""
+    else:
+        body = "<p>今日无符合条件的股票。</p>"
+
+    return f"""<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>马股自动分析报告</title>
+<style>
+    body {{ font-family: sans-serif; margin: 2rem; }}
+    table {{ border-collapse: collapse; width: 100%; }}
+    th, td {{ border: 1px solid #ccc; padding: 0.5rem; text-align: left; vertical-align: top; }}
+    th {{ background: #f2f2f2; }}
+</style>
+</head>
+<body>
+<h1>📢 马股自动分析报告</h1>
+<p>更新时间: {now} (MYT)</p>
+{body}
+</body>
+</html>"""
 
 # === 主程序 ===
 def main():
-    report_content = ""
-    stock_found = False
-    
+    hits = []
+
     print("开始扫描...")
     for symbol in WATCHLIST:
         data = get_stock_data(symbol)
         if not data: continue
-        
+
         is_match, reason = check_strategy(data)
-        
+
         if is_match:
-            stock_found = True
             # 调用 AI 分析
             ai_comment = ask_deepseek(data, reason)
-            
-            # 拼凑消息
-            msg = (
-                f"🚨 **{symbol} 触发信号**\n"
-                f"原因: {reason}\n"
-                f"📊 现价: {data['close']} | RSI: {data['rsi']}\n"
-                f"💡 **DeepSeek:** {ai_comment}\n"
-                f"-------------------\n"
-            )
-            report_content += msg
+            hits.append({**data, "reason": reason, "ai_comment": ai_comment})
             print(f"✅ 找到机会: {symbol}")
             # 为了防止 DeepSeek 限制频率，稍微停顿 1 秒
-            time.sleep(1) 
-            
-    if stock_found:
-        header = "📢 **今日马股自动分析报告**\n\n"
-        send_telegram(header + report_content)
-        print("报告已发送到 Telegram")
+            time.sleep(1)
+
+    os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
+    with open(REPORT_PATH, "w", encoding="utf-8") as f:
+        f.write(build_html_report(hits))
+
+    if hits:
+        print(f"报告已生成，共 {len(hits)} 个信号")
     else:
-        print("今日无符合条件的股票")
+        print("今日无符合条件的股票，报告已更新")
 
 if __name__ == "__main__":
     main()
