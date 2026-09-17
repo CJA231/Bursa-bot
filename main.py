@@ -16,15 +16,27 @@ WATCHLIST = [
     "5168.KL"   # Hartalega
 ]
 
+DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY")
+TG_TOKEN = os.environ.get("TG_TOKEN")
+TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
+
+missing = [name for name, value in [
+    ("DEEPSEEK_KEY", DEEPSEEK_KEY),
+    ("TG_TOKEN", TG_TOKEN),
+    ("TG_CHAT_ID", TG_CHAT_ID),
+] if not value]
+if missing:
+    raise SystemExit(
+        f"缺少环境变量: {', '.join(missing)}。"
+        " 请在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加对应的 Secret。"
+    )
+
 # === 2. 初始化 DeepSeek 客户端 ===
 # 关键修改点：base_url 必须是 deepseek 的地址
 client = OpenAI(
-    api_key=os.environ.get("DEEPSEEK_KEY"),  # 从 GitHub Secrets 读取密码
-    base_url="https://api.deepseek.com"      # 👈 这里指定连接 DeepSeek
+    api_key=DEEPSEEK_KEY,               # 从 GitHub Secrets 读取密码
+    base_url="https://api.deepseek.com" # 👈 这里指定连接 DeepSeek
 )
-
-TG_TOKEN = os.environ.get("TG_TOKEN")
-TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
 # === 3. 获取数据并计算指标 ===
 def get_stock_data(symbol):
