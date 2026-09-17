@@ -403,21 +403,28 @@ def send_notification(hits):
     except Exception as e:
         print(f"推送通知失败: {e}")
 
+# 判断今天是否为交易日的参考股：固定用流动性极佳的蓝筹股，跟 WATCHLIST 具体内容无关
+# (非交易日/公共假期时 yfinance 不会有当天的数据)
+TRADING_DAY_REFERENCE = "1155.KL"
+
+
+def is_trading_day(today_myt):
+    ref_data = get_stock_data(TRADING_DAY_REFERENCE)
+    return bool(ref_data and ref_data["candles"] and ref_data["candles"][-1]["time"] == today_myt)
+
 # === 主程序 ===
 def main():
     today_myt = datetime.now(MYT).strftime("%Y-%m-%d")
     print(f"开始扫描 ({today_myt})...")
 
+    if not is_trading_day(today_myt):
+        print(f"今天 ({today_myt}) 非交易日或数据尚未更新，跳过本次扫描。")
+        return
+
     stocks = []
-    for i, item in enumerate(WATCHLIST):
+    for item in WATCHLIST:
         symbol = item["symbol"]
         data = get_stock_data(symbol)
-
-        # 用第一只股票的最新数据日期判断今天是否为交易日
-        # (非交易日/公共假期时 yfinance 不会有当天的数据，直接跳过整次扫描)
-        if i == 0 and (not data or data["candles"][-1]["time"] != today_myt):
-            print(f"今天 ({today_myt}) 非交易日或数据尚未更新，跳过本次扫描。")
-            return
 
         # 流动性门槛: 成交量太低的股票直接跳过，不放进报告
         if data and data["volume"] < MIN_DAILY_VOLUME:
