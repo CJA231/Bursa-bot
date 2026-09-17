@@ -3,6 +3,7 @@ import json
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
+import requests
 from openai import OpenAI
 import time
 from datetime import datetime
@@ -20,9 +21,12 @@ WATCHLIST = [
 ]
 
 REPORT_PATH = os.path.join("docs", "index.html")
+REPORT_URL = "https://cja231.github.io/Bursa-bot/"
 CHART_HISTORY_DAYS = 90  # 图表显示最近约 90 个交易日
+MYT = ZoneInfo("Asia/Kuala_Lumpur")
 
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY")
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC")  # 可选：手机推送通知 (ntfy.sh)，不设置则跳过推送
 
 if not DEEPSEEK_KEY:
     raise SystemExit(
@@ -146,7 +150,7 @@ def ask_deepseek(data, reason):
 
 # === 6. 生成 HTML 报告 (含 K 线图) ===
 def build_html_report(stocks):
-    now = datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).strftime("%Y-%m-%d %H:%M")
+    now = datetime.now(MYT).strftime("%Y-%m-%d %H:%M")
 
     cards = []
     chart_payload = {}
@@ -344,14 +348,43 @@ def build_html_report(stocks):
 </body>
 </html>"""
 
+# === 6.5 手机推送通知 (ntfy.sh) ===
+def send_notification(hits):
+    if not NTFY_TOPIC:
+        print("未设置 NTFY_TOPIC，跳过手机推送通知。")
+        return
+
+    message = f"发现 {hits} 个信号，点击查看完整报告" if hits else "今日扫描完成，暂无符合条件的股票"
+    try:
+        requests.post(
+            "https://ntfy.sh/",
+            json={
+                "topic": NTFY_TOPIC,
+                "title": "📢 马股报告已更新",
+                "message": message,
+                "click": REPORT_URL,
+                "tags": ["chart_with_upwards_trend"],
+            },
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"推送通知失败: {e}")
+
 # === 主程序 ===
 def main():
-    stocks = []
+    today_myt = datetime.now(MYT).strftime("%Y-%m-%d")
+    print(f"开始扫描 ({today_myt})...")
 
-    print("开始扫描...")
-    for item in WATCHLIST:
+    stocks = []
+    for i, item in enumerate(WATCHLIST):
         symbol = item["symbol"]
         data = get_stock_data(symbol)
+
+        # 用第一只股票的最新数据日期判断今天是否为交易日
+        # (非交易日/公共假期时 yfinance 不会有当天的数据，直接跳过整次扫描)
+        if i == 0 and (not data or data["candles"][-1]["time"] != today_myt):
+            print(f"今天 ({today_myt}) 非交易日或数据尚未更新，跳过本次扫描。")
+            return
 
         matched, reason, ai_comment = False, None, None
         if data:
@@ -380,6 +413,8 @@ def main():
         print(f"报告已生成，共 {hits} 个信号")
     else:
         print("今日无符合条件的股票，报告已更新")
+
+    send_notification(hits)
 
 if __name__ == "__main__":
     main()
