@@ -181,33 +181,39 @@ def ask_deepseek(data, reason):
     except Exception as e:
         return f"DeepSeek 分析出错: {e}"
 
-# === 6. 生成 HTML 报告 (含 K 线图) ===
+# === 6. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
 def build_html_report(stocks):
     now = datetime.now(MYT).strftime("%Y-%m-%d %H:%M")
 
     cards = []
     chart_payload = {}
+    table_rows = []
+    no_data_count = 0
 
     for s in stocks:
         code = s["symbol"].split(".")[0]
         data = s["data"]
 
         if data is None:
-            cards.append(f"""<section class="card">
-                <div class="card-head"><h2>{s['name']} <span class="code">{code}</span></h2></div>
-                <p class="no-data">数据不足，暂无法显示。</p>
-            </section>""")
+            no_data_count += 1
+            continue
+
+        if not s["matched"]:
+            sar_label = "多头" if data["sar_bullish_now"] else "空头"
+            table_rows.append(f"""<tr>
+                <td>{code}</td>
+                <td>{s['name']}</td>
+                <td data-value="{data['close']}">{data['close']}</td>
+                <td data-value="{data['rsi']}">{data['rsi']}</td>
+                <td data-value="{data['ema20_latest']}">{data['ema20_latest']}</td>
+                <td data-value="{data['sma50']}">{data['sma50']}</td>
+                <td>{sar_label}</td>
+                <td data-value="{data['volume']}">{data['volume']:,}</td>
+            </tr>""")
             continue
 
         chart_id = f"chart-{code}"
         chart_payload[chart_id] = {"candles": data["candles"], "ema20": data["ema20"]}
-
-        signal_html = ""
-        if s["matched"]:
-            signal_html = f"""<div class="signal">
-                <strong>🚨 {s['reason']}</strong>
-                <p>{s['ai_comment']}</p>
-            </div>"""
 
         cards.append(f"""<section class="card">
             <div class="card-head">
@@ -224,8 +230,13 @@ def build_html_report(stocks):
                 <span class="dot down"></span>下跌
                 <span class="dot ema"></span>EMA20
             </div>
-            {signal_html}
+            <div class="signal">
+                <strong>🚨 {s['reason']}</strong>
+                <p>{s['ai_comment']}</p>
+            </div>
         </section>""")
+
+    no_data_note = f"<p class='no-data'>另有 {no_data_count} 支股票数据不足，未列入。</p>" if no_data_count else ""
 
     return f"""<!DOCTYPE html>
 <html lang="zh">
@@ -313,14 +324,61 @@ def build_html_report(stocks):
   }}
   .signal p {{ margin: 0.35rem 0 0; color: var(--text-secondary); }}
   .no-data {{ color: var(--muted); }}
+  h2.section {{ font-size: 1.1rem; margin: 2rem 0 1rem; }}
+  .table-wrap {{ overflow-x: auto; }}
+  table.data-table {{
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.85rem;
+  }}
+  table.data-table th, table.data-table td {{
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }}
+  table.data-table th {{
+    cursor: pointer;
+    color: var(--text-secondary);
+    user-select: none;
+  }}
+  table.data-table th:hover {{ color: var(--text-primary); }}
+  table.data-table tbody tr:hover {{ background: var(--page); }}
 </style>
 </head>
 <body>
 <h1>📢 马股自动分析报告</h1>
 <p class="updated">更新时间: {now} (MYT)</p>
+
+<h2 class="section">🚨 信号 ({len(cards)})</h2>
 <div class="grid">
-{''.join(cards)}
+{''.join(cards) if cards else "<p class='no-data'>今日无符合条件的股票。</p>"}
 </div>
+
+<h2 class="section">📋 其余股票 ({len(table_rows)})</h2>
+<div class="table-wrap">
+<table class="data-table" id="watchlist-table">
+  <thead>
+    <tr>
+      <th data-type="text">代码</th>
+      <th data-type="text">名称</th>
+      <th data-type="num">现价</th>
+      <th data-type="num">RSI</th>
+      <th data-type="num">EMA20</th>
+      <th data-type="num">50日均线</th>
+      <th data-type="text">SAR</th>
+      <th data-type="num">成交量</th>
+    </tr>
+  </thead>
+  <tbody>
+{''.join(table_rows)}
+  </tbody>
+</table>
+</div>
+{no_data_note}
 <script id="chart-data" type="application/json">{json.dumps(chart_payload)}</script>
 <script>
 (function () {{
@@ -376,6 +434,30 @@ def build_html_report(stocks):
       chart.applyOptions({{ width: entries[0].contentRect.width }});
     }}).observe(el);
   }});
+
+  // 点表头排序
+  var table = document.getElementById('watchlist-table');
+  if (table) {{
+    var tbody = table.querySelector('tbody');
+    Array.from(table.querySelectorAll('th')).forEach(function (th, idx) {{
+      var asc = true;
+      th.addEventListener('click', function () {{
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        var type = th.dataset.type;
+        rows.sort(function (a, b) {{
+          var ac = a.children[idx], bc = b.children[idx];
+          var av = ac.dataset.value !== undefined ? ac.dataset.value : ac.textContent;
+          var bv = bc.dataset.value !== undefined ? bc.dataset.value : bc.textContent;
+          if (type === 'num') {{ av = parseFloat(av); bv = parseFloat(bv); }}
+          if (av < bv) return asc ? -1 : 1;
+          if (av > bv) return asc ? 1 : -1;
+          return 0;
+        }});
+        rows.forEach(function (r) {{ tbody.appendChild(r); }});
+        asc = !asc;
+      }});
+    }});
+  }}
 }})();
 </script>
 </body>
