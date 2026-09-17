@@ -23,6 +23,7 @@ WATCHLIST = [
 REPORT_PATH = os.path.join("docs", "index.html")
 REPORT_URL = "https://cja231.github.io/Bursa-bot/"
 CHART_HISTORY_DAYS = 90  # 图表显示最近约 90 个交易日
+MIN_DAILY_VOLUME = 500_000  # 流动性门槛：日成交量低于此值的股票不予展示
 MYT = ZoneInfo("Asia/Kuala_Lumpur")
 
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY")
@@ -53,11 +54,17 @@ def get_stock_data(symbol):
             print(f"数据不足: {symbol}")
             return None
 
-        # 计算技术指标 (RSI、均线、EMA20、MACD)
+        # 计算技术指标 (RSI、均线、EMA20、MACD、Parabolic SAR)
         df.ta.rsi(length=14, append=True)
         df.ta.sma(length=50, append=True)
         df.ta.ema(length=20, append=True)
         df.ta.macd(append=True)
+        df.ta.psar(append=True)
+
+        # PSAR 在多头/空头趋势下分别写入不同的列，合并成单一数值方便比较
+        psar_long_col = next(c for c in df.columns if c.startswith("PSARl"))
+        psar_short_col = next(c for c in df.columns if c.startswith("PSARs"))
+        df["PSAR"] = df[psar_long_col].combine_first(df[psar_short_col])
 
         #以此获取最新一天的数值
         latest = df.iloc[-1]
@@ -88,6 +95,10 @@ def get_stock_data(symbol):
             "sma50": round(latest['SMA_50'], 3),
             "prev_close": prev['Close'],
             "prev_sma50": prev['SMA_50'],
+            "ema20_latest": round(latest['EMA_20'], 3),
+            "sar_bullish_now": latest['Close'] > latest['PSAR'],
+            "sar_bullish_prev": prev['Close'] > prev['PSAR'],
+            "volume": int(latest['Volume']),
             "candles": candles,
             "ema20": ema20,
         }
@@ -110,10 +121,14 @@ def check_strategy(data):
     if data['close'] > data['sma50'] and data['prev_close'] < data['prev_sma50']:
         return True, "🚀 突破 50日均线 (趋势转强)"
 
-    # 策略 C: 强制包含第一只股票 (为了让你测试时一定能收到消息)
-    # 测试完成后，可以删除下面这 2 行
-    if data['symbol'] == WATCHLIST[0]["symbol"]:
-        return True, "⚠️ 测试信号 (由系统强制发送)"
+    # 策略 C: 价格站上 EMA20 (多头排列状态)
+    if data['close'] > data['ema20_latest']:
+        return True, "📈 价格站上 EMA20"
+
+    # 策略 D: Parabolic SAR 由多头转空头 (趋势转弱信号)
+    # 昨天 SAR 在价格下方 (多头) 且 今天 SAR 翻转到价格上方 (空头)
+    if data['sar_bullish_prev'] and not data['sar_bullish_now']:
+        return True, "🔻 SAR 转空 (趋势转弱)"
 
     return False, None
 
@@ -385,6 +400,11 @@ def main():
         if i == 0 and (not data or data["candles"][-1]["time"] != today_myt):
             print(f"今天 ({today_myt}) 非交易日或数据尚未更新，跳过本次扫描。")
             return
+
+        # 流动性门槛: 成交量太低的股票直接跳过，不放进报告
+        if data and data["volume"] < MIN_DAILY_VOLUME:
+            print(f"⏭️ 成交量不足 ({data['volume']:,} < {MIN_DAILY_VOLUME:,}): {symbol}")
+            continue
 
         matched, reason, ai_comment = False, None, None
         if data:
