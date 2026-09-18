@@ -1,0 +1,31 @@
+name: Debug Stock
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: '股票代码 (例如 0453.KL)'
+        required: true
+      days_back:
+        description: '额外往前看几天 (默认1，即只看今天+昨天)'
+        required: false
+        default: '1'
+
+jobs:
+  debug_stock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run debug script
+        env:
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+        run: python scripts/debug_stock.py "${{ github.event.inputs.symbol }}" --days-back "${{ github.event.inputs.days_back }}"
