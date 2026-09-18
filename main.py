@@ -61,6 +61,38 @@ client = OpenAI(
     base_url="https://api.deepseek.com" # 👈 这里指定连接 DeepSeek
 )
 
+# === T3 形态 ===
+# 过去 2~5 天前某天放量(成交量 > 前20日均量)创出当天最高价 High1，
+# 之后到今天为止每天最高价都低于 High1 (纯回调，没有提前破位)，
+# 且今天收盘价突破 High1 → 判定命中
+def detect_t3_pattern(df):
+    if len(df) < 26:
+        return False
+
+    vol_avg20 = df["Volume"].rolling(20).mean().shift(1)
+    today_close = df["Close"].iloc[-1]
+    last_idx = len(df) - 1
+
+    for offset in range(2, 6):  # T1 = 今天往前 2~5 天
+        t1_idx = last_idx - offset
+        if t1_idx < 20:
+            continue
+
+        t1_volume = df["Volume"].iloc[t1_idx]
+        t1_vol_avg = vol_avg20.iloc[t1_idx]
+        if pd.isna(t1_vol_avg) or t1_volume <= t1_vol_avg:
+            continue
+
+        high1 = df["High"].iloc[t1_idx]
+        pullback_highs = df["High"].iloc[t1_idx + 1 : last_idx]
+        if (pullback_highs >= high1).any():
+            continue  # 中途已经提前破位，不算纯回调
+
+        if today_close > high1:
+            return True
+
+    return False
+
 # === 3. 获取数据并计算指标 ===
 def get_stock_data(symbol):
     print(f"正在分析: {symbol} ...")
@@ -117,6 +149,7 @@ def get_stock_data(symbol):
             "ema20_latest": round(latest['EMA_20'], 3),
             "sar_bullish_now": latest['Close'] > latest['PSAR'],
             "sar_bullish_prev": prev['Close'] > prev['PSAR'],
+            "t3_pattern": detect_t3_pattern(df),
             "volume": int(latest['Volume']),
             "candles": candles,
             "ema20": ema20,
@@ -125,31 +158,26 @@ def get_stock_data(symbol):
         print(f"获取失败 {symbol}: {e}")
         return None
 
-# === 4. 简单的筛选策略 ===
+# === 4. 筛选策略 ===
+# 四个条件同时满足才算命中 (成交量 > 500k 已经在 main() 里作为门槛提前筛掉，这里不用重复判断):
+#   - EMA20 < 现价 (价格站上 EMA20)
+#   - SAR < 现价 (SAR 在价格下方，多头状态)
+#   - T3 形态 (放量创高后回调，今天再次突破)
 def check_strategy(data):
     """
     在这里修改你的筛选条件
     返回: (是否符合, 原因)
     """
-    # 策略 A: RSI 超卖 (小于35) -> 可能是反弹机会
-    if data['rsi'] < 35:
-        return True, "📉 RSI 超卖 (数值低于35)"
+    if not (data['close'] > data['ema20_latest']):
+        return False, None
 
-    # 策略 B: 黄金交叉 (价格站上 50日均线)
-    # 今天价格 > 50均线 且 昨天价格 < 50均线
-    if data['close'] > data['sma50'] and data['prev_close'] < data['prev_sma50']:
-        return True, "🚀 突破 50日均线 (趋势转强)"
+    if not data['sar_bullish_now']:
+        return False, None
 
-    # 策略 C: 价格站上 EMA20 (多头排列状态)
-    if data['close'] > data['ema20_latest']:
-        return True, "📈 价格站上 EMA20"
+    if not data['t3_pattern']:
+        return False, None
 
-    # 策略 D: Parabolic SAR 由多头转空头 (趋势转弱信号)
-    # 昨天 SAR 在价格下方 (多头) 且 今天 SAR 翻转到价格上方 (空头)
-    if data['sar_bullish_prev'] and not data['sar_bullish_now']:
-        return True, "🔻 SAR 转空 (趋势转弱)"
-
-    return False, None
+    return True, "🎯 EMA20多头 + SAR多头 + T3形态突破"
 
 # === 5. 呼叫 DeepSeek 进行分析 ===
 def ask_deepseek(data, reason):
