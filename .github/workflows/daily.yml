@@ -12,6 +12,7 @@ on:
     - cron: '45 6 * * 1-5'  # 2:45pm  (UTC+8)
     - cron: '45 7 * * 1-5'  # 3:45pm  (UTC+8)
     - cron: '30 8 * * 1-5'  # 4:30pm  (UTC+8)
+    - cron: '30 9 * * 1-5'  # 5:30pm  (UTC+8)
   workflow_dispatch:       # 允许手动按钮运行
     inputs:
       force:
