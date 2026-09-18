@@ -130,6 +130,7 @@ def get_stock_data(symbol):
                 "high": round(row["High"], 3),
                 "low": round(row["Low"], 3),
                 "close": round(row["Close"], 3),
+                "volume": int(row["Volume"]),
             }
             for idx, row in chart_df.iterrows()
         ]
@@ -229,10 +230,21 @@ def build_html_report(stocks):
 
         if not s["matched"]:
             sar_label = "多头" if data["sar_bullish_now"] else "空头"
+            change_pct = (
+                (data["close"] - data["prev_close"]) / data["prev_close"] * 100
+                if data["prev_close"] else 0
+            )
+            if change_pct > 0:
+                change_class, change_sign = "change-up", "+"
+            elif change_pct < 0:
+                change_class, change_sign = "change-down", ""
+            else:
+                change_class, change_sign = "change-neutral", ""
             table_rows.append(f"""<tr>
                 <td>{code}</td>
                 <td>{s['name']}</td>
                 <td data-value="{data['close']}">{data['close']}</td>
+                <td data-value="{change_pct}" class="{change_class}">{change_sign}{change_pct:.2f}%</td>
                 <td data-value="{data['rsi']}">{data['rsi']}</td>
                 <td data-value="{data['ema20_latest']}">{data['ema20_latest']}</td>
                 <td data-value="{data['sma50']}">{data['sma50']}</td>
@@ -253,11 +265,13 @@ def build_html_report(stocks):
                     <span>50日均线 <b>{data['sma50']}</b></span>
                 </div>
             </div>
+            <div id="{chart_id}-info" class="ohlc-info"></div>
             <div id="{chart_id}" class="chart"></div>
             <div class="legend">
                 <span class="dot up"></span>上涨
                 <span class="dot down"></span>下跌
                 <span class="dot ema"></span>EMA20
+                <span class="dot vol"></span>成交量
             </div>
             <div class="signal">
                 <strong>🚨 {s['reason']}</strong>
@@ -343,6 +357,7 @@ def build_html_report(stocks):
   .dot.up {{ background: transparent; border: 2px solid var(--up); }}
   .dot.down {{ background: var(--down); }}
   .dot.ema {{ background: var(--ema); }}
+  .dot.vol {{ background: var(--muted); }}
   .signal {{
     margin-top: 0.75rem;
     padding: 0.6rem 0.75rem;
@@ -353,6 +368,18 @@ def build_html_report(stocks):
   }}
   .signal p {{ margin: 0.35rem 0 0; color: var(--text-secondary); }}
   .no-data {{ color: var(--muted); }}
+  .change-up {{ color: var(--up); font-weight: 600; }}
+  .change-down {{ color: var(--down); font-weight: 600; }}
+  .change-neutral {{ color: var(--muted); }}
+  .ohlc-info {{
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+    min-height: 1.1em;
+    white-space: nowrap;
+    overflow-x: auto;
+  }}
+  .ohlc-info b {{ color: var(--text-primary); }}
   h2.section {{ font-size: 1.1rem; margin: 2rem 0 1rem; }}
   .table-wrap {{ overflow-x: auto; }}
   table.data-table {{
@@ -396,6 +423,7 @@ def build_html_report(stocks):
       <th data-type="text">代码 <span class="arrow"></span></th>
       <th data-type="text">名称 <span class="arrow"></span></th>
       <th data-type="num">现价 <span class="arrow"></span></th>
+      <th data-type="num">涨跌% <span class="arrow"></span></th>
       <th data-type="num">RSI <span class="arrow"></span></th>
       <th data-type="num">EMA20 <span class="arrow"></span></th>
       <th data-type="num">50日均线 <span class="arrow"></span></th>
@@ -429,7 +457,7 @@ def build_html_report(stocks):
 
     var chart = LightweightCharts.createChart(el, {{
       width: el.clientWidth,
-      height: 220,
+      height: 260,
       layout: {{ background: {{ color: 'transparent' }}, textColor: colors.text }},
       grid: {{
         vertLines: {{ color: colors.grid }},
@@ -459,7 +487,33 @@ def build_html_report(stocks):
     }});
     emaSeries.setData(data[chartId].ema20);
 
+    // 成交量柱状图，叠加在图表下方约 20% 的区域
+    var volumeSeries = chart.addHistogramSeries({{
+      priceScaleId: '',
+      priceFormat: {{ type: 'volume' }}
+    }});
+    volumeSeries.priceScale().applyOptions({{ scaleMargins: {{ top: 0.8, bottom: 0 }} }});
+    volumeSeries.setData(data[chartId].candles.map(function (c) {{
+      return {{ time: c.time, value: c.volume, color: c.close >= c.open ? colors.up : colors.down }};
+    }}));
+
     chart.timeScale().fitContent();
+
+    // 鼠标/触摸移到某根K线时，显示当天开高低收+成交量；没有悬停时默认显示最新一天
+    var infoEl = document.getElementById(chartId + '-info');
+    function showBar(bar, vol) {{
+      if (!infoEl || !bar) return;
+      var volText = vol && typeof vol.value === 'number' ? vol.value.toLocaleString() : '-';
+      infoEl.innerHTML = '开 <b>' + bar.open + '</b>　高 <b>' + bar.high + '</b>　低 <b>' + bar.low + '</b>　收 <b>' + bar.close + '</b>　量 <b>' + volText + '</b>';
+    }}
+    var lastCandle = data[chartId].candles[data[chartId].candles.length - 1];
+    showBar(lastCandle, {{ value: lastCandle ? lastCandle.volume : null }});
+
+    chart.subscribeCrosshairMove(function (param) {{
+      var bar = param.seriesData ? param.seriesData.get(candleSeries) : null;
+      var vol = param.seriesData ? param.seriesData.get(volumeSeries) : null;
+      showBar(bar || lastCandle, vol || {{ value: lastCandle ? lastCandle.volume : null }});
+    }});
 
     new ResizeObserver(function (entries) {{
       chart.applyOptions({{ width: entries[0].contentRect.width }});
