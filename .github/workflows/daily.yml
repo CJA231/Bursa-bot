@@ -2,8 +2,16 @@ name: DeepSeek Stock Bot
 
 on:
   schedule:
-    - cron: '30 4 * * 1-5' # 每个交易日 12:30pm (UTC+8) 午间更新
-    - cron: '0 9 * * 1-5'  # 每个交易日 5:00pm (UTC+8) 收市更新
+    # 时间点特意避开整点/半点，减少跟其他排程任务扎堆、被限流的风险；也是为了避开 DeepSeek API 高峰时段
+    - cron: '15 1 * * 1-5'  # 9:15am  (UTC+8)
+    - cron: '45 1 * * 1-5'  # 9:45am  (UTC+8)
+    - cron: '15 2 * * 1-5'  # 10:15am (UTC+8)
+    - cron: '45 2 * * 1-5'  # 10:45am (UTC+8)
+    - cron: '30 3 * * 1-5'  # 11:30am (UTC+8)
+    - cron: '25 4 * * 1-5'  # 12:25pm (UTC+8)
+    - cron: '45 6 * * 1-5'  # 2:45pm  (UTC+8)
+    - cron: '45 7 * * 1-5'  # 3:45pm  (UTC+8)
+    - cron: '30 8 * * 1-5'  # 4:30pm  (UTC+8)
   workflow_dispatch:       # 允许手动按钮运行
     inputs:
       force:
