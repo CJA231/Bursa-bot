@@ -190,32 +190,45 @@ def check_strategy(data):
     return True, "🎯 EMA20多头 + SAR多头 + T3形态突破"
 
 # === 5. 呼叫 DeepSeek 进行分析 ===
+# system prompt 独立成常量、内容完全固定 (不拼时间戳/随机数)，且不含任何逐股票才知道的数据；
+# 每支股票变化的部分全部放进 user message。DeepSeek 的 prompt cache 是按"从头开始逐字节比对的
+# 最长公共前缀"计费打折的，一次运行里命中的股票经常不止一支，只要 system prompt 前缀完全一致，
+# 从第二支股票开始这一段就能命中缓存、按缓存价计费，比混在一起写省钱也通常更快。
+DEEPSEEK_SYSTEM_PROMPT = """你是专业的马来西亚股市分析师，同时是严谨的金融助手。
+
+任务: 根据用户给出的某支股票的技术信号和基本数据，用简短的中文 (50字以内) 完成两件事：
+1. 评价这个信号的可靠性。
+2. 给出"买入/观望/卖出"建议。
+
+接下来用户消息里会给出这支股票的具体数据，请只根据这些数据作答，不要虚构未提供的信息。"""
+
+
 def ask_deepseek(data, reason):
-    prompt = f"""
-    你是专业的马来西亚股市分析师。
-    股票代码: {data['symbol']}
-    触发信号: {reason}
+    # 这部分每支股票都不一样，所以放在 user message 里，不会污染上面固定的 system prompt 前缀
+    stock_info = f"""股票代码: {data['symbol']}
+触发信号: {reason}
 
-    基本数据:
-    - 现价: RM {data['close']}
-    - RSI (14): {data['rsi']}
-    - 50日均线: RM {data['sma50']}
-
-    请用简短的中文 (50字以内)：
-    1. 评价这个信号的可靠性。
-    2. 给出“买入/观望/卖出”建议。
-    """
+基本数据:
+- 现价: RM {data['close']}
+- RSI (14): {data['rsi']}
+- 50日均线: RM {data['sma50']}"""
 
     try:
         response = client.chat.completions.create(
             model="deepseek-chat",  # 👈 指定使用 DeepSeek V3 模型
             messages=[
-                {"role": "system", "content": "你是一个严谨的金融助手。"},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": DEEPSEEK_SYSTEM_PROMPT},
+                {"role": "user", "content": stock_info}
             ],
             temperature=0.1, # 让回答更稳定
             max_tokens=100
         )
+        usage = getattr(response, "usage", None)
+        if usage:
+            hit = getattr(usage, "prompt_cache_hit_tokens", None)
+            miss = getattr(usage, "prompt_cache_miss_tokens", None)
+            if hit is not None or miss is not None:
+                print(f"   💰 DeepSeek prompt cache: 命中 {hit} tokens / 未命中 {miss} tokens")
         return response.choices[0].message.content
     except Exception as e:
         return f"DeepSeek 分析出错: {e}"
