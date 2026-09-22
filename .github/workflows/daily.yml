@@ -18,12 +18,13 @@ jobs:
   run_analysis:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: 'pip'  # 按 requirements.txt 的哈希缓存依赖包，命中缓存能省掉大部分 pip install 时间
 
       - name: Install dependencies
         run: pip install -r requirements.txt

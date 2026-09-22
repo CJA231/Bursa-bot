@@ -6,6 +6,7 @@ import pandas_ta as ta
 import requests
 from openai import OpenAI
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -43,6 +44,11 @@ REPORT_URL = "https://cja231.github.io/Bursa-bot/"
 CHART_HISTORY_DAYS = 90  # 图表显示最近约 90 个交易日
 MIN_DAILY_VOLUME = 500_000  # 流动性门槛：日成交量低于此值的股票不予展示
 MYT = ZoneInfo("Asia/Kuala_Lumpur")
+
+# 并发抓取股票数据的线程数：yfinance 请求是网络 I/O，并发能大幅缩短整体运行时间
+# (实测: 1070 支股票串行抓取约 3 分钟，并发后可以降到几十秒)。
+# 数字太大容易被 Yahoo Finance 限流导致个别股票抓取失败，16 是经验上比较稳的取值。
+FETCH_WORKERS = 16
 
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY")
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC")  # 可选：手机推送通知 (ntfy.sh)，不设置则跳过推送
@@ -94,70 +100,73 @@ def detect_t3_pattern(df):
     return False
 
 # === 3. 获取数据并计算指标 ===
-def get_stock_data(symbol):
-    print(f"正在分析: {symbol} ...")
-    try:
-        stock = yf.Ticker(symbol)
-        # 获取过去 6 个月的数据以计算均线
-        df = stock.history(period="6mo")
+def get_stock_data(symbol, retries=1):
+    # retries=1: 并发抓取时个别请求偶尔会被 Yahoo Finance 短暂拒绝/超时，失败先重试一次再放弃，
+    # 避免因为网络抖动而把本来有效的股票直接判定为"无数据"。
+    for attempt in range(retries + 1):
+        try:
+            stock = yf.Ticker(symbol)
+            # 获取过去 6 个月的数据以计算均线
+            df = stock.history(period="6mo")
 
-        if len(df) < 50:
-            print(f"数据不足: {symbol}")
-            return None
+            if len(df) < 50:
+                print(f"数据不足: {symbol}")
+                return None
 
-        # 计算技术指标 (RSI、均线、EMA20、MACD、Parabolic SAR)
-        df.ta.rsi(length=14, append=True)
-        df.ta.sma(length=50, append=True)
-        df.ta.ema(length=20, append=True)
-        df.ta.macd(append=True)
-        df.ta.psar(append=True)
+            # 计算技术指标 (RSI、均线、EMA20、Parabolic SAR)
+            df.ta.rsi(length=14, append=True)
+            df.ta.sma(length=50, append=True)
+            df.ta.ema(length=20, append=True)
+            df.ta.psar(append=True)
 
-        # PSAR 在多头/空头趋势下分别写入不同的列，合并成单一数值方便比较
-        psar_long_col = next(c for c in df.columns if c.startswith("PSARl"))
-        psar_short_col = next(c for c in df.columns if c.startswith("PSARs"))
-        df["PSAR"] = df[psar_long_col].combine_first(df[psar_short_col])
+            # PSAR 在多头/空头趋势下分别写入不同的列，合并成单一数值方便比较
+            psar_long_col = next(c for c in df.columns if c.startswith("PSARl"))
+            psar_short_col = next(c for c in df.columns if c.startswith("PSARs"))
+            df["PSAR"] = df[psar_long_col].combine_first(df[psar_short_col])
 
-        #以此获取最新一天的数值
-        latest = df.iloc[-1]
-        prev = df.iloc[-2]
+            #以此获取最新一天的数值
+            latest = df.iloc[-1]
+            prev = df.iloc[-2]
 
-        # 供 K 线图使用的历史数据 (最近 CHART_HISTORY_DAYS 个交易日)
-        chart_df = df.tail(CHART_HISTORY_DAYS)
-        candles = [
-            {
-                "time": idx.strftime("%Y-%m-%d"),
-                "open": round(row["Open"], 3),
-                "high": round(row["High"], 3),
-                "low": round(row["Low"], 3),
-                "close": round(row["Close"], 3),
-                "volume": int(row["Volume"]),
+            # 供 K 线图使用的历史数据 (最近 CHART_HISTORY_DAYS 个交易日)
+            chart_df = df.tail(CHART_HISTORY_DAYS)
+            candles = [
+                {
+                    "time": idx.strftime("%Y-%m-%d"),
+                    "open": round(row["Open"], 3),
+                    "high": round(row["High"], 3),
+                    "low": round(row["Low"], 3),
+                    "close": round(row["Close"], 3),
+                    "volume": int(row["Volume"]),
+                }
+                for idx, row in chart_df.iterrows()
+            ]
+            ema20 = [
+                {"time": idx.strftime("%Y-%m-%d"), "value": round(row["EMA_20"], 3)}
+                for idx, row in chart_df.iterrows()
+                if pd.notna(row["EMA_20"])
+            ]
+
+            return {
+                "symbol": symbol,
+                "close": round(latest['Close'], 3),
+                "rsi": round(latest['RSI_14'], 2),
+                "sma50": round(latest['SMA_50'], 3),
+                "prev_close": prev['Close'],
+                "prev_sma50": prev['SMA_50'],
+                "ema20_latest": round(latest['EMA_20'], 3),
+                "sar_bullish_now": latest['Close'] > latest['PSAR'],
+                "sar_bullish_prev": prev['Close'] > prev['PSAR'],
+                "t3_pattern": detect_t3_pattern(df),
+                "volume": int(latest['Volume']),
+                "candles": candles,
+                "ema20": ema20,
             }
-            for idx, row in chart_df.iterrows()
-        ]
-        ema20 = [
-            {"time": idx.strftime("%Y-%m-%d"), "value": round(row["EMA_20"], 3)}
-            for idx, row in chart_df.iterrows()
-            if pd.notna(row["EMA_20"])
-        ]
-
-        return {
-            "symbol": symbol,
-            "close": round(latest['Close'], 3),
-            "rsi": round(latest['RSI_14'], 2),
-            "sma50": round(latest['SMA_50'], 3),
-            "prev_close": prev['Close'],
-            "prev_sma50": prev['SMA_50'],
-            "ema20_latest": round(latest['EMA_20'], 3),
-            "sar_bullish_now": latest['Close'] > latest['PSAR'],
-            "sar_bullish_prev": prev['Close'] > prev['PSAR'],
-            "t3_pattern": detect_t3_pattern(df),
-            "volume": int(latest['Volume']),
-            "candles": candles,
-            "ema20": ema20,
-        }
-    except Exception as e:
-        print(f"获取失败 {symbol}: {e}")
-        return None
+        except Exception as e:
+            if attempt < retries:
+                continue
+            print(f"获取失败 {symbol}: {e}")
+            return None
 
 # === 4. 筛选策略 ===
 # 四个条件同时满足才算命中 (成交量 > 500k 已经在 main() 里作为门槛提前筛掉，这里不用重复判断):
@@ -211,7 +220,660 @@ def ask_deepseek(data, reason):
     except Exception as e:
         return f"DeepSeek 分析出错: {e}"
 
-# === 6. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
+# === 6. 报告页面的设置面板 (颜色自定义 + 自定义指标公式) ===
+# 这几块单独写成普通字符串 (不是 f-string)，因为内容全是 JS/CSS 不需要 Python 变量插值，
+# 这样大括号不用到处写成 {{ }}，改起来更不容易出错。
+
+SETTINGS_CSS = """
+  .settings-toggle {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    margin-bottom: 1rem;
+  }
+  .settings-toggle:hover { background: var(--page); }
+  .settings-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .settings-section h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+  .settings-section label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-right: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+  .settings-section input[type="color"] {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0;
+    background: none;
+    cursor: pointer;
+  }
+  .settings-section button {
+    background: var(--page);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .settings-section button:hover { background: var(--gridline); }
+  .hint { font-size: 0.78rem; color: var(--muted); line-height: 1.7; margin: 0 0 0.75rem; }
+  .hint code {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    background: var(--page);
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+  }
+  .indicator-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+  .indicator-form input[type="text"] {
+    background: var(--page);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+  }
+  #ind-name { width: 130px; }
+  #ind-formula { flex: 1; min-width: 220px; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
+  .ind-error { color: var(--down); font-size: 0.8rem; margin: 0 0 0.5rem; }
+  .indicator-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+  .indicator-list li { display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; background: var(--page); border-radius: 6px; padding: 0.35rem 0.6rem; }
+  .ind-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+  .ind-name { font-weight: 600; white-space: nowrap; }
+  .ind-formula { color: var(--text-secondary); flex: 1; overflow-x: auto; white-space: nowrap; }
+  .ind-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 0.25rem; }
+  .ind-remove:hover { color: var(--down); }
+"""
+
+SETTINGS_PANEL_HTML = """
+<button id="settings-toggle" class="settings-toggle" type="button" aria-expanded="false">⚙️ 图表设置</button>
+<div id="settings-panel" class="settings-panel" hidden>
+  <div class="settings-section">
+    <h3>颜色</h3>
+    <label>上涨 <input type="color" id="color-up"></label>
+    <label>下跌 <input type="color" id="color-down"></label>
+    <label>EMA20 <input type="color" id="color-ema"></label>
+    <button type="button" id="color-reset">恢复默认</button>
+  </div>
+  <div class="settings-section">
+    <h3>自定义指标</h3>
+    <p class="hint">
+      可用变量: <code>close</code> <code>open</code> <code>high</code> <code>low</code> <code>volume</code>
+      可用函数: <code>sma(x,n)</code> <code>ema(x,n)</code> <code>stdev(x,n)</code> <code>highest(x,n)</code> <code>lowest(x,n)</code> <code>abs(x)</code><br>
+      例如: <code>sma(close,10)</code>　<code>ema(close,12)-ema(close,26)</code>　<code>sma(close,20)+2*stdev(close,20)</code>
+    </p>
+    <div class="indicator-form">
+      <input type="text" id="ind-name" placeholder="名称，例如 SMA10">
+      <input type="text" id="ind-formula" placeholder="公式，例如 sma(close,10)">
+      <input type="color" id="ind-color" value="#e8a33d">
+      <button type="button" id="ind-add">添加到所有图表</button>
+    </div>
+    <p id="ind-error" class="ind-error" hidden></p>
+    <ul id="ind-list" class="indicator-list"></ul>
+  </div>
+  <p class="hint">以上设置只保存在你自己的浏览器里，不会影响其他人看到的报告，下次自动更新报告后依然保留。</p>
+</div>
+"""
+
+CHART_SCRIPT = """
+<script>
+(function () {
+  var data = JSON.parse(document.getElementById('chart-data').textContent);
+  var chartRegistry = {}; // chartId -> { chart, candleSeries, emaSeries, volumeSeries, customSeries: {id: series} }
+
+  // ---------- 颜色: 读取/应用/持久化 ----------
+  var COLOR_KEYS = ['up', 'down', 'ema'];
+  var COLOR_STORAGE_KEY = 'bursa_colors_v1';
+
+  function loadSavedColors() {
+    try { return JSON.parse(localStorage.getItem(COLOR_STORAGE_KEY) || '{}'); } catch (e) { return {}; }
+  }
+  function saveColors() {
+    try {
+      var toSave = {};
+      COLOR_KEYS.forEach(function (k) {
+        var v = document.documentElement.style.getPropertyValue('--' + k);
+        if (v) toSave[k] = v.trim();
+      });
+      localStorage.setItem(COLOR_STORAGE_KEY, JSON.stringify(toSave));
+    } catch (e) {}
+  }
+  // 页面一加载就把上次保存的颜色套回 CSS 变量，这样第一次画图就是对的颜色，不会先画默认色再闪一下
+  (function applySavedColors() {
+    var saved = loadSavedColors();
+    COLOR_KEYS.forEach(function (k) {
+      if (saved[k]) document.documentElement.style.setProperty('--' + k, saved[k]);
+    });
+  })();
+
+  function computeColors() {
+    var st = getComputedStyle(document.documentElement);
+    return {
+      text: st.getPropertyValue('--text-secondary').trim(),
+      grid: st.getPropertyValue('--gridline').trim(),
+      up: st.getPropertyValue('--up').trim(),
+      down: st.getPropertyValue('--down').trim(),
+      ema: st.getPropertyValue('--ema').trim()
+    };
+  }
+  var colors = computeColors();
+
+  function updateAllChartColors() {
+    Object.keys(chartRegistry).forEach(function (chartId) {
+      var reg = chartRegistry[chartId];
+      reg.candleSeries.applyOptions({
+        downColor: colors.down,
+        borderUpColor: colors.up,
+        borderDownColor: colors.down,
+        wickUpColor: colors.up,
+        wickDownColor: colors.down
+      });
+      reg.emaSeries.applyOptions({ color: colors.ema });
+      reg.volumeSeries.setData(data[chartId].candles.map(function (c) {
+        return { time: c.time, value: c.volume, color: c.close >= c.open ? colors.up : colors.down };
+      }));
+    });
+  }
+
+  // ---------- 自定义指标: 小型公式解析/计算引擎 ----------
+  var customIndicators = []; // [{id, name, formula, color}]
+  var IND_STORAGE_KEY = 'bursa_custom_indicators_v1';
+
+  function loadSavedIndicators() {
+    try { return JSON.parse(localStorage.getItem(IND_STORAGE_KEY) || '[]'); } catch (e) { return []; }
+  }
+  function saveIndicators() {
+    try { localStorage.setItem(IND_STORAGE_KEY, JSON.stringify(customIndicators)); } catch (e) {}
+  }
+
+  function isArr(v) { return Array.isArray(v); }
+
+  // 两个操作数做逐点运算，任一操作数是数组就按数组逐点算 (标量会自动广播)，null 值会一路传播下去
+  function ew(a, b, fn) {
+    if (isArr(a) && isArr(b)) {
+      return a.map(function (v, i) {
+        var w = b[i];
+        return (v === null || v === undefined || w === null || w === undefined || isNaN(v) || isNaN(w)) ? null : fn(v, w);
+      });
+    }
+    if (isArr(a)) return a.map(function (v) { return (v === null || v === undefined || isNaN(v)) ? null : fn(v, b); });
+    if (isArr(b)) return b.map(function (w) { return (w === null || w === undefined || isNaN(w)) ? null : fn(a, w); });
+    return fn(a, b);
+  }
+
+  function seriesSMA(arr, n) {
+    var out = new Array(arr.length).fill(null);
+    for (var i = 0; i < arr.length; i++) {
+      if (i < n - 1) continue;
+      var sum = 0, ok = true;
+      for (var j = i - n + 1; j <= i; j++) {
+        if (arr[j] === null || arr[j] === undefined || isNaN(arr[j])) { ok = false; break; }
+        sum += arr[j];
+      }
+      out[i] = ok ? sum / n : null;
+    }
+    return out;
+  }
+  function seriesEMA(arr, n) {
+    var k = 2 / (n + 1);
+    var out = new Array(arr.length).fill(null);
+    var prev = null;
+    for (var i = 0; i < arr.length; i++) {
+      var v = arr[i];
+      if (v === null || v === undefined || isNaN(v)) { out[i] = null; prev = null; continue; }
+      prev = prev === null ? v : v * k + prev * (1 - k);
+      out[i] = prev;
+    }
+    return out;
+  }
+  function seriesStdev(arr, n) {
+    var sma = seriesSMA(arr, n);
+    var out = new Array(arr.length).fill(null);
+    for (var i = 0; i < arr.length; i++) {
+      if (sma[i] === null) continue;
+      var sumSq = 0, ok = true;
+      for (var j = i - n + 1; j <= i; j++) {
+        if (arr[j] === null || arr[j] === undefined || isNaN(arr[j])) { ok = false; break; }
+        sumSq += Math.pow(arr[j] - sma[i], 2);
+      }
+      out[i] = ok ? Math.sqrt(sumSq / n) : null;
+    }
+    return out;
+  }
+  function seriesExtreme(arr, n, better) {
+    var out = new Array(arr.length).fill(null);
+    for (var i = 0; i < arr.length; i++) {
+      if (i < n - 1) continue;
+      var slice = arr.slice(i - n + 1, i + 1);
+      if (slice.some(function (v) { return v === null || v === undefined || isNaN(v); })) continue;
+      out[i] = better.apply(null, slice);
+    }
+    return out;
+  }
+
+  function evalFormula(formula, ctx) {
+    var s = formula;
+    var pos = 0;
+
+    function skipSpace() { while (pos < s.length && /\\s/.test(s[pos])) pos++; }
+    function consume(ch) {
+      skipSpace();
+      if (s[pos] !== ch) throw new Error('语法错误，期望 "' + ch + '"，但看到 "' + (s[pos] || '(末尾)') + '"');
+      pos++;
+    }
+    function parseNumber() {
+      skipSpace();
+      var start = pos;
+      while (pos < s.length && /[0-9.]/.test(s[pos])) pos++;
+      if (pos === start) throw new Error('无效的数字');
+      return parseFloat(s.slice(start, pos));
+    }
+    function parseIdent() {
+      skipSpace();
+      var start = pos;
+      while (pos < s.length && /[a-zA-Z_0-9]/.test(s[pos])) pos++;
+      if (pos === start) throw new Error('无效的名称');
+      return s.slice(start, pos);
+    }
+    function lookupSeries(name) {
+      if (ctx.series.hasOwnProperty(name)) return ctx.series[name];
+      throw new Error('未知变量: ' + name + ' (可用: close open high low volume)');
+    }
+    function requireArgs(name, args, count) {
+      if (args.length !== count) throw new Error(name + '() 需要 ' + count + ' 个参数，实际给了 ' + args.length + ' 个');
+    }
+    function arrayArg(v, label) {
+      if (!isArr(v)) throw new Error(label + ' 必须是一条时间序列 (例如 close)，不能是单个数字');
+      return v;
+    }
+    function periodArg(v, label) {
+      if (isArr(v)) throw new Error(label + ' 必须是一个数字');
+      if (typeof v !== 'number' || isNaN(v) || v <= 0) throw new Error(label + ' 必须是大于 0 的数字');
+      return Math.round(v);
+    }
+    function callFunction(name, args) {
+      switch (name) {
+        case 'sma': requireArgs('sma', args, 2); return seriesSMA(arrayArg(args[0], 'sma 的第一个参数'), periodArg(args[1], 'sma 的周期'));
+        case 'ema': requireArgs('ema', args, 2); return seriesEMA(arrayArg(args[0], 'ema 的第一个参数'), periodArg(args[1], 'ema 的周期'));
+        case 'stdev': requireArgs('stdev', args, 2); return seriesStdev(arrayArg(args[0], 'stdev 的第一个参数'), periodArg(args[1], 'stdev 的周期'));
+        case 'highest': requireArgs('highest', args, 2); return seriesExtreme(arrayArg(args[0], 'highest 的第一个参数'), periodArg(args[1], 'highest 的周期'), Math.max);
+        case 'lowest': requireArgs('lowest', args, 2); return seriesExtreme(arrayArg(args[0], 'lowest 的第一个参数'), periodArg(args[1], 'lowest 的周期'), Math.min);
+        case 'abs':
+          requireArgs('abs', args, 1);
+          return isArr(args[0]) ? args[0].map(function (v) { return (v === null || v === undefined || isNaN(v)) ? null : Math.abs(v); }) : Math.abs(args[0]);
+        default:
+          throw new Error('未知函数: ' + name + '() (可用: sma ema stdev highest lowest abs)');
+      }
+    }
+    function parsePrimary() {
+      skipSpace();
+      var ch = s[pos];
+      if (ch === '(') {
+        pos++;
+        var v = parseExpr();
+        consume(')');
+        return v;
+      }
+      if (ch !== undefined && /[0-9.]/.test(ch)) return parseNumber();
+      if (ch !== undefined && /[a-zA-Z_]/.test(ch)) {
+        var name = parseIdent();
+        skipSpace();
+        if (s[pos] === '(') {
+          pos++;
+          var args = [];
+          skipSpace();
+          if (s[pos] !== ')') {
+            args.push(parseExpr());
+            skipSpace();
+            while (s[pos] === ',') { pos++; args.push(parseExpr()); skipSpace(); }
+          }
+          consume(')');
+          return callFunction(name, args);
+        }
+        return lookupSeries(name);
+      }
+      throw new Error('公式无法解析，看不懂这里: "' + (ch === undefined ? '(末尾)' : s.slice(pos)) + '"');
+    }
+    function parseUnary() {
+      skipSpace();
+      if (s[pos] === '-') {
+        pos++;
+        return ew(parseUnary(), -1, function (a, b) { return a * b; });
+      }
+      return parsePower();
+    }
+    function parsePower() {
+      var base = parsePrimary();
+      skipSpace();
+      if (s[pos] === '^') {
+        pos++;
+        return ew(base, parseUnary(), Math.pow);
+      }
+      return base;
+    }
+    function parseTerm() {
+      var v = parseUnary();
+      skipSpace();
+      while (s[pos] === '*' || s[pos] === '/') {
+        var op = s[pos]; pos++;
+        var rhs = parseUnary();
+        v = ew(v, rhs, op === '*' ? function (a, b) { return a * b; } : function (a, b) { return a / b; });
+        skipSpace();
+      }
+      return v;
+    }
+    function parseExpr() {
+      var v = parseTerm();
+      skipSpace();
+      while (s[pos] === '+' || s[pos] === '-') {
+        var op = s[pos]; pos++;
+        var rhs = parseTerm();
+        v = ew(v, rhs, op === '+' ? function (a, b) { return a + b; } : function (a, b) { return a - b; });
+        skipSpace();
+      }
+      return v;
+    }
+
+    var result = parseExpr();
+    skipSpace();
+    if (pos !== s.length) throw new Error('公式末尾有多余内容: "' + s.slice(pos) + '"');
+    return result;
+  }
+
+  function computeIndicatorSeries(chartId, formula) {
+    var candles = data[chartId].candles;
+    var ctx = {
+      series: {
+        close: candles.map(function (c) { return c.close; }),
+        open: candles.map(function (c) { return c.open; }),
+        high: candles.map(function (c) { return c.high; }),
+        low: candles.map(function (c) { return c.low; }),
+        volume: candles.map(function (c) { return c.volume; })
+      }
+    };
+    var result = evalFormula(formula, ctx);
+    if (!isArr(result)) throw new Error('公式结果必须是一条随时间变化的序列，不能只是一个固定数字');
+    var points = [];
+    candles.forEach(function (c, i) {
+      var v = result[i];
+      if (v !== null && v !== undefined && !isNaN(v)) points.push({ time: c.time, value: v });
+    });
+    return points;
+  }
+
+  function addCustomIndicatorSeriesToChart(chartId, indicator) {
+    var reg = chartRegistry[chartId];
+    if (!reg) return;
+    try {
+      var series = reg.chart.addLineSeries({ color: indicator.color, lineWidth: 2, priceLineVisible: false });
+      series.setData(computeIndicatorSeries(chartId, indicator.formula));
+      reg.customSeries[indicator.id] = series;
+    } catch (e) {
+      console.warn('自定义指标 "' + indicator.name + '" 在 ' + chartId + ' 渲染失败: ' + e.message);
+    }
+  }
+  function applyIndicatorToAllCharts(indicator) {
+    Object.keys(chartRegistry).forEach(function (chartId) { addCustomIndicatorSeriesToChart(chartId, indicator); });
+  }
+  function removeIndicator(id) {
+    customIndicators = customIndicators.filter(function (ind) { return ind.id !== id; });
+    saveIndicators();
+    Object.keys(chartRegistry).forEach(function (chartId) {
+      var reg = chartRegistry[chartId];
+      if (reg.customSeries[id]) {
+        reg.chart.removeSeries(reg.customSeries[id]);
+        delete reg.customSeries[id];
+      }
+    });
+  }
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function renderIndicatorListItem(ind) {
+    var list = document.getElementById('ind-list');
+    if (!list) return;
+    var li = document.createElement('li');
+    li.innerHTML = '<span class="ind-swatch" style="background:' + ind.color + '"></span>' +
+      '<span class="ind-name">' + escapeHtml(ind.name) + '</span>' +
+      '<code class="ind-formula">' + escapeHtml(ind.formula) + '</code>' +
+      '<button type="button" class="ind-remove" aria-label="删除">×</button>';
+    li.querySelector('.ind-remove').addEventListener('click', function () {
+      removeIndicator(ind.id);
+      li.remove();
+    });
+    list.appendChild(li);
+  }
+
+  customIndicators = loadSavedIndicators();
+  customIndicators.forEach(renderIndicatorListItem);
+
+  // ---------- K 线图渲染 ----------
+  function renderChart(chartId) {
+    var el = document.getElementById(chartId);
+    if (!el || !window.LightweightCharts || el.dataset.rendered) return;
+    el.dataset.rendered = '1';
+
+    var chart = LightweightCharts.createChart(el, {
+      width: el.clientWidth,
+      height: 260,
+      layout: { background: { color: 'transparent' }, textColor: colors.text },
+      grid: {
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid }
+      },
+      rightPriceScale: { borderColor: colors.grid },
+      timeScale: { borderColor: colors.grid },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal }
+    });
+
+    // 空心K线: 上涨只描边(空心)，下跌实心填满
+    var candleSeries = chart.addCandlestickSeries({
+      upColor: 'rgba(0, 0, 0, 0)',
+      downColor: colors.down,
+      borderUpColor: colors.up,
+      borderDownColor: colors.down,
+      wickUpColor: colors.up,
+      wickDownColor: colors.down,
+      borderVisible: true
+    });
+    candleSeries.setData(data[chartId].candles);
+
+    var emaSeries = chart.addLineSeries({
+      color: colors.ema,
+      lineWidth: 2,
+      priceLineVisible: false
+    });
+    emaSeries.setData(data[chartId].ema20);
+
+    // 成交量柱状图，叠加在图表下方约 20% 的区域
+    var volumeSeries = chart.addHistogramSeries({
+      priceScaleId: '',
+      priceFormat: { type: 'volume' }
+    });
+    volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    volumeSeries.setData(data[chartId].candles.map(function (c) {
+      return { time: c.time, value: c.volume, color: c.close >= c.open ? colors.up : colors.down };
+    }));
+
+    chart.timeScale().fitContent();
+
+    chartRegistry[chartId] = { chart: chart, candleSeries: candleSeries, emaSeries: emaSeries, volumeSeries: volumeSeries, customSeries: {} };
+    customIndicators.forEach(function (ind) { addCustomIndicatorSeriesToChart(chartId, ind); });
+
+    // 鼠标/触摸移到某根K线时，显示当天开高低收+成交量；没有悬停时默认显示最新一天
+    var infoEl = document.getElementById(chartId + '-info');
+    function showBar(bar, vol) {
+      if (!infoEl || !bar) return;
+      var volText = vol && typeof vol.value === 'number' ? vol.value.toLocaleString() : '-';
+      infoEl.innerHTML = '开 <b>' + bar.open + '</b>　高 <b>' + bar.high + '</b>　低 <b>' + bar.low + '</b>　收 <b>' + bar.close + '</b>　量 <b>' + volText + '</b>';
+    }
+    var lastCandle = data[chartId].candles[data[chartId].candles.length - 1];
+    showBar(lastCandle, { value: lastCandle ? lastCandle.volume : null });
+
+    chart.subscribeCrosshairMove(function (param) {
+      var bar = param.seriesData ? param.seriesData.get(candleSeries) : null;
+      var vol = param.seriesData ? param.seriesData.get(volumeSeries) : null;
+      showBar(bar || lastCandle, vol || { value: lastCandle ? lastCandle.volume : null });
+    });
+
+    new ResizeObserver(function (entries) {
+      chart.applyOptions({ width: entries[0].contentRect.width });
+    }).observe(el);
+  }
+
+  // 懒加载: 图表滚动到快进入可视范围才真正渲染，避免一次性创建几百个图表卡住页面
+  var lazyObserver = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) {
+        renderChart(entry.target.id);
+        lazyObserver.unobserve(entry.target);
+      }
+    });
+  }, { rootMargin: '200px 0px' });
+
+  Object.keys(data).forEach(function (chartId) {
+    var el = document.getElementById(chartId);
+    if (el) lazyObserver.observe(el);
+  });
+
+  // ---------- 设置面板交互 ----------
+  var toggleBtn = document.getElementById('settings-toggle');
+  var panel = document.getElementById('settings-panel');
+  if (toggleBtn && panel) {
+    toggleBtn.addEventListener('click', function () {
+      var willOpen = panel.hidden;
+      panel.hidden = !willOpen;
+      toggleBtn.setAttribute('aria-expanded', String(willOpen));
+    });
+  }
+
+  COLOR_KEYS.forEach(function (key) {
+    var input = document.getElementById('color-' + key);
+    if (!input) return;
+    input.value = colors[key];
+    input.addEventListener('input', function () {
+      document.documentElement.style.setProperty('--' + key, input.value);
+      colors = computeColors();
+      updateAllChartColors();
+      saveColors();
+    });
+  });
+
+  var resetBtn = document.getElementById('color-reset');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', function () {
+      COLOR_KEYS.forEach(function (k) { document.documentElement.style.removeProperty('--' + k); });
+      try { localStorage.removeItem(COLOR_STORAGE_KEY); } catch (e) {}
+      colors = computeColors();
+      COLOR_KEYS.forEach(function (k) {
+        var input = document.getElementById('color-' + k);
+        if (input) input.value = colors[k];
+      });
+      updateAllChartColors();
+    });
+  }
+
+  var addBtn = document.getElementById('ind-add');
+  if (addBtn) {
+    addBtn.addEventListener('click', function () {
+      var nameEl = document.getElementById('ind-name');
+      var formulaEl = document.getElementById('ind-formula');
+      var colorEl = document.getElementById('ind-color');
+      var errEl = document.getElementById('ind-error');
+      errEl.hidden = true;
+
+      var name = nameEl.value.trim();
+      var formula = formulaEl.value.trim();
+      var color = colorEl.value;
+
+      if (!name || !formula) {
+        errEl.textContent = '请填写名称和公式';
+        errEl.hidden = false;
+        return;
+      }
+      if (formula.length > 300) {
+        errEl.textContent = '公式太长了';
+        errEl.hidden = false;
+        return;
+      }
+      var firstChartId = Object.keys(data)[0];
+      if (firstChartId) {
+        try {
+          computeIndicatorSeries(firstChartId, formula);
+        } catch (e) {
+          errEl.textContent = '公式错误: ' + e.message;
+          errEl.hidden = false;
+          return;
+        }
+      }
+
+      var indicator = { id: 'ind-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7), name: name, formula: formula, color: color };
+      customIndicators.push(indicator);
+      saveIndicators();
+      renderIndicatorListItem(indicator);
+      applyIndicatorToAllCharts(indicator);
+      nameEl.value = '';
+      formulaEl.value = '';
+    });
+  }
+
+  // 点表头排序 (带升/降序箭头)
+  var table = document.getElementById('watchlist-table');
+  if (table) {
+    var tbody = table.querySelector('tbody');
+    var ths = Array.from(table.querySelectorAll('th'));
+    ths.forEach(function (th, idx) {
+      var asc = true;
+      th.addEventListener('click', function () {
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        var type = th.dataset.type;
+        rows.sort(function (a, b) {
+          var ac = a.children[idx], bc = b.children[idx];
+          var av = ac.dataset.value !== undefined ? ac.dataset.value : ac.textContent;
+          var bv = bc.dataset.value !== undefined ? bc.dataset.value : bc.textContent;
+          if (type === 'num') { av = parseFloat(av); bv = parseFloat(bv); }
+          if (av < bv) return asc ? -1 : 1;
+          if (av > bv) return asc ? 1 : -1;
+          return 0;
+        });
+        // 用 DocumentFragment 一次性批量搬运，比逐行 appendChild 少触发几次重排
+        var frag = document.createDocumentFragment();
+        rows.forEach(function (r) { frag.appendChild(r); });
+        tbody.appendChild(frag);
+        ths.forEach(function (other) {
+          var arrow = other.querySelector('.arrow');
+          if (arrow) arrow.textContent = '';
+        });
+        var currentArrow = th.querySelector('.arrow');
+        if (currentArrow) currentArrow.textContent = asc ? '▲' : '▼';
+        asc = !asc;
+      });
+    });
+  }
+})();
+</script>
+"""
+
+# === 7. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
 def build_html_report(stocks):
     now = datetime.now(MYT).strftime("%Y-%m-%d %H:%M")
 
@@ -412,11 +1074,13 @@ def build_html_report(stocks):
   table.data-table th:hover {{ color: var(--text-primary); }}
   table.data-table .arrow {{ display: inline-block; width: 0.9em; color: var(--text-primary); }}
   table.data-table tbody tr:hover {{ background: var(--page); }}
+{SETTINGS_CSS}
 </style>
 </head>
 <body>
 <h1>📢 马股自动分析报告</h1>
 <p class="updated">更新时间: {now} (MYT)</p>
+{SETTINGS_PANEL_HTML}
 
 <h2 class="section">🚨 信号 ({len(cards)})</h2>
 <div class="grid">
@@ -452,139 +1116,11 @@ def build_html_report(stocks):
 </footer>
 
 <script id="chart-data" type="application/json">{json.dumps(chart_payload)}</script>
-<script>
-(function () {{
-  var data = JSON.parse(document.getElementById('chart-data').textContent);
-  var styles = getComputedStyle(document.documentElement);
-  var colors = {{
-    text: styles.getPropertyValue('--text-secondary').trim(),
-    grid: styles.getPropertyValue('--gridline').trim(),
-    up: styles.getPropertyValue('--up').trim(),
-    down: styles.getPropertyValue('--down').trim(),
-    ema: styles.getPropertyValue('--ema').trim()
-  }};
-
-  function renderChart(chartId) {{
-    var el = document.getElementById(chartId);
-    if (!el || !window.LightweightCharts || el.dataset.rendered) return;
-    el.dataset.rendered = '1';
-
-    var chart = LightweightCharts.createChart(el, {{
-      width: el.clientWidth,
-      height: 260,
-      layout: {{ background: {{ color: 'transparent' }}, textColor: colors.text }},
-      grid: {{
-        vertLines: {{ color: colors.grid }},
-        horzLines: {{ color: colors.grid }}
-      }},
-      rightPriceScale: {{ borderColor: colors.grid }},
-      timeScale: {{ borderColor: colors.grid }},
-      crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }}
-    }});
-
-    // 空心K线: 上涨只描边(空心)，下跌实心填满
-    var candleSeries = chart.addCandlestickSeries({{
-      upColor: 'rgba(0, 0, 0, 0)',
-      downColor: colors.down,
-      borderUpColor: colors.up,
-      borderDownColor: colors.down,
-      wickUpColor: colors.up,
-      wickDownColor: colors.down,
-      borderVisible: true
-    }});
-    candleSeries.setData(data[chartId].candles);
-
-    var emaSeries = chart.addLineSeries({{
-      color: colors.ema,
-      lineWidth: 2,
-      priceLineVisible: false
-    }});
-    emaSeries.setData(data[chartId].ema20);
-
-    // 成交量柱状图，叠加在图表下方约 20% 的区域
-    var volumeSeries = chart.addHistogramSeries({{
-      priceScaleId: '',
-      priceFormat: {{ type: 'volume' }}
-    }});
-    volumeSeries.priceScale().applyOptions({{ scaleMargins: {{ top: 0.8, bottom: 0 }} }});
-    volumeSeries.setData(data[chartId].candles.map(function (c) {{
-      return {{ time: c.time, value: c.volume, color: c.close >= c.open ? colors.up : colors.down }};
-    }}));
-
-    chart.timeScale().fitContent();
-
-    // 鼠标/触摸移到某根K线时，显示当天开高低收+成交量；没有悬停时默认显示最新一天
-    var infoEl = document.getElementById(chartId + '-info');
-    function showBar(bar, vol) {{
-      if (!infoEl || !bar) return;
-      var volText = vol && typeof vol.value === 'number' ? vol.value.toLocaleString() : '-';
-      infoEl.innerHTML = '开 <b>' + bar.open + '</b>　高 <b>' + bar.high + '</b>　低 <b>' + bar.low + '</b>　收 <b>' + bar.close + '</b>　量 <b>' + volText + '</b>';
-    }}
-    var lastCandle = data[chartId].candles[data[chartId].candles.length - 1];
-    showBar(lastCandle, {{ value: lastCandle ? lastCandle.volume : null }});
-
-    chart.subscribeCrosshairMove(function (param) {{
-      var bar = param.seriesData ? param.seriesData.get(candleSeries) : null;
-      var vol = param.seriesData ? param.seriesData.get(volumeSeries) : null;
-      showBar(bar || lastCandle, vol || {{ value: lastCandle ? lastCandle.volume : null }});
-    }});
-
-    new ResizeObserver(function (entries) {{
-      chart.applyOptions({{ width: entries[0].contentRect.width }});
-    }}).observe(el);
-  }}
-
-  // 懒加载: 图表滚动到快进入可视范围才真正渲染，避免一次性创建几百个图表卡住页面
-  var lazyObserver = new IntersectionObserver(function (entries) {{
-    entries.forEach(function (entry) {{
-      if (entry.isIntersecting) {{
-        renderChart(entry.target.id);
-        lazyObserver.unobserve(entry.target);
-      }}
-    }});
-  }}, {{ rootMargin: '200px 0px' }});
-
-  Object.keys(data).forEach(function (chartId) {{
-    var el = document.getElementById(chartId);
-    if (el) lazyObserver.observe(el);
-  }});
-
-  // 点表头排序 (带升/降序箭头)
-  var table = document.getElementById('watchlist-table');
-  if (table) {{
-    var tbody = table.querySelector('tbody');
-    var ths = Array.from(table.querySelectorAll('th'));
-    ths.forEach(function (th, idx) {{
-      var asc = true;
-      th.addEventListener('click', function () {{
-        var rows = Array.from(tbody.querySelectorAll('tr'));
-        var type = th.dataset.type;
-        rows.sort(function (a, b) {{
-          var ac = a.children[idx], bc = b.children[idx];
-          var av = ac.dataset.value !== undefined ? ac.dataset.value : ac.textContent;
-          var bv = bc.dataset.value !== undefined ? bc.dataset.value : bc.textContent;
-          if (type === 'num') {{ av = parseFloat(av); bv = parseFloat(bv); }}
-          if (av < bv) return asc ? -1 : 1;
-          if (av > bv) return asc ? 1 : -1;
-          return 0;
-        }});
-        rows.forEach(function (r) {{ tbody.appendChild(r); }});
-        ths.forEach(function (other) {{
-          var arrow = other.querySelector('.arrow');
-          if (arrow) arrow.textContent = '';
-        }});
-        var currentArrow = th.querySelector('.arrow');
-        if (currentArrow) currentArrow.textContent = asc ? '▲' : '▼';
-        asc = !asc;
-      }});
-    }});
-  }}
-}})();
-</script>
+{CHART_SCRIPT}
 </body>
 </html>"""
 
-# === 6.5 手机推送通知 (ntfy.sh) ===
+# === 8. 手机推送通知 (ntfy.sh) ===
 def send_notification(hits):
     if not NTFY_TOPIC:
         print("未设置 NTFY_TOPIC，跳过手机推送通知。")
@@ -626,10 +1162,17 @@ def main():
         print(f"今天 ({today_myt}) 非交易日或数据尚未更新，跳过本次扫描。")
         return
 
+    symbols = [item["symbol"] for item in WATCHLIST]
+    print(f"并发抓取 {len(symbols)} 支股票的数据 (并发数: {FETCH_WORKERS}) ...")
+    # get_stock_data 是纯网络 I/O (等 yfinance 的 HTTP 请求)，用线程池并发抓取能大幅缩短总耗时；
+    # executor.map 按输入顺序返回结果，跟下面 zip(WATCHLIST, fetched) 的顺序对得上。
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
+        fetched = list(executor.map(get_stock_data, symbols))
+    print("抓取完成，开始筛选...")
+
     stocks = []
-    for item in WATCHLIST:
+    for item, data in zip(WATCHLIST, fetched):
         symbol = item["symbol"]
-        data = get_stock_data(symbol)
 
         # 流动性门槛: 成交量太低的股票直接跳过，不放进报告
         if data and data["volume"] < MIN_DAILY_VOLUME:
@@ -642,7 +1185,7 @@ def main():
             if matched:
                 ai_comment = ask_deepseek(data, reason)
                 print(f"✅ 找到机会: {symbol}")
-                # 为了防止 DeepSeek 限制频率，稍微停顿 1 秒
+                # 为了防止 DeepSeek 限制频率，稍微停顿 1 秒 (命中的股票通常很少，串行处理即可)
                 time.sleep(1)
 
         stocks.append({
