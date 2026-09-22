@@ -328,6 +328,14 @@ def build_html_report(stocks):
   }}
   h1 {{ margin: 0 0 0.25rem; font-size: 1.5rem; }}
   .updated {{ color: var(--text-secondary); margin: 0 0 1.5rem; }}
+  .site-footer {{
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.6;
+  }}
   .grid {{
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
@@ -437,6 +445,12 @@ def build_html_report(stocks):
 </table>
 </div>
 {no_data_note}
+
+<footer class="site-footer">
+  <p>本报告及其筛选策略、代码与分析方法版权所有 © {datetime.now(MYT).year} CJA231，保留一切权利。未经书面授权，禁止复制、转载、二次分发或用于商业用途。</p>
+  <p>© {datetime.now(MYT).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
+</footer>
+
 <script id="chart-data" type="application/json">{json.dumps(chart_payload)}</script>
 <script>
 (function () {{

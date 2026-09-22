@@ -1,0 +1,27 @@
+Copyright (c) 2026 CJA231. All Rights Reserved.
+
+This repository and all of its contents — including but not limited to
+source code, trading/screening strategies and their parameters, algorithms,
+data pipelines, documentation, and any reports or output it generates
+(including docs/index.html and its published versions on GitHub Pages) —
+are the proprietary property of the copyright holder.
+
+No permission is granted to any person to copy, reproduce, distribute,
+publish, modify, create derivative works from, sublicense, or otherwise
+use this repository or its contents, in whole or in part, for any purpose,
+including commercial purposes, without the copyright holder's prior
+written consent.
+
+The fact that this repository is publicly viewable on GitHub does not
+grant any license or right to use it. Forking, cloning, or otherwise
+copying this repository's contents without authorization is a violation
+of this notice and applicable copyright law, and the copyright holder
+reserves the right to pursue any and all legal remedies available.
+
+Third-party components vendored or referenced in this repository (for
+example, TradingView Lightweight Charts under docs/vendor/) remain
+governed by their own original licenses, which are unaffected by this
+notice.
+
+To request permission for any use not covered above, contact the
+copyright holder via GitHub (@CJA231).
