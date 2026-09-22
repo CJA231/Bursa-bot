@@ -1,19 +1,10 @@
 name: DeepSeek Stock Bot
 
 on:
-  schedule:
-    # 时间点特意避开整点/半点，减少跟其他排程任务扎堆、被限流的风险；也是为了避开 DeepSeek API 高峰时段
-    - cron: '15 1 * * 1-5'  # 9:15am  (UTC+8)
-    - cron: '45 1 * * 1-5'  # 9:45am  (UTC+8)
-    - cron: '15 2 * * 1-5'  # 10:15am (UTC+8)
-    - cron: '45 2 * * 1-5'  # 10:45am (UTC+8)
-    - cron: '30 3 * * 1-5'  # 11:30am (UTC+8)
-    - cron: '25 4 * * 1-5'  # 12:25pm (UTC+8)
-    - cron: '45 6 * * 1-5'  # 2:45pm  (UTC+8)
-    - cron: '45 7 * * 1-5'  # 3:45pm  (UTC+8)
-    - cron: '30 8 * * 1-5'  # 4:30pm  (UTC+8)
-    - cron: '30 9 * * 1-5'  # 5:30pm  (UTC+8)
-  workflow_dispatch:       # 允许手动按钮运行
+  # GitHub 自带的 schedule 对本仓库延迟严重 (实测平均迟到 5.7 小时，密集排程时甚至完全不触发)，
+  # 已改用外部定时器 (cron-job.org) 按马来西亚时间精确调用下面的 workflow_dispatch 触发，
+  # 详见 bursa-bot.md 第 5 节。
+  workflow_dispatch:       # 允许手动按钮运行 / 外部定时器调用
     inputs:
       force:
         description: '忽略交易日检查，强制用最新可用数据跑一次 (用于测试)'
