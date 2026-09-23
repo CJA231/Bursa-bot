@@ -2,6 +2,7 @@ import time
 PROCESS_START = time.perf_counter()  # 用来算"导入库"花了多久 (pandas_ta 会带进 numba，导入本身就要几秒)
 
 import os
+import re
 import json
 import html
 import yfinance as yf
@@ -12,6 +13,8 @@ from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+from exports import export_downloads
 
 IMPORT_SECS = time.perf_counter() - PROCESS_START
 
@@ -246,6 +249,13 @@ def build_sparkline(values, baseline=None, width=72, height=24):
             f'preserveAspectRatio="none" aria-hidden="true">{base_line}<polyline points="{points}"/></svg>')
 
 
+def fmt_num(v, pattern, missing="—"):
+    """数字格式化；None / NaN 显示成 "—"。价格 14 天没动的股票 RSI 会是 NaN (0/0)，以前表格里直接显示 "nan"。"""
+    if v is None or (isinstance(v, float) and v != v):
+        return missing
+    return pattern.format(v)
+
+
 def fmt_volume(v):
     if v >= 1e9:
         return f"{v / 1e9:.2f}B"
@@ -283,11 +293,32 @@ def check_strategy(data):
 # 从第二支股票开始这一段就能命中缓存、按缓存价计费，比混在一起写省钱也通常更快。
 DEEPSEEK_SYSTEM_PROMPT = """你是专业的马来西亚股市分析师，同时是严谨的金融助手。
 
-任务: 根据用户给出的某支股票的技术信号和基本数据，用简短的中文 (50字以内) 完成两件事：
-1. 评价这个信号的可靠性。
-2. 给出"买入/观望/卖出"建议。
+任务: 根据用户给出的某支股票的技术信号和基本数据，用简短的中文 (50字以内) 从技术面评价这个信号的可靠性，
+例如 RSI 是否偏高或超买、现价相对 50 日均线的位置。
+
+严格要求: 只做客观的技术面描述，不要给出任何操作或投资建议，
+不要出现买入、卖出、观望、持有、加仓、减仓、止损、止盈、目标价之类的字眼。
 
 接下来用户消息里会给出这支股票的具体数据，请只根据这些数据作答，不要虚构未提供的信息。"""
+
+# 就算模型没听话，也把带操作建议的分句删掉再放进报告 (图表下方、Excel、PDF 都用这个结果)
+TRADE_ADVICE_RE = re.compile(
+    r"买入|买进|卖出|抛售|观望|建议|加仓|减仓|建仓|清仓|止损|止盈|目标价|入场|进场|离场|出场|持有|逢低|逢高|介入"
+)
+
+
+def strip_trade_advice(text):
+    """按标点切成分句，去掉含操作建议字眼的分句；全部被去掉就返回空字符串 (页面上不显示点评)。"""
+    if not text:
+        return ""
+    parts = re.split(r"([，,。！？!?；;：:\n])", text)
+    kept = []
+    for i in range(0, len(parts), 2):
+        clause, sep = parts[i], parts[i + 1] if i + 1 < len(parts) else ""
+        if clause.strip() and not TRADE_ADVICE_RE.search(clause):
+            kept.append(clause + sep)
+    result = "".join(kept).strip().rstrip("，,；;：:")
+    return result + "。" if result and result[-1] not in "。！？!?" else result
 
 
 def ask_deepseek(data, reason):
@@ -1332,8 +1363,174 @@ CHART_SCRIPT = """
 </script>
 """
 
+DOWNLOADS_CSS = """
+  /* ---- 📥 下载报告 (近 7 天 CSV / Excel / PDF) ---- */
+  .downloads {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    max-width: 560px;
+  }
+  .downloads > summary {
+    cursor: pointer;
+    padding: 0.55rem 0.9rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    list-style: none;
+  }
+  .downloads > summary::-webkit-details-marker { display: none; }
+  .downloads > summary::after { content: " ▸"; color: var(--muted); }
+  .downloads[open] > summary::after { content: " ▾"; }
+  .downloads-body { padding: 0 0.9rem 0.8rem; }
+  /* 日期选择条: 左旧右新，放不下时左右滑动 */
+  .dl-days {
+    display: flex;
+    gap: 0.4rem;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    padding: 0.1rem 0 0.5rem;
+    scrollbar-width: thin;
+  }
+  .dl-day {
+    flex: 0 0 auto;
+    scroll-snap-align: end;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 3.6rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--page);
+    color: var(--text-secondary);
+    font: inherit;
+    cursor: pointer;
+    line-height: 1.25;
+  }
+  .dl-day b { font-size: 0.85rem; color: var(--text-primary); }
+  .dl-day small { font-size: 0.68rem; }
+  .dl-day .dl-sig { color: var(--up); font-size: 0.68rem; font-weight: 600; }
+  .dl-day[aria-checked="true"] { border-color: var(--text-primary); background: var(--surface); box-shadow: inset 0 0 0 1px var(--text-primary); }
+  .dl-day:focus-visible { outline: 2px solid var(--ema); outline-offset: 1px; }
+  .dl-picked { border-top: 1px solid var(--border); padding-top: 0.55rem; }
+  .dl-meta { font-size: 0.82rem; color: var(--text-secondary); margin: 0 0 0.45rem; }
+  .dl-meta b { color: var(--text-primary); }
+  .dl-combined { font-size: 0.78rem; margin: 0.7rem 0 0; color: var(--muted); }
+  .dl-link {
+    display: inline-block;
+    padding: 0.2rem 0.75rem;
+    margin: 0 0.3rem 0.2rem 0;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.8rem;
+  }
+  .dl-combined .dl-link { padding: 0.1rem 0.5rem; font-size: 0.75rem; }
+  .dl-link:hover { background: var(--page); }
+"""
+
+WEEKDAYS_ZH = "一二三四五六日"
+DOWNLOAD_FORMATS = (("csv", "CSV"), ("xlsx", "Excel"), ("pdf", "PDF"))
+
+
+def build_downloads_html(downloads):
+    """报告页面上的"📥 下载报告"区块：一条近 7 天的日期选择条，选中哪天就下载哪天的 CSV / Excel / PDF。
+    没有导出成功 (downloads 为 None) 就不显示。默认选中最新一天，不开 JS 也能直接下载最新一天。"""
+    if not downloads or not downloads.get("days"):
+        return ""
+
+    days = list(reversed(downloads["days"]))  # 选择条左旧右新，跟时间轴方向一致
+    info = []
+    for d in days:
+        dt = datetime.strptime(d["date"], "%Y-%m-%d")
+        signals = d.get("signals", [])
+        sig_text = f"信号 {len(signals)} 支 ({'、'.join(signals)})" if signals else "无信号"
+        info.append({
+            "date": d["date"],
+            "weekday": "周" + WEEKDAYS_ZH[dt.weekday()],
+            "short": f"{dt.month}/{dt.day}",
+            "time": d["generated_at"][-5:],
+            "summary": f"{sig_text} · 共 {d.get('count', 0)} 支",
+            "files": {k: f"downloads/{d['files'][k]}" for k, _ in DOWNLOAD_FORMATS},
+        })
+
+    # 放进 <script> 里，"</" 转义掉，免得名字里万一有 "</script>" 把脚本截断
+    days_json = json.dumps(info, ensure_ascii=False).replace("</", "<\\/")
+    latest = len(info) - 1
+    chips = "".join(
+        f'<button type="button" class="dl-day" role="radio" data-i="{i}" '
+        f'aria-checked="{"true" if i == latest else "false"}" tabindex="{0 if i == latest else -1}" '
+        f'aria-label="{x["date"]} {x["weekday"]}">'
+        f'<b>{x["short"]}</b><small>{x["weekday"]}</small>'
+        f'{"<span class=dl-sig>● 信号</span>" if days[i].get("signals") else "<small>" + x["time"] + "</small>"}'
+        f'</button>'
+        for i, x in enumerate(info)
+    )
+    cur = info[latest]
+    buttons = "".join(f'<a class="dl-link" data-fmt="{k}" href="{cur["files"][k]}" download>{label}</a>'
+                      for k, label in DOWNLOAD_FORMATS)
+    combined = downloads.get("combined")
+    combined_html = (
+        f'<p class="dl-combined">近 {len(info)} 天合并：'
+        f'<a class="dl-link" href="downloads/{combined["xlsx"]}" download>Excel (每天一个工作表)</a>'
+        f'<a class="dl-link" href="downloads/{combined["csv"]}" download>CSV</a></p>'
+        if combined else ""
+    )
+    return f"""<details class="downloads" id="downloads">
+  <summary>📥 下载报告 (近 {downloads["keep_days"]} 个交易日)</summary>
+  <div class="downloads-body">
+    <div class="dl-days" role="radiogroup" aria-label="选择日期">{chips}</div>
+    <div class="dl-picked">
+      <p class="dl-meta" aria-live="polite"><b>{cur["date"]} {cur["weekday"]}</b> · <span>{cur["time"]} 更新 · {html.escape(cur["summary"])}</span></p>
+      <div>{buttons}</div>
+    </div>
+    {combined_html}
+  </div>
+</details>
+<script>
+(function () {{
+  var DAYS = {days_json};
+  var box = document.getElementById("downloads");
+  if (!box) return;
+  var strip = box.querySelector(".dl-days");
+  var chips = strip.querySelectorAll(".dl-day");
+  var meta = box.querySelector(".dl-meta");
+  function pick(i, focus) {{
+    var d = DAYS[i];
+    chips.forEach(function (c, j) {{
+      c.setAttribute("aria-checked", j === i ? "true" : "false");
+      c.tabIndex = j === i ? 0 : -1;
+    }});
+    meta.querySelector("b").textContent = d.date + " " + d.weekday;
+    meta.querySelector("span").textContent = d.time + " 更新 · " + d.summary;
+    box.querySelectorAll(".dl-link[data-fmt]").forEach(function (a) {{
+      a.href = d.files[a.dataset.fmt];
+    }});
+    if (focus) chips[i].focus();
+    chips[i].scrollIntoView({{block: "nearest", inline: "nearest"}});
+  }}
+  chips.forEach(function (c) {{
+    c.addEventListener("click", function () {{ pick(+c.dataset.i); }});
+  }});
+  strip.addEventListener("keydown", function (e) {{
+    var cur = +(strip.querySelector('[aria-checked="true"]') || chips[0]).dataset.i;
+    var next = {{ArrowLeft: cur - 1, ArrowRight: cur + 1, Home: 0, End: DAYS.length - 1}}[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    pick(Math.max(0, Math.min(DAYS.length - 1, next)), true);
+  }});
+  // 展开时把选择条滚到最右 (最新一天)
+  box.addEventListener("toggle", function () {{
+    if (box.open) strip.scrollLeft = strip.scrollWidth;
+  }});
+}})();
+</script>"""
+
+
 # === 7. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
-def build_html_report(stocks):
+def build_html_report(stocks, downloads=None):
     now = datetime.now(MYT).strftime("%Y-%m-%d %H:%M")
 
     cards = []
@@ -1390,13 +1587,14 @@ def build_html_report(stocks):
                 <td class="num {change_class}" data-value="{change_pct}">{change_sign}{change_pct:.2f}%</td>
                 <td class="num" data-value="{data['volume']}">{fmt_volume(data['volume'])}</td>
                 {rel_vol_cell}
-                <td class="num" data-value="{data['rsi']}">{data['rsi']:.1f}</td>
+                <td class="num" data-value="{fmt_num(data['rsi'], '{}', '-1')}">{fmt_num(data['rsi'], '{:.1f}')}</td>
                 <td data-value="{1 if data['sar_bullish_now'] else 0}">{sar_pill}</td>
                 <td class="num {ema_class}" data-value="{data['ema20_latest']}">{data['ema20_latest']:.3f}</td>
             </tr>"""))
             continue
 
         chart_id = f"chart-{code}"
+        ai_html = f"<p>{s['ai_comment']}</p>" if s["ai_comment"] else ""  # 点评被过滤光了就整段不显示
         chart_payload[chart_id] = {"candles": data["candles"], "ema20": data["ema20"], "psar": data["psar"]}
 
         cards.append(f"""<section class="card">
@@ -1404,7 +1602,7 @@ def build_html_report(stocks):
                 <h2>{s['name']} <span class="code">{code}</span></h2>
                 <div class="stats">
                     <span>现价 <b>{data['close']}</b></span>
-                    <span>RSI(14) <b>{data['rsi']}</b></span>
+                    <span>RSI(14) <b>{fmt_num(data['rsi'], '{}')}</b></span>
                     <span>50日均线 <b>{data['sma50']}</b></span>
                 </div>
             </div>
@@ -1418,7 +1616,7 @@ def build_html_report(stocks):
             </div>
             <div class="signal">
                 <strong>🚨 {s['reason']}</strong>
-                <p>{s['ai_comment']}</p>
+                {ai_html}
             </div>
         </section>""")
 
@@ -1560,12 +1758,14 @@ def build_html_report(stocks):
   table.data-table tbody tr:hover {{ background: var(--page); }}
 {SETTINGS_CSS}
 {TABLE_CSS}
+{DOWNLOADS_CSS}
 </style>
 </head>
 <body>
 <h1>📢 马股自动分析报告</h1>
 <p class="updated">更新时间: {now} (MYT)</p>
 {SETTINGS_PANEL_HTML}
+{build_downloads_html(downloads)}
 
 <h2 class="section">🚨 信号 ({len(cards)})</h2>
 <div class="grid">
@@ -1739,7 +1939,7 @@ def main():
                 # 防止 DeepSeek 限频：只在两次调用之间停 1 秒，最后一次调用之后不用等
                 if deepseek_calls:
                     time.sleep(1)
-                ai_comment = ask_deepseek(data, reason)
+                ai_comment = strip_trade_advice(ask_deepseek(data, reason))
                 deepseek_calls += 1
                 print(f"✅ 找到机会: {symbol}")
 
@@ -1762,10 +1962,21 @@ def main():
           f"数据不足/抓取失败 {no_data} 支")
     print(f"日内走势: {got_intraday}/{len(table_stocks)} 支拿到数据，其余用近 30 日走势代替")
 
+    # 导出 CSV / Excel / PDF 下载文件 (要在生成网页之前，网页上的下载区块才能列出最新的文件)。
+    # 导出出错不能拖垮主流程：报告照样生成和发布，只是这次没有下载区块。
+    t_export = time.perf_counter()
+    downloads = None
+    try:
+        downloads = export_downloads(stocks, today_myt, datetime.now(MYT).strftime("%Y-%m-%d %H:%M"))
+        print(f"📥 下载文件已导出: 保留 {len(downloads['days'])} 天 ({downloads['days'][0]['date']} 起)")
+    except Exception as e:
+        print(f"⚠️ 导出下载文件失败 ({type(e).__name__}: {e})，报告照常生成，只是这次没有下载区块")
+    export_secs = time.perf_counter() - t_export
+
     t_report = time.perf_counter()
     os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
     with open(REPORT_PATH, "w", encoding="utf-8") as f:
-        f.write(build_html_report(stocks))
+        f.write(build_html_report(stocks, downloads))
     report_secs = time.perf_counter() - t_report
 
     hits = sum(1 for s in stocks if s["matched"])
@@ -1780,7 +1991,7 @@ def main():
 
     # 耗时分解：Action 跑超过 1 分钟时，直接看这一行就知道慢在哪
     print(f"⏱️ 耗时: 导入库 {IMPORT_SECS:.1f}s | screener 预筛选 {pre_secs:.1f}s | 抓取+指标+日内 {fetch_secs:.1f}s | "
-          f"筛选+DeepSeek {filter_secs:.1f}s | 生成报告 {report_secs:.1f}s | 推送 {notify_secs:.1f}s | "
+          f"筛选+DeepSeek {filter_secs:.1f}s | 导出下载 {export_secs:.1f}s | 生成报告 {report_secs:.1f}s | 推送 {notify_secs:.1f}s | "
           f"总计 {time.perf_counter() - PROCESS_START:.1f}s")
 
 if __name__ == "__main__":
