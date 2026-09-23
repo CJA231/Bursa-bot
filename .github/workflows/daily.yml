@@ -17,16 +17,34 @@ permissions:
 jobs:
   run_analysis:
     runs-on: ubuntu-latest
+    # 正常 1 分钟左右跑完。Yahoo 响应变慢时曾经拖到 11 分钟 (run #208)，
+    # 设个上限，避免真的卡住时占着 runner 跑到默认的 6 小时
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
+        id: setup-python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip'  # 按 requirements.txt 的哈希缓存依赖包，命中缓存能省掉大部分 pip install 时间
+
+      # 缓存"已经装好的"整套 Python 包，而不是只缓存下载的安装包：
+      # 以前 cache: 'pip' 只省了下载，真正安装 (numba/llvmlite/numpy/pandas) 每次还要 ~14 秒。
+      # 缓存 key 带上 ISO 周数，每周自动重装一次，yfinance 这类经常修 bug 的包不会一直停在旧版本。
+      - name: Compute cache week
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore installed packages
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}
+          key: py-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('requirements.txt') }}-${{ steps.week.outputs.week }}
 
       - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
         run: pip install -r requirements.txt
 
       - name: Run Stock Analysis
@@ -34,6 +52,7 @@ jobs:
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           FORCE_RUN: ${{ github.event.inputs.force }}
+          PYTHONUNBUFFERED: '1'  # 不缓冲输出，Actions 日志里每一行的时间戳才是真实的 (以前全部挤在结束那一秒)
         run: python main.py
 
       - name: Publish report
