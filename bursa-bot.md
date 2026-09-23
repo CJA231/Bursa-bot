@@ -170,7 +170,7 @@ def detect_t3_pattern(df):
 - 列：股票 (简称徽章 + 代码，手机横向滑动时固定在左边) | 走势 | 价格 | 涨跌% | 成交量 | 相对量 | RSI | SAR | EMA20
 - **走势 = 迷你日内图**：服务端直接画成内嵌 SVG (不用 JS)
   - 数据来自 `get_intraday_closes` (yfinance `period="1d", interval="5m"`)，**只对会进表格的股票抓**，同样并发
-  - 虚线 = 昨收；颜色 = 最新价相对昨收 (所以跟"涨跌%"颜色一致)
+  - 虚线 = 昨收；线的最后一个点补上现价 (Yahoo 5 分钟线会慢一点)；颜色 = 现价相对昨收：涨绿、跌红、没变灰 (`spark-flat`)，跟"涨跌%"一致
   - 拿不到日内数据的退回画近 30 日收盘价 (没有虚线，颜色按 30 日走势，可能跟当天涨跌不一致)；悬停提示会写是哪种
   - 颜色用 CSS 变量 `--up/--down`，设置面板改颜色也会生效
 - 相对量 = 今天成交量 / 前 20 日均量 (≥2 加粗)
@@ -248,6 +248,9 @@ def detect_t3_pattern(df):
 | #208 | + 日内走势第二轮 | **10m55s** | 11m37s | **异常**：同样代码 15 分钟后的 #209 只要 63s，包版本完全一样、0 抓取失败、日内那一轮只花 ~6s → 推断是那段时间 Yahoo 响应变慢 (日志被缓冲，无法精确证明) |
 | #209 | 同 #208 | 63s | ~89s | 比 #207 多的 ~13s 是日内走势那一轮 |
 
+**run #209 详细检查** (新表格第一次真实跑)：成功；2 个信号 (0168 BMGREEN、5073)；表格 327 支；日内走势 **317/327 (97%)** 拿到数据，剩下 10 支是当天没交易的 (yfinance 报 "possibly delisted")，走 30 日走势 fallback；0 抓取失败；报告 496KB (旧版 174KB，多出来的主要是 327 个内嵌 SVG 走势图)。
+- DeepSeek prompt cache 两次都是 **命中 0 / 未命中 155**：第二次调用只隔 2 秒，缓存可能还没建好，而且整个 prompt 才 155 tokens，就算命中也省不了多少。**这个优化实际上没效果，但也不值得再折腾**
+
 **9/23 这一轮优化 (还没实测)**：screener 预筛选、成交量检查挪到算指标之前、日线+日内合成一轮、并发 16→24、交易日判断改成只抓 5 天、DeepSeek 最后一次调用后不再 sleep、缓存整套已安装的 Python 包 (key 带 ISO 周数，每周重装一次，yfinance 不会一直停在旧版本)、job 加 `timeout-minutes: 20`
 
 - ⚠️ 如果 FETCH_WORKERS=24 之后日志里"数据不足/抓取失败"明显变多，说明被 Yahoo 限流了，调回 16
@@ -296,6 +299,8 @@ yf.screen(EquityQuery('eq', ['region', 'my']))   # → 筛 quoteType == "EQUITY"
 | cron-job.org Authorization 写成 `Bearer github_pat_github_pat_...` | 复制的 token 本身就带 `github_pat_` 前缀，又手打了一次 |
 | 设置面板关不掉 / 元素 hidden 不生效 | class 里写了 `display: flex` 会盖掉浏览器默认的 `[hidden]{display:none}` → CSS 里加了 `[hidden] { display: none !important; }` |
 | K 线图盖住下面的图例 | CSS 容器 220px、JS 画 260px → 统一成 260px |
+| 日内走势颜色跟涨跌% 相反 (run #209 的 HEGROUP：+0.94% 但走势红色) | Yahoo 5 分钟线比最新成交价慢一点，最后一根还在昨收下面 → 走势线最后补上现价，终点=现价 |
+| 价格没变却显示红色 "-0.00%" (MMAG 0.025) | 现价四舍五入到 3 位、昨收没有，浮点尾数算出极小的负数 → 昨收也四舍五入再算；没变的走势图用灰色 (`spark-flat`) |
 | 本地测试卡死 120s | 假数据让 1070 支全部命中，每次命中 `time.sleep(1)` → 测试时 patch 掉 sleep |
 | 测试产物污染 git | mock 的 `main()` 覆盖了真的 `docs/index.html` → 测试时把 `main.REPORT_PATH` 指到 /tmp |
 | **bursa-bot.md 丢过一次** | 9/22 把分支 reset 到 main 再 force-push，把只在分支上、还没合并的 bursa-bot.md commit 盖掉了 (9/23 从本地 reflog 找回)。**教训：reset/force-push 分支前先确认分支上有没有还没合并的 commit** |
@@ -348,7 +353,7 @@ CMSA 2007、SC Guidance Note **SC-GN/1-2020 (R2-2024)**、Digital Investment Man
 - [ ] 在 cron-job.org 建完剩下的时段 (见第 5 节"当前进度")
 - [ ] 确认 12:15 是故意的还是想要 12:25
 - [ ] 9/23 性能优化合并后看一次真实运行的 ⏱️ 耗时行，确认 screener 预筛选生效、抓取失败没有变多
-- [ ] 新表格第一次真实运行后，用真实报告截一张表格图补进 README "界面预览" (现在的两张截图是 9/23 真实的 BMGREEN 信号；表格当时还是旧版、没有历史价格，所以没截，也不要用假数据截)
+- [x] ~~README 补真实表格截图~~ (9/23 用 run #209 的真实报告前 8 行截的)
 - [ ] **2026-12-21 前**重新生成 PAT，更新 cron-job.org 所有任务的 Authorization header
 - [ ] (可选) 仓库 About 描述 / Topics / Social preview 图
 - [ ] (可选) `Bursa.yml` 清理 —— 用户已拒绝，别再提

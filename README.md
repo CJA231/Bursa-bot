@@ -43,7 +43,14 @@ Bursa Bot 每个交易日自动扫描 **马来西亚交易所全部上市股票*
 </tr>
 </table>
 
-<sub>截图取自 2026-09-23 的真实运行结果（BMGREEN 0168 当天命中信号），仅用于展示界面，不构成任何买卖建议。</sub>
+**选股表格**：没有命中信号、但成交量达标的股票，每行一个当天的日内迷你走势图（虚线 = 昨收），默认按成交量排序，可搜索。
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/table-dark.png">
+  <img src="assets/screenshots/table-light.png" alt="选股表格：每行显示股票代码、日内迷你走势图、价格、涨跌%、成交量、相对成交量、RSI、SAR 多空和 EMA20，按成交量从高到低排序">
+</picture>
+
+<sub>截图均取自 2026-09-23 的真实运行结果（信号卡片为当天命中的 BMGREEN 0168；表格为 15:46 那次运行的前 8 行），仅用于展示界面，不构成任何买卖建议。</sub>
 
 ## 报告怎么看
 

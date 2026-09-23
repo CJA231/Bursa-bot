@@ -239,7 +239,8 @@ def build_sparkline(values, baseline=None, width=72, height=24):
         return height - 1 - (v - lo) / span * (height - 2)
 
     points = " ".join(f"{i * step:.1f},{y(v):.1f}" for i, v in enumerate(values))
-    trend = "spark-up" if values[-1] >= ref else "spark-down"
+    # 跟"涨跌%"同一套颜色规则：涨=绿、跌=红、没变=灰
+    trend = "spark-up" if values[-1] > ref else "spark-down" if values[-1] < ref else "spark-flat"
     base_line = f'<line x1="0" x2="{width}" y1="{y(ref):.1f}" y2="{y(ref):.1f}"/>' if baseline is not None else ""
     return (f'<svg class="spark {trend}" viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
             f'preserveAspectRatio="none" aria-hidden="true">{base_line}<polyline points="{points}"/></svg>')
@@ -509,6 +510,7 @@ TABLE_CSS = """
   .spark polyline { fill: none; stroke-width: 1.3; stroke-linejoin: round; }
   .spark-up polyline { stroke: var(--up); }
   .spark-down polyline { stroke: var(--down); }
+  .spark-flat polyline { stroke: var(--muted); }
   .spark line { stroke: var(--muted); stroke-width: 0.6; stroke-dasharray: 2 2; }
   .relvol-high { font-weight: 700; color: var(--text-primary); }
   .pill { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; }
@@ -1348,10 +1350,9 @@ def build_html_report(stocks):
             continue
 
         if not s["matched"]:
-            change_pct = (
-                (data["close"] - data["prev_close"]) / data["prev_close"] * 100
-                if data["prev_close"] else 0
-            )
+            # 昨收也四舍五入到 3 位再比 (现价已经是 3 位)：不然价格没变的股票会因为浮点尾数算出 -0.00% 并显示成红色
+            prev_close = round(data["prev_close"], 3) if data["prev_close"] else None
+            change_pct = (data["close"] - prev_close) / prev_close * 100 if prev_close else 0
             if change_pct > 0:
                 change_class, change_sign = "change-up", "+"
             elif change_pct < 0:
@@ -1362,7 +1363,11 @@ def build_html_report(stocks):
             # 迷你走势图: 优先用日内 5 分钟数据 (基准线=昨收)，拿不到就退回近 30 日收盘价
             intraday = s.get("intraday")
             if intraday:
-                spark = build_sparkline(intraday, baseline=data["prev_close"])
+                # Yahoo 的 5 分钟线会比最新成交价慢一点 (run #209 里 HEGROUP 当天 +0.94%，但最后一根 5 分钟线
+                # 还在昨收下面，走势图被画成红色)。把最新价补在最后，线的终点=现价，颜色就跟"涨跌%"一致
+                if intraday[-1] != data["close"]:
+                    intraday = intraday + [data["close"]]
+                spark = build_sparkline(intraday, baseline=prev_close)
                 spark_title = "今日走势 (虚线=昨收)"
             else:
                 spark = build_sparkline([c["close"] for c in data["candles"][-30:]])
