@@ -33,6 +33,7 @@ Bursa-bot/
 ├── Bursa.yml                    # ⚠️ 废弃文件，不是 workflow，用户选择保留，别删
 ├── data/
 │   └── watchlist.json           # 全市场股票清单 (1070 条)，格式 {"symbol":"0453.KL","name":"EIPOWER"}
+├── assets/screenshots/          # README 用的界面截图 (light/dark 各一张，用 <picture> 按 GitHub 主题切换)
 ├── docs/
 │   ├── index.html               # 生成的报告，GitHub Pages 从这里发布
 │   └── vendor/
@@ -317,6 +318,7 @@ CMSA 2007、SC Guidance Note **SC-GN/1-2020 (R2-2024)**、Digital Investment Man
 - [ ] 在 cron-job.org 建完剩下的时段 (见第 5 节"当前进度")，并确认 3:45pm 那个任务真的在 3:45 触发
 - [ ] 确认 12:15 是故意的还是想要 12:25
 - [ ] 表格日内走势上线后看一次真实运行：多花了多少时间、有多少支拿到日内数据
+- [ ] 新表格第一次真实运行后，用真实报告截一张表格图补进 README "界面预览" (现在的两张截图是 9/23 真实的 BMGREEN 信号；表格当时还是旧版、没有历史价格，所以没截，也不要用假数据截)
 - [ ] **2026-12-21 前**重新生成 PAT，更新 cron-job.org 所有任务的 Authorization header
 - [ ] (可选) 仓库 About 描述 / Topics / Social preview 图
 - [ ] (可选) `Bursa.yml` 清理 —— 用户已拒绝，别再提
