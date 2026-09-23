@@ -11,7 +11,7 @@ import pandas_ta as ta
 import requests
 from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from exports import export_downloads
@@ -213,6 +213,68 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 continue
             print(f"获取失败 {symbol}: {e}")
             return None
+
+# 一目均衡表 (Ichimoku Cloud) 参数，跟 TradingView 内置脚本的默认值一样
+ICHIMOKU_CONVERSION = 9    # 转换线 (Conversion Line / Tenkan)
+ICHIMOKU_BASE = 26         # 基准线 (Base Line / Kijun)
+ICHIMOKU_SPAN_B = 52       # 先行带 B (Leading Span B)
+ICHIMOKU_DISPLACEMENT = 26  # 位移
+
+
+def compute_ichimoku(df, since):
+    """
+    跟 TradingView 的 Ichimoku Cloud Pine 脚本同一套算法：
+      donchian(n)  = (n 日最高价 + n 日最低价) / 2
+      转换线       = donchian(9)，基准线 = donchian(26)
+      先行带 A     = (转换线 + 基准线) / 2，先行带 B = donchian(52)，两条都往后 (未来) 画 26-1 = 25 根
+      延迟线       = 收盘价往前 (过去) 画 25 根
+    只返回 since (图表第一根K线的日期) 之后的点，未来 25 根的日期按周一到周五往后排 (不扣马来西亚公共假期)。
+    """
+    high, low, close = df["High"], df["Low"], df["Close"]
+
+    def donchian(n):
+        return (high.rolling(n).max() + low.rolling(n).min()) / 2
+
+    conversion = donchian(ICHIMOKU_CONVERSION)
+    base = donchian(ICHIMOKU_BASE)
+    lead_a = (conversion + base) / 2
+    lead_b = donchian(ICHIMOKU_SPAN_B)
+    shift = ICHIMOKU_DISPLACEMENT - 1
+
+    dates = [idx.strftime("%Y-%m-%d") for idx in df.index]
+    last_day = df.index[-1].date()
+    future = [d.strftime("%Y-%m-%d") for d in pd.bdate_range(last_day + timedelta(days=1), periods=shift)]
+    all_dates = dates + future
+
+    def points(values, offset):
+        out = []
+        for i, v in enumerate(values):
+            j = i + offset
+            if 0 <= j < len(all_dates) and pd.notna(v) and all_dates[j] >= since:
+                out.append({"time": all_dates[j], "value": round(float(v), 4)})
+        return out
+
+    return {
+        "conversion": points(conversion, 0),
+        "base": points(base, 0),
+        "lagging": points(close, -shift),
+        "lead_a": points(lead_a, shift),
+        "lead_b": points(lead_b, shift),
+    }
+
+
+def get_ichimoku(symbol, since):
+    """只给命中信号的股票 (有K线图的) 用。先行带 B 要 52 根 + 往后移 25 根，
+    6 个月的数据只够画出图表右半边的云，所以这里另外抓 1 年的日线。失败就返回 None (图上不画)。"""
+    try:
+        df = yf.Ticker(symbol).history(period="1y")
+        if len(df) < ICHIMOKU_BASE:
+            return None
+        return compute_ichimoku(df, since)
+    except Exception as e:
+        print(f"⚠️ {symbol} 一目均衡表数据获取失败 ({type(e).__name__}: {e})")
+        return None
+
 
 def get_intraday_closes(symbol):
     """当天 (或最近一个交易日) 的 5 分钟收盘价序列，给表格里的迷你走势图用。拿不到就返回 None。"""
@@ -985,10 +1047,98 @@ CHART_SCRIPT = """
     return undefined;
   }
 
+  // ---------- 一目均衡表 (Ichimoku Cloud): 5 条线 + 先行带 A/B 之间的云 ----------
+  // 数值由后台 compute_ichimoku() 按 TradingView 同一套算法算好 (连未来 25 根的日期都排好了)，这里只负责画。
+  // 颜色跟 TradingView 内置脚本一样
+  var ICHIMOKU_LINES = [
+    { key: 'conversion', color: '#2962FF' },  // 转换线
+    { key: 'base', color: '#B71C1C' },        // 基准线
+    { key: 'lagging', color: '#43A047' },     // 延迟线
+    { key: 'lead_a', color: '#A5D6A7' },      // 先行带 A
+    { key: 'lead_b', color: '#EF9A9A' }       // 先行带 B
+  ];
+  var CLOUD_UP = 'rgba(67, 160, 71, 0.22)';    // 先行带 A 在 B 上方
+  var CLOUD_DOWN = 'rgba(244, 67, 54, 0.22)';  // 先行带 A 在 B 下方
+
+  // Lightweight Charts 没有"两条线之间填色"，用 v4.1 的 series primitive 直接在画布上画多边形。
+  // 两条线交叉的那一段按交点切成两个三角形，颜色才会在交叉点准确切换 (跟 TradingView 一样)
+  function CloudPrimitive(leadA, leadB) {
+    var bByTime = {};
+    leadB.forEach(function (p) { bByTime[p.time] = p.value; });
+    this._pairs = leadA.filter(function (p) { return p.time in bByTime; })
+      .map(function (p) { return { time: p.time, a: p.value, b: bByTime[p.time] }; });
+    this._chart = null;
+    this._series = null;
+    var self = this;
+    this._paneView = {
+      zOrder: function () { return 'bottom'; },  // 画在K线下面
+      renderer: function () { return { draw: function (target) { self._draw(target); } }; }
+    };
+  }
+  CloudPrimitive.prototype.attached = function (param) { this._chart = param.chart; this._series = param.series; };
+  CloudPrimitive.prototype.detached = function () { this._chart = null; this._series = null; };
+  CloudPrimitive.prototype.updateAllViews = function () {};
+  CloudPrimitive.prototype.paneViews = function () { return [this._paneView]; };
+  CloudPrimitive.prototype._draw = function (target) {
+    if (!this._chart) return;
+    var timeScale = this._chart.timeScale();
+    var series = this._series;
+    var pts = [];
+    this._pairs.forEach(function (p) {
+      var x = timeScale.timeToCoordinate(p.time);
+      var ya = series.priceToCoordinate(p.a);
+      var yb = series.priceToCoordinate(p.b);
+      if (x !== null && ya !== null && yb !== null) pts.push({ x: x, ya: ya, yb: yb, d: p.a - p.b });
+    });
+    function poly(ctx, corners, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(corners[0][0], corners[0][1]);
+      for (var k = 1; k < corners.length; k++) ctx.lineTo(corners[k][0], corners[k][1]);
+      ctx.closePath();
+      ctx.fill();
+    }
+    target.useMediaCoordinateSpace(function (scope) {
+      var ctx = scope.context;
+      for (var i = 0; i + 1 < pts.length; i++) {
+        var p = pts[i], q = pts[i + 1];
+        if (p.d * q.d < 0) {
+          var t = p.d / (p.d - q.d);
+          var cx = p.x + (q.x - p.x) * t, cy = p.ya + (q.ya - p.ya) * t;
+          poly(ctx, [[p.x, p.ya], [cx, cy], [p.x, p.yb]], p.d > 0 ? CLOUD_UP : CLOUD_DOWN);
+          poly(ctx, [[cx, cy], [q.x, q.ya], [q.x, q.yb]], q.d > 0 ? CLOUD_UP : CLOUD_DOWN);
+        } else {
+          var up = p.d !== 0 ? p.d > 0 : q.d > 0;
+          poly(ctx, [[p.x, p.ya], [q.x, q.ya], [q.x, q.yb], [p.x, p.yb]], up ? CLOUD_UP : CLOUD_DOWN);
+        }
+      }
+    });
+  };
+
+  function addIchimokuToChart(chartId, reg) {
+    var ich = data[chartId].ichimoku;
+    if (!ich) throw new Error('这张图没有一目均衡表数据');
+    var list = ICHIMOKU_LINES.map(function (line) {
+      var series = reg.chart.addLineSeries({
+        color: line.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
+      });
+      series.setData(ich[line.key]);
+      return series;
+    });
+    list[3].attachPrimitive(new CloudPrimitive(ich.lead_a, ich.lead_b));
+    // 先行带往未来多画了 25 根，重新缩放一下才看得到整片云
+    reg.chart.timeScale().fitContent();
+    return list;
+  }
+
   function addCustomIndicatorSeriesToChart(chartId, indicator) {
     var reg = chartRegistry[chartId];
     if (!reg) return;
     try {
+      if (indicator.composite === 'ichimoku') {
+        reg.customSeries[indicator.id] = addIchimokuToChart(chartId, reg);
+        return;
+      }
       var opts = { color: indicator.color, lineWidth: indicator.dotted ? 1 : 2, priceLineVisible: false };
       if (indicator.dotted) opts.lineStyle = LightweightCharts.LineStyle.Dotted;
       var scaleId = scaleIdFor(indicator);
@@ -1011,9 +1161,12 @@ CHART_SCRIPT = """
     saveIndicators();
     Object.keys(chartRegistry).forEach(function (chartId) {
       var reg = chartRegistry[chartId];
-      if (reg.customSeries[id]) {
-        reg.chart.removeSeries(reg.customSeries[id]);
+      var entry = reg.customSeries[id];
+      if (entry) {
+        // 一目均衡表这类组合指标存的是一组 series
+        [].concat(entry).forEach(function (series) { reg.chart.removeSeries(series); });
         delete reg.customSeries[id];
+        if (Array.isArray(entry)) reg.chart.timeScale().fitContent();
       }
     });
     renderPresetGrid();
@@ -1026,7 +1179,7 @@ CHART_SCRIPT = """
   function renderIndicatorListItem(ind) {
     var list = document.getElementById('ind-list');
     if (!list) return;
-    var detail = ind.formula || (ind.dataKey ? '(内置指标)' : '');
+    var detail = ind.formula || (ind.composite === 'ichimoku' ? '转换线 / 基准线 / 延迟线 / 先行带A·B + 云' : (ind.dataKey ? '(内置指标)' : ''));
     var li = document.createElement('li');
     li.innerHTML = '<span class="ind-swatch" style="background:' + ind.color + '"></span>' +
       '<span class="ind-name">' + escapeHtml(ind.name) + '</span>' +
@@ -1048,6 +1201,7 @@ CHART_SCRIPT = """
     { id: 'boll_upper', category: 'trend', name: '布林带上轨(20,2)', formula: 'sma(close,20)+2*stdev(close,20)', color: '#e86e6e', scale: 'price' },
     { id: 'boll_mid', category: 'trend', name: '布林带中轨(20)', formula: 'sma(close,20)', color: '#c3c2b7', scale: 'price' },
     { id: 'boll_lower', category: 'trend', name: '布林带下轨(20,2)', formula: 'sma(close,20)-2*stdev(close,20)', color: '#6ee89b', scale: 'price' },
+    { id: 'ichimoku', category: 'trend', name: '一目均衡表(9,26,52)', composite: 'ichimoku', color: '#2962FF', scale: 'price' },
 
     { id: 'rsi14', category: 'momentum', name: 'RSI(14)', formula: 'rsi(close,14)', color: '#e8a33d', scale: 'own' },
     { id: 'macd_line', category: 'momentum', name: 'MACD线(12,26)', formula: 'ema(close,12)-ema(close,26)', color: '#3d8ce8', scale: 'own', scaleGroup: 'macd' },
@@ -1075,7 +1229,8 @@ CHART_SCRIPT = """
       scaleGroup: preset.scaleGroup,
       dotted: preset.dotted
     };
-    if (preset.dataKey) indicator.dataKey = preset.dataKey;
+    if (preset.composite) indicator.composite = preset.composite;
+    else if (preset.dataKey) indicator.dataKey = preset.dataKey;
     else indicator.formula = preset.formula;
     customIndicators.push(indicator);
     saveIndicators();
@@ -1595,7 +1750,8 @@ def build_html_report(stocks, downloads=None):
 
         chart_id = f"chart-{code}"
         ai_html = f"<p>{s['ai_comment']}</p>" if s["ai_comment"] else ""  # 点评被过滤光了就整段不显示
-        chart_payload[chart_id] = {"candles": data["candles"], "ema20": data["ema20"], "psar": data["psar"]}
+        chart_payload[chart_id] = {"candles": data["candles"], "ema20": data["ema20"], "psar": data["psar"],
+                                   "ichimoku": data.get("ichimoku")}
 
         cards.append(f"""<section class="card">
             <div class="card-head">
@@ -1940,6 +2096,7 @@ def main():
                 if deepseek_calls:
                     time.sleep(1)
                 ai_comment = strip_trade_advice(ask_deepseek(data, reason))
+                data["ichimoku"] = get_ichimoku(symbol, data["candles"][0]["time"])
                 deepseek_calls += 1
                 print(f"✅ 找到机会: {symbol}")
 

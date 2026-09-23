@@ -149,11 +149,11 @@ def detect_t3_pattern(df):
 ### 设置面板 (纯前端，存在浏览器 localStorage，不影响别人、不用重新部署)
 - **颜色**：上涨/下跌/EMA20 三个取色器，即时生效 (localStorage key `bursa_colors_v1`)
 - **技术指标**：横向滑动的分类导航 `趋势 / 动量 / 波动性 / 成交量 / 自定义公式`，
-  18 个预设指标点一下就加到所有图上 (localStorage key `bursa_custom_indicators_v1`)：
+  19 个预设指标点一下就加到所有图上 (localStorage key `bursa_custom_indicators_v1`)：
 
   | 分类 | 预设 |
   |---|---|
-  | 趋势 | SMA20、SMA50、EMA50、SAR、布林带上/中/下轨 |
+  | 趋势 | SMA20、SMA50、EMA50、SAR、布林带上/中/下轨、一目均衡表 |
   | 动量 | RSI(14)、MACD 线、MACD 信号线、Stochastic %K、CCI、Williams %R |
   | 波动性 | ATR(14)、布林带带宽 |
   | 成交量 | OBV、成交量均线(20)、滚动 VWAP(20) |
@@ -180,6 +180,16 @@ def detect_t3_pattern(df):
 - 顶部搜索框按代码/名称即时过滤
 - 表格宽度跟内容走 (`width: auto`)，大屏不会被拉满
 - 旧表格里的 SMA50 列已去掉 (信号卡片里还有)
+
+### ☁️ 一目均衡表 (Ichimoku Cloud，9/23 按用户给的 TradingView Pine 脚本加入)
+- 设置面板「趋势」里的「一目均衡表(9,26,52)」，一次加 5 条线 + 云：转换线 `#2962FF`、基准线 `#B71C1C`、延迟线 `#43A047`、先行带A `#A5D6A7`、先行带B `#EF9A9A`；A 在 B 上方云是绿色，下方是红色 (颜色跟 TradingView 一样)
+- **数值在后台算** (`compute_ichimoku()`，不是前端公式)：先行带要往未来画 25 根、延迟线往过去画 25 根，公式引擎做不了位移；而且先行带 B 要 52 根 + 位移 25 根，6 个月的数据只够画出图表右半边的云
+  → 所以只给**命中信号的股票** (有K线图的，平常 0–3 支) 另外抓 1 年日线 (`get_ichimoku()`)，每支多一次 Yahoo 请求，约 0.5–1 秒。抓失败就不画，不影响其他东西
+- 算法跟 Pine 完全一样：`donchian(n) = (n日最高 + n日最低)/2`，先行带 `offset = displacement - 1 = 25`，延迟线 `offset = -25`。用逐根循环的独立实现对过 (0 差异)
+- 未来 25 根的日期按周一到周五往后排，没扣马来西亚公共假期 (跟 TradingView 用交易所日历会差一两天，影响不大)
+- 云是用 Lightweight Charts v4.1 的 **series primitive** (`attachPrimitive`) 直接在画布上画的 (库本身没有"两条线之间填色")；两条线交叉的那一段按交点切成两个三角形，颜色在交叉点准确切换
+- 加上/删掉时会 `fitContent()` 重新缩放，才看得到往未来延伸的那段云
+- 表格里的迷你走势图不受影响，只有信号卡片的K线图能加
 
 ### 📥 下载报告 (`exports.py`)
 - 页面上方的 `<details>` 区块 (默认折叠)，最近 `KEEP_REPORT_DAYS = 7` 个**报告日** (只有交易日才有报告，所以约一周半)
