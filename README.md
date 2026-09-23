@@ -22,11 +22,11 @@ Bursa Bot 每个交易日自动扫描 **马来西亚交易所全部上市股票*
 <tr>
 <td width="58%" valign="top">
 
-**信号卡片**：命中策略的股票会有一张卡片，包含 90 个交易日的 K 线图、EMA20、成交量，以及 AI 点评。下图叠加了布林带（在设置面板里一键添加）。
+**筛选器卡片**：命中策略的股票会有一张卡片，K 线图可以切换 1 分钟到月线等周期。下图叠加了布林带（在设置面板里一键添加）。<sub>（截图为改版前的界面，下次真实运行后更新）</sub>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/signal-card-dark.png">
-  <img src="assets/screenshots/signal-card-light.png" alt="信号卡片：BMGREEN 的 K 线图，叠加 EMA20、布林带和成交量，下方是 AI 点评">
+  <img src="assets/screenshots/signal-card-light.png" alt="筛选器卡片：BMGREEN 的 K 线图，叠加 EMA20、布林带和成交量">
 </picture>
 
 </td>
@@ -56,11 +56,13 @@ Bursa Bot 每个交易日自动扫描 **马来西亚交易所全部上市股票*
 
 报告从上到下分三部分：
 
-### 🚨 信号
-同时满足全部四个策略条件的股票。每张卡片包含：
-- **现价 / RSI(14) / 50日均线**，以及手指或鼠标停在 K 线上时显示的当日 开/高/低/收/量
-- **K 线图**：空心蜡烛 = 上涨，实心 = 下跌；紫色线是 EMA20；底部是成交量
-- **AI 点评**：DeepSeek 根据数据给出的一句话技术面评价（只评价信号可靠性，不给买卖建议；仅供参考，可能出错）
+### 筛选器
+同时满足全部四个策略条件的股票，每支一张卡片。标题下方那行小字是**筛选器名称**（也就是指标模板，见下方「图表设置」）。每张卡片：
+- **标题**：股票名称、代码、现价和涨跌，下面一行小字是命中的筛选条件
+- **周期导航条**：1分 / 5分 / 10分 / 15分 / 30分 / 45分 / 1小时 / 2小时 / 4小时 / 天 / 周 / 月，放不下时左右滑或点 ‹ ›；右边「ƒx 指标」打开设置面板
+- **K 线图**：空心蜡烛 = 上涨，实心 = 下跌；EMA20 + 成交量；加上的指标可以叠在主图上，也可以在下方另开副图
+- **图表左上角**：每个指标的名称和数值（跟着十字光标变），旁边 ↑ ↓ 调顺序、× 删除（电脑上鼠标移过去才出现）
+- **图表下方**：十字光标所在那根 K 线的时间、开高低收、涨跌、成交量，以及成交量、相对量、RSI(14)、50 日均线、EMA20、SAR 多空
 
 ### 📋 其余股票
 没有命中信号、但成交量达标的股票，仿 TradingView 选股器的紧凑表格：
@@ -86,10 +88,12 @@ Bursa Bot 每个交易日自动扫描 **马来西亚交易所全部上市股票*
 Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 直接打开中文不会乱码；PDF 为横向 A4，适合打印或存档。超过 7 天的旧文件会自动删除。
 
 ### ⚙️ 图表设置
-点页面上方的「⚙️ 图表设置」打开：
+点页面上方的「⚙️ 图表设置」（或卡片上的「ƒx 指标」）打开：
 - **颜色**：上涨 / 下跌 / EMA20 的颜色
 - **技术指标**：按 趋势 / 动量 / 波动性 / 成交量 分类，共 19 个常用指标（包括一目均衡表 Ichimoku Cloud），点一下叠加到所有图上
+- **添加到**：自动 / 主图 / 新副图。自动 = 均线类叠在主图，RSI、MACD 这类震荡指标在下方另开副图；加完以后也能在列表里切换
 - **自定义公式**：自己写公式生成指标，例如 `sma(close,10)`、`ema(close,12)-ema(close,26)`
+- **模板**：加进来的指标会**实时保存**到当前模板（就是「筛选器」下面那行名称，可以直接点着改名）；可以新建多个模板随时切换
 
 设置只保存在你自己的浏览器里，不影响其他人，报告每次自动更新后也会保留。
 
@@ -104,10 +108,10 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
   | 0.10 – 0.20 | 300 万 |
   | 0.20 – 0.50 | 100 万 |
   | 0.50 以上 | 50 万 |
-- 📈 **可视化 K 线图**：空心蜡烛图 + EMA20 均线 + 成交量柱状图，悬停可看当日开高低收
-- ⚙️ **网页端自定义**：内置 19 个常用指标（SAR、布林带、一目均衡表、RSI、MACD、KD、CCI、ATR、OBV、VWAP 等），也能自己输入公式；颜色可调
+- 📈 **多周期 K 线图**：1 分钟到月线 12 种周期一键切换，空心蜡烛 + EMA20 + 成交量，指标可放主图或副图，悬停看开高低收
+- ⚙️ **网页端自定义**：内置 19 个常用指标（SAR、布林带、一目均衡表、RSI、MACD、KD、CCI、ATR、OBV、VWAP 等），也能自己输入公式；颜色可调；指标组合存成模板
 - 📊 **选股器式表格**：每支股票都有日内迷你走势图、相对成交量、多空标签，可排序可搜索
-- 🤖 **AI 辅助点评**：命中信号的股票由 DeepSeek 给出简短的可靠性评价
+- 🤖 **AI 辅助点评**：命中信号的股票由 DeepSeek 给出简短的技术面可靠性评价（写在下载的 Excel / PDF 里，网页图表下方只放数据）
 - 📱 **手机推送**：通过 [ntfy.sh](https://ntfy.sh) 在发现信号时推送通知
 - ⏰ **全自动运行**：每个交易日盘中按马来西亚时间自动更新（详见 [`bursa-bot.md`](./bursa-bot.md) 了解排程设计）
 - 📥 **报告下载**：最近 7 个交易日的报告可以下载成 CSV / Excel / PDF，也有 7 天合并版
@@ -141,7 +145,7 @@ pandas-ta 计算指标 (RSI / SMA50 / EMA20 / PSAR)
 | 行情数据 | [yfinance](https://github.com/ranaroussi/yfinance) |
 | 技术指标 | [pandas-ta](https://github.com/twopirllc/pandas-ta) |
 | AI 点评 | [DeepSeek](https://www.deepseek.com/) API |
-| K 线图 | [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts)（Apache 2.0，已自托管在 `docs/vendor/`） |
+| K 线图 | [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) v5（Apache 2.0，已自托管在 `docs/vendor/`） |
 | 手机推送 | [ntfy.sh](https://ntfy.sh) |
 | 自动化 | GitHub Actions + 外部定时器 |
 | 发布 | GitHub Pages |
@@ -154,6 +158,7 @@ Bursa-bot/
 ├── exports.py                   # 导出 CSV / Excel / PDF 下载文件
 ├── data/watchlist.json          # 全市场股票清单 (1070+ 支)
 ├── docs/index.html              # 生成的报告，GitHub Pages 从这里发布
+├── docs/report.js               # 报告页的图表、指标、模板和表格脚本
 ├── docs/downloads/              # 最近 7 个交易日的下载文件 (自动生成，自动清理)
 ├── assets/screenshots/          # README 用的界面截图
 ├── scripts/

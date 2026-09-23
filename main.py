@@ -5,13 +5,15 @@ import os
 import re
 import json
 import html
+import calendar
+import hashlib
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 import requests
 from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from exports import export_downloads
@@ -214,66 +216,57 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             print(f"获取失败 {symbol}: {e}")
             return None
 
-# 一目均衡表 (Ichimoku Cloud) 参数，跟 TradingView 内置脚本的默认值一样
-ICHIMOKU_CONVERSION = 9    # 转换线 (Conversion Line / Tenkan)
-ICHIMOKU_BASE = 26         # 基准线 (Base Line / Kijun)
-ICHIMOKU_SPAN_B = 52       # 先行带 B (Leading Span B)
-ICHIMOKU_DISPLACEMENT = 26  # 位移
+# 信号股K线图的多周期数据: (键, yfinance interval, period, 只保留最近几个交易日)
+# 网页上的 1分~月 这些周期都从这几份数据合成 (例如 10 分 = 两根 5 分，2 小时 = 两根 1 小时，周 = 日线按周合并)。
+# Yahoo 没有秒级数据，所以没有 30 秒；各周期的历史长度受 Yahoo 限制 (1 分钟线最多 7 天、分钟线最多 60 天)。
+CHART_SOURCES = [
+    ("1m", "1m", "5d", 2),       # 1 分: 只留最近 2 个交易日，不然网页太大
+    ("5m", "5m", "5d", None),    # 5 分、10 分
+    ("15m", "15m", "1mo", None),  # 15 分、30 分、45 分
+    ("60m", "60m", "3mo", None),  # 1 小时、2 小时、4 小时
+    ("1d", "1d", "2y", None),     # 天、周 (2 年够一目均衡表的先行带 B 画满整张图)
+    ("1mo", "1mo", "10y", None),  # 月
+]
+MYT_OFFSET_SECS = 8 * 3600
 
 
-def compute_ichimoku(df, since):
-    """
-    跟 TradingView 的 Ichimoku Cloud Pine 脚本同一套算法：
-      donchian(n)  = (n 日最高价 + n 日最低价) / 2
-      转换线       = donchian(9)，基准线 = donchian(26)
-      先行带 A     = (转换线 + 基准线) / 2，先行带 B = donchian(52)，两条都往后 (未来) 画 26-1 = 25 根
-      延迟线       = 收盘价往前 (过去) 画 25 根
-    只返回 since (图表第一根K线的日期) 之后的点，未来 25 根的日期按周一到周五往后排 (不扣马来西亚公共假期)。
-    """
-    high, low, close = df["High"], df["Low"], df["Close"]
-
-    def donchian(n):
-        return (high.rolling(n).max() + low.rolling(n).min()) / 2
-
-    conversion = donchian(ICHIMOKU_CONVERSION)
-    base = donchian(ICHIMOKU_BASE)
-    lead_a = (conversion + base) / 2
-    lead_b = donchian(ICHIMOKU_SPAN_B)
-    shift = ICHIMOKU_DISPLACEMENT - 1
-
-    dates = [idx.strftime("%Y-%m-%d") for idx in df.index]
-    last_day = df.index[-1].date()
-    future = [d.strftime("%Y-%m-%d") for d in pd.bdate_range(last_day + timedelta(days=1), periods=shift)]
-    all_dates = dates + future
-
-    def points(values, offset):
-        out = []
-        for i, v in enumerate(values):
-            j = i + offset
-            if 0 <= j < len(all_dates) and pd.notna(v) and all_dates[j] >= since:
-                out.append({"time": all_dates[j], "value": round(float(v), 4)})
-        return out
-
+def bars_payload(df, intraday):
+    """DataFrame → 网页用的列式数组 {t,o,h,l,c,v} (比一根K线一个对象省一半以上体积)。
+    时间用秒级时间戳：日内K线加上 +8 小时，让图表按 UTC 显示时刚好就是马来西亚时间；日线以上用当天 00:00 UTC。"""
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    if intraday:
+        t = [int(ts.timestamp()) + MYT_OFFSET_SECS for ts in df.index]
+    else:
+        t = [calendar.timegm(ts.date().timetuple()) for ts in df.index]
     return {
-        "conversion": points(conversion, 0),
-        "base": points(base, 0),
-        "lagging": points(close, -shift),
-        "lead_a": points(lead_a, shift),
-        "lead_b": points(lead_b, shift),
+        "t": t,
+        "o": [round(float(x), 4) for x in df["Open"]],
+        "h": [round(float(x), 4) for x in df["High"]],
+        "l": [round(float(x), 4) for x in df["Low"]],
+        "c": [round(float(x), 4) for x in df["Close"]],
+        "v": [int(x) if pd.notna(x) else 0 for x in df["Volume"]],
     }
 
 
-def get_ichimoku(symbol, since):
-    """只给命中信号的股票 (有K线图的) 用。先行带 B 要 52 根 + 往后移 25 根，
-    6 个月的数据只够画出图表右半边的云，所以这里另外抓 1 年的日线。失败就返回 None (图上不画)。"""
-    try:
-        df = yf.Ticker(symbol).history(period="1y")
-        if len(df) < ICHIMOKU_BASE:
-            return None
-        return compute_ichimoku(df, since)
-    except Exception as e:
-        print(f"⚠️ {symbol} 一目均衡表数据获取失败 ({type(e).__name__}: {e})")
-        return None
+def get_chart_history(symbol):
+    """只给命中信号的股票 (有K线图的，平常 0–3 支) 用：并发抓 6 种周期的K线，任何一种抓失败就跳过那一种
+    (网页上对应的周期按钮会变灰)，不影响其他东西。"""
+    def fetch(source):
+        key, interval, period, keep_days = source
+        try:
+            df = yf.Ticker(symbol).history(period=period, interval=interval)
+            if df is None or df.empty:
+                return key, None
+            if keep_days:
+                days = sorted(set(df.index.date))[-keep_days:]
+                df = df[[d in days for d in df.index.date]]
+            return key, bars_payload(df, intraday=interval.endswith("m"))
+        except Exception as e:
+            print(f"⚠️ {symbol} {interval} K线获取失败 ({type(e).__name__}: {e})")
+            return key, None
+
+    with ThreadPoolExecutor(max_workers=len(CHART_SOURCES)) as pool:
+        return {key: bars for key, bars in pool.map(fetch, CHART_SOURCES) if bars}
 
 
 def get_intraday_closes(symbol):
@@ -532,7 +525,11 @@ SETTINGS_CSS = """
   .ind-preset-btn:hover { background: var(--gridline); }
   .ind-preset-btn .ind-swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .ind-preset-btn.added { opacity: 0.5; cursor: default; }
-  .ind-scale-toggle { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--text-secondary); }
+  .ind-place { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-bottom: 0.75rem; font-size: 0.8rem; color: var(--text-secondary); }
+  .settings-section .ind-place button { border-radius: 999px; padding: 0.2rem 0.7rem; }
+  .settings-section .ind-place button[aria-checked="true"] { background: var(--text-primary); color: var(--surface); border-color: var(--text-primary); }
+  .ind-place small { color: var(--muted); font-size: 0.72rem; flex-basis: 100%; }
+  .settings-section .ind-move, .settings-section .ind-pane-toggle { padding: 0.1rem 0.4rem; font-size: 0.72rem; }
   .ind-list-title { font-size: 0.85rem; margin: 0.5rem 0 0.4rem; color: var(--text-secondary); font-weight: 600; }
 """
 
@@ -631,13 +628,20 @@ SETTINGS_PANEL_HTML = """
       <button type="button" class="ind-tab" data-cat="custom">自定义公式</button>
     </div>
 
+    <div class="ind-place" role="radiogroup" aria-label="新指标放在哪里">
+      <span>添加到</span>
+      <button type="button" role="radio" data-place="auto" aria-checked="true">自动</button>
+      <button type="button" role="radio" data-place="main" aria-checked="false">主图</button>
+      <button type="button" role="radio" data-place="sub" aria-checked="false">新副图</button>
+      <small>自动 = 均线类放主图，RSI/MACD 这类震荡指标另开副图</small>
+    </div>
+
     <div id="ind-presets" class="ind-presets"></div>
 
     <div id="ind-custom-form" class="indicator-form" hidden>
       <input type="text" id="ind-name" placeholder="名称，例如 SMA10">
       <input type="text" id="ind-formula" placeholder="公式，例如 sma(close,10)">
       <input type="color" id="ind-color" value="#e8a33d">
-      <label class="ind-scale-toggle"><input type="checkbox" id="ind-own-scale"> 独立坐标轴 (适合震荡类指标)</label>
       <button type="button" id="ind-add">添加到所有图表</button>
     </div>
     <p id="ind-error" class="ind-error" hidden></p>
@@ -647,875 +651,157 @@ SETTINGS_PANEL_HTML = """
       例如: <code>sma(close,10)</code>　<code>ema(close,12)-ema(close,26)</code>　<code>sma(close,20)+2*stdev(close,20)</code>
     </p>
 
-    <h4 class="ind-list-title">已添加</h4>
+    <h4 class="ind-list-title">已添加 (当前模板，改动自动保存；↑ ↓ 调顺序，点"主图/副图"可以切换位置)</h4>
     <ul id="ind-list" class="indicator-list"></ul>
   </div>
   <p class="hint">以上设置只保存在你自己的浏览器里，不会影响其他人看到的报告，下次自动更新报告后依然保留。</p>
 </div>
 """
 
-CHART_SCRIPT = """
-<script>
-(function () {
-  var data = JSON.parse(document.getElementById('chart-data').textContent);
-  var chartRegistry = {}; // chartId -> { chart, candleSeries, emaSeries, volumeSeries, customSeries: {id: series} }
+# 图表脚本放在 docs/report.js (不再内嵌在 HTML 里)：浏览器可以缓存，改起来也好测试。
+# 网址后面带上文件内容的哈希，改了脚本后浏览器会自动拿新版本，不会用到缓存里的旧脚本。
+REPORT_JS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "report.js")
 
-  // ---------- 颜色: 读取/应用/持久化 ----------
-  var COLOR_KEYS = ['up', 'down', 'ema'];
-  var COLOR_STORAGE_KEY = 'bursa_colors_v1';
 
-  function loadSavedColors() {
-    try { return JSON.parse(localStorage.getItem(COLOR_STORAGE_KEY) || '{}'); } catch (e) { return {}; }
+def report_js_version():
+    try:
+        with open(REPORT_JS_PATH, "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()[:10]
+    except OSError:
+        return "dev"
+
+
+CARD_CSS = """
+  /* ---- 筛选器 (信号股) 卡片: 周期导航条 + 多窗格K线图 + 图表左上角指标图例 + 下方 quote 数据 ---- */
+  .tpl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 1rem; font-size: 0.8rem; color: var(--muted); }
+  .tpl-name {
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px dashed transparent;
+    border-radius: 4px;
+    padding: 0.15rem 0.35rem;
+    width: 12em;
+    max-width: 60vw;
   }
-  function saveColors() {
-    try {
-      var toSave = {};
-      COLOR_KEYS.forEach(function (k) {
-        var v = document.documentElement.style.getPropertyValue('--' + k);
-        if (v) toSave[k] = v.trim();
-      });
-      localStorage.setItem(COLOR_STORAGE_KEY, JSON.stringify(toSave));
-    } catch (e) {}
+  .tpl-name:hover { border-color: var(--border); }
+  .tpl-name:focus { outline: none; border-color: var(--muted); color: var(--text-primary); }
+  .tpl-select, .tpl-btn {
+    font: inherit;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+    cursor: pointer;
   }
-  // 页面一加载就把上次保存的颜色套回 CSS 变量，这样第一次画图就是对的颜色，不会先画默认色再闪一下
-  (function applySavedColors() {
-    var saved = loadSavedColors();
-    COLOR_KEYS.forEach(function (k) {
-      if (saved[k]) document.documentElement.style.setProperty('--' + k, saved[k]);
-    });
-  })();
-
-  function computeColors() {
-    var st = getComputedStyle(document.documentElement);
-    return {
-      text: st.getPropertyValue('--text-secondary').trim(),
-      grid: st.getPropertyValue('--gridline').trim(),
-      up: st.getPropertyValue('--up').trim(),
-      down: st.getPropertyValue('--down').trim(),
-      ema: st.getPropertyValue('--ema').trim()
-    };
+  .tpl-btn:hover, .tpl-select:hover { color: var(--text-primary); }
+  .tpl-status { font-size: 0.72rem; color: var(--up); opacity: 0; transition: opacity 0.3s; }
+  .tpl-status.show { opacity: 1; }
+  .card-head { align-items: baseline; }
+  .card-price { font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+  .card-price b { font-size: 1.05rem; margin-right: 0.3rem; }
+  .card-tags { margin: 0 0 0.5rem; font-size: 0.75rem; color: var(--muted); }
+  /* 周期导航条: 放不下时左右滑，两边的 ‹ › 可以点着滚 */
+  .tf-bar { display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.4rem; min-height: 1.9rem; }
+  .tf-list {
+    display: flex;
+    gap: 0.15rem;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+    flex: 1;
+    min-width: 0;
   }
-  var colors = computeColors();
-
-  function updateAllChartColors() {
-    Object.keys(chartRegistry).forEach(function (chartId) {
-      var reg = chartRegistry[chartId];
-      reg.candleSeries.applyOptions({
-        downColor: colors.down,
-        borderUpColor: colors.up,
-        borderDownColor: colors.down,
-        wickUpColor: colors.up,
-        wickDownColor: colors.down
-      });
-      reg.emaSeries.applyOptions({ color: colors.ema });
-      reg.volumeSeries.setData(data[chartId].candles.map(function (c) {
-        return { time: c.time, value: c.volume, color: c.close >= c.open ? colors.up : colors.down };
-      }));
-    });
+  .tf-list::-webkit-scrollbar { display: none; }
+  .tf-btn, .tf-arrow, .tf-ind {
+    flex: 0 0 auto;
+    font: inherit;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 0.2rem 0.45rem;
+    cursor: pointer;
+    white-space: nowrap;
   }
-
-  // ---------- 自定义指标: 小型公式解析/计算引擎 ----------
-  var customIndicators = []; // [{id, name, formula, color}]
-  var IND_STORAGE_KEY = 'bursa_custom_indicators_v1';
-
-  function loadSavedIndicators() {
-    try { return JSON.parse(localStorage.getItem(IND_STORAGE_KEY) || '[]'); } catch (e) { return []; }
+  .tf-btn:hover:not(:disabled), .tf-arrow:hover, .tf-ind:hover { background: var(--page); color: var(--text-primary); }
+  .tf-btn[aria-selected="true"] { background: var(--page); border-color: var(--border); color: var(--text-primary); font-weight: 600; }
+  .tf-btn:disabled { opacity: 0.35; cursor: default; }
+  .tf-arrow { font-size: 1rem; line-height: 1; padding: 0.15rem 0.35rem; }
+  .tf-arrow:disabled { visibility: hidden; }
+  .tf-ind { border-color: var(--border); }
+  .chart-wrap { position: relative; }
+  .chart { width: 100%; height: 300px; }
+  /* 图表左上角的指标图例: 名称 + 当前值 + ↑ ↓ × (电脑上鼠标移过去才显示按钮，手机上一直显示) */
+  .chart-legends { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+  .lg-pane { position: absolute; left: 4px; right: 70px; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+  .lg-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    max-width: 100%;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    padding: 0 0.3rem;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--surface) 70%, transparent);
+    pointer-events: auto;
+    white-space: nowrap;
   }
-  function saveIndicators() {
-    try { localStorage.setItem(IND_STORAGE_KEY, JSON.stringify(customIndicators)); } catch (e) {}
+  .lg-row.lg-error { color: var(--down); }
+  .lg-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .lg-name { overflow: hidden; text-overflow: ellipsis; }
+  .lg-val { font-variant-numeric: tabular-nums; display: inline-flex; gap: 0.3rem; }
+  .lg-ctrl { display: inline-flex; gap: 1px; }
+  .lg-ctrl button {
+    font: inherit;
+    font-size: 0.72rem;
+    line-height: 1;
+    width: 1.35rem;
+    height: 1.2rem;
+    padding: 0;
+    color: var(--text-secondary);
+    background: var(--page);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
   }
-
-  function isArr(v) { return Array.isArray(v); }
-
-  // 两个操作数做逐点运算，任一操作数是数组就按数组逐点算 (标量会自动广播)，null 值会一路传播下去
-  function ew(a, b, fn) {
-    if (isArr(a) && isArr(b)) {
-      return a.map(function (v, i) {
-        var w = b[i];
-        return (v === null || v === undefined || w === null || w === undefined || isNaN(v) || isNaN(w)) ? null : fn(v, w);
-      });
-    }
-    if (isArr(a)) return a.map(function (v) { return (v === null || v === undefined || isNaN(v)) ? null : fn(v, b); });
-    if (isArr(b)) return b.map(function (w) { return (w === null || w === undefined || isNaN(w)) ? null : fn(a, w); });
-    return fn(a, b);
+  .lg-ctrl button:hover:not(:disabled) { color: var(--text-primary); }
+  .lg-ctrl button[data-act="del"]:hover { color: var(--down); }
+  .lg-ctrl button:disabled { opacity: 0.3; cursor: default; }
+  @media (hover: hover) {
+    .lg-row .lg-ctrl { display: none; }
+    .lg-row:hover .lg-ctrl, .lg-row:focus-within .lg-ctrl { display: inline-flex; }
   }
-
-  function seriesSMA(arr, n) {
-    var out = new Array(arr.length).fill(null);
-    for (var i = 0; i < arr.length; i++) {
-      if (i < n - 1) continue;
-      var sum = 0, ok = true;
-      for (var j = i - n + 1; j <= i; j++) {
-        if (arr[j] === null || arr[j] === undefined || isNaN(arr[j])) { ok = false; break; }
-        sum += arr[j];
-      }
-      out[i] = ok ? sum / n : null;
-    }
-    return out;
+  /* 图表下方的数据 (quote): 第一行是十字光标所在那根K线，下面是日线数据 */
+  .quote { margin-top: 0.5rem; border-top: 1px solid var(--border); padding-top: 0.45rem; font-size: 0.78rem; }
+  .quote-live { display: flex; flex-wrap: wrap; gap: 0.2rem 0.7rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; min-height: 1.2em; }
+  .quote-live b { color: var(--text-primary); font-weight: 600; }
+  .quote-live .ql-time { color: var(--muted); }
+  .quote-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+    gap: 0.35rem 0.6rem;
+    margin: 0.45rem 0 0;
   }
-  function seriesEMA(arr, n) {
-    var k = 2 / (n + 1);
-    var out = new Array(arr.length).fill(null);
-    var prev = null;
-    for (var i = 0; i < arr.length; i++) {
-      var v = arr[i];
-      if (v === null || v === undefined || isNaN(v)) { out[i] = null; prev = null; continue; }
-      prev = prev === null ? v : v * k + prev * (1 - k);
-      out[i] = prev;
-    }
-    return out;
-  }
-  function seriesStdev(arr, n) {
-    var sma = seriesSMA(arr, n);
-    var out = new Array(arr.length).fill(null);
-    for (var i = 0; i < arr.length; i++) {
-      if (sma[i] === null) continue;
-      var sumSq = 0, ok = true;
-      for (var j = i - n + 1; j <= i; j++) {
-        if (arr[j] === null || arr[j] === undefined || isNaN(arr[j])) { ok = false; break; }
-        sumSq += Math.pow(arr[j] - sma[i], 2);
-      }
-      out[i] = ok ? Math.sqrt(sumSq / n) : null;
-    }
-    return out;
-  }
-  function seriesExtreme(arr, n, better) {
-    var out = new Array(arr.length).fill(null);
-    for (var i = 0; i < arr.length; i++) {
-      if (i < n - 1) continue;
-      var slice = arr.slice(i - n + 1, i + 1);
-      if (slice.some(function (v) { return v === null || v === undefined || isNaN(v); })) continue;
-      out[i] = better.apply(null, slice);
-    }
-    return out;
-  }
-  function seriesSum(arr, n) {
-    var out = new Array(arr.length).fill(null);
-    for (var i = 0; i < arr.length; i++) {
-      if (i < n - 1) continue;
-      var s = 0, ok = true;
-      for (var j = i - n + 1; j <= i; j++) {
-        if (arr[j] === null || arr[j] === undefined || isNaN(arr[j])) { ok = false; break; }
-        s += arr[j];
-      }
-      out[i] = ok ? s : null;
-    }
-    return out;
-  }
-  // Wilder 平滑的 RSI (跟 pandas_ta 后台算策略用的那套是同一种平滑方式，不是简单 EMA)
-  function seriesRSI(closeArr, n) {
-    var out = new Array(closeArr.length).fill(null);
-    if (closeArr.length <= n) return out;
-    var gains = [], losses = [];
-    for (var i = 1; i < closeArr.length; i++) {
-      var c0 = closeArr[i - 1], c1 = closeArr[i];
-      if (c0 === null || c1 === null || c0 === undefined || c1 === undefined || isNaN(c0) || isNaN(c1)) {
-        gains.push(null); losses.push(null); continue;
-      }
-      var change = c1 - c0;
-      gains.push(change > 0 ? change : 0);
-      losses.push(change < 0 ? -change : 0);
-    }
-    var avgGain = null, avgLoss = null;
-    for (var idx = 0; idx < gains.length; idx++) {
-      var barIndex = idx + 1;
-      if (idx < n - 1) continue;
-      if (idx === n - 1) {
-        var sumG = 0, sumL = 0, ok = true;
-        for (var j = 0; j < n; j++) {
-          if (gains[j] === null) { ok = false; break; }
-          sumG += gains[j]; sumL += losses[j];
-        }
-        if (!ok) continue;
-        avgGain = sumG / n;
-        avgLoss = sumL / n;
-      } else {
-        if (gains[idx] === null || avgGain === null) { avgGain = null; avgLoss = null; continue; }
-        avgGain = (avgGain * (n - 1) + gains[idx]) / n;
-        avgLoss = (avgLoss * (n - 1) + losses[idx]) / n;
-      }
-      if (avgGain === null) continue;
-      out[barIndex] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-    }
-    return out;
-  }
-  // ATR: 真实波幅 (Wilder 平滑)，需要用到前一天收盘价，所以直接用 ctx 里的 high/low/close，不走 arrayArg
-  function seriesATR(ctx, n) {
-    var high = ctx.series.high, low = ctx.series.low, close = ctx.series.close;
-    var tr = new Array(high.length).fill(null);
-    for (var i = 0; i < high.length; i++) {
-      if (i === 0) { tr[i] = high[i] - low[i]; continue; }
-      var pc = close[i - 1];
-      if (pc === null || pc === undefined || isNaN(pc)) { tr[i] = high[i] - low[i]; continue; }
-      tr[i] = Math.max(high[i] - low[i], Math.abs(high[i] - pc), Math.abs(low[i] - pc));
-    }
-    var out = new Array(tr.length).fill(null);
-    var avg = null;
-    for (var i = 0; i < tr.length; i++) {
-      if (i < n - 1) continue;
-      if (i === n - 1) {
-        var sum = 0;
-        for (var j = i - n + 1; j <= i; j++) sum += tr[j];
-        avg = sum / n;
-      } else {
-        avg = (avg * (n - 1) + tr[i]) / n;
-      }
-      out[i] = avg;
-    }
-    return out;
-  }
-  // OBV: 累积能量潮，跟 ATR 一样直接吃 ctx 里的 close/volume
-  function seriesOBV(ctx) {
-    var close = ctx.series.close, volume = ctx.series.volume;
-    var out = new Array(close.length).fill(null);
-    var cum = 0;
-    for (var i = 0; i < close.length; i++) {
-      if (i === 0) { out[i] = 0; continue; }
-      if (close[i] > close[i - 1]) cum += volume[i];
-      else if (close[i] < close[i - 1]) cum -= volume[i];
-      out[i] = cum;
-    }
-    return out;
-  }
+  .quote-grid div { min-width: 0; }
+  .quote-grid dt { color: var(--muted); font-size: 0.7rem; }
+  .quote-grid dd { margin: 0; color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+"""
 
-  function evalFormula(formula, ctx) {
-    var s = formula;
-    var pos = 0;
-
-    function skipSpace() { while (pos < s.length && /\\s/.test(s[pos])) pos++; }
-    function consume(ch) {
-      skipSpace();
-      if (s[pos] !== ch) throw new Error('语法错误，期望 "' + ch + '"，但看到 "' + (s[pos] || '(末尾)') + '"');
-      pos++;
-    }
-    function parseNumber() {
-      skipSpace();
-      var start = pos;
-      while (pos < s.length && /[0-9.]/.test(s[pos])) pos++;
-      if (pos === start) throw new Error('无效的数字');
-      return parseFloat(s.slice(start, pos));
-    }
-    function parseIdent() {
-      skipSpace();
-      var start = pos;
-      while (pos < s.length && /[a-zA-Z_0-9]/.test(s[pos])) pos++;
-      if (pos === start) throw new Error('无效的名称');
-      return s.slice(start, pos);
-    }
-    function lookupSeries(name) {
-      if (ctx.series.hasOwnProperty(name)) return ctx.series[name];
-      throw new Error('未知变量: ' + name + ' (可用: close open high low volume)');
-    }
-    function requireArgs(name, args, count) {
-      if (args.length !== count) throw new Error(name + '() 需要 ' + count + ' 个参数，实际给了 ' + args.length + ' 个');
-    }
-    function arrayArg(v, label) {
-      if (!isArr(v)) throw new Error(label + ' 必须是一条时间序列 (例如 close)，不能是单个数字');
-      return v;
-    }
-    function periodArg(v, label) {
-      if (isArr(v)) throw new Error(label + ' 必须是一个数字');
-      if (typeof v !== 'number' || isNaN(v) || v <= 0) throw new Error(label + ' 必须是大于 0 的数字');
-      return Math.round(v);
-    }
-    function callFunction(name, args) {
-      switch (name) {
-        case 'sma': requireArgs('sma', args, 2); return seriesSMA(arrayArg(args[0], 'sma 的第一个参数'), periodArg(args[1], 'sma 的周期'));
-        case 'ema': requireArgs('ema', args, 2); return seriesEMA(arrayArg(args[0], 'ema 的第一个参数'), periodArg(args[1], 'ema 的周期'));
-        case 'stdev': requireArgs('stdev', args, 2); return seriesStdev(arrayArg(args[0], 'stdev 的第一个参数'), periodArg(args[1], 'stdev 的周期'));
-        case 'highest': requireArgs('highest', args, 2); return seriesExtreme(arrayArg(args[0], 'highest 的第一个参数'), periodArg(args[1], 'highest 的周期'), Math.max);
-        case 'lowest': requireArgs('lowest', args, 2); return seriesExtreme(arrayArg(args[0], 'lowest 的第一个参数'), periodArg(args[1], 'lowest 的周期'), Math.min);
-        case 'sum': requireArgs('sum', args, 2); return seriesSum(arrayArg(args[0], 'sum 的第一个参数'), periodArg(args[1], 'sum 的周期'));
-        case 'rsi': requireArgs('rsi', args, 2); return seriesRSI(arrayArg(args[0], 'rsi 的第一个参数'), periodArg(args[1], 'rsi 的周期'));
-        case 'atr': requireArgs('atr', args, 1); return seriesATR(ctx, periodArg(args[0], 'atr 的周期'));
-        case 'obv': requireArgs('obv', args, 0); return seriesOBV(ctx);
-        case 'abs':
-          requireArgs('abs', args, 1);
-          return isArr(args[0]) ? args[0].map(function (v) { return (v === null || v === undefined || isNaN(v)) ? null : Math.abs(v); }) : Math.abs(args[0]);
-        default:
-          throw new Error('未知函数: ' + name + '() (可用: sma ema stdev highest lowest sum rsi atr obv abs)');
-      }
-    }
-    function parsePrimary() {
-      skipSpace();
-      var ch = s[pos];
-      if (ch === '(') {
-        pos++;
-        var v = parseExpr();
-        consume(')');
-        return v;
-      }
-      if (ch !== undefined && /[0-9.]/.test(ch)) return parseNumber();
-      if (ch !== undefined && /[a-zA-Z_]/.test(ch)) {
-        var name = parseIdent();
-        skipSpace();
-        if (s[pos] === '(') {
-          pos++;
-          var args = [];
-          skipSpace();
-          if (s[pos] !== ')') {
-            args.push(parseExpr());
-            skipSpace();
-            while (s[pos] === ',') { pos++; args.push(parseExpr()); skipSpace(); }
-          }
-          consume(')');
-          return callFunction(name, args);
-        }
-        return lookupSeries(name);
-      }
-      throw new Error('公式无法解析，看不懂这里: "' + (ch === undefined ? '(末尾)' : s.slice(pos)) + '"');
-    }
-    function parseUnary() {
-      skipSpace();
-      if (s[pos] === '-') {
-        pos++;
-        return ew(parseUnary(), -1, function (a, b) { return a * b; });
-      }
-      return parsePower();
-    }
-    function parsePower() {
-      var base = parsePrimary();
-      skipSpace();
-      if (s[pos] === '^') {
-        pos++;
-        return ew(base, parseUnary(), Math.pow);
-      }
-      return base;
-    }
-    function parseTerm() {
-      var v = parseUnary();
-      skipSpace();
-      while (s[pos] === '*' || s[pos] === '/') {
-        var op = s[pos]; pos++;
-        var rhs = parseUnary();
-        v = ew(v, rhs, op === '*' ? function (a, b) { return a * b; } : function (a, b) { return a / b; });
-        skipSpace();
-      }
-      return v;
-    }
-    function parseExpr() {
-      var v = parseTerm();
-      skipSpace();
-      while (s[pos] === '+' || s[pos] === '-') {
-        var op = s[pos]; pos++;
-        var rhs = parseTerm();
-        v = ew(v, rhs, op === '+' ? function (a, b) { return a + b; } : function (a, b) { return a - b; });
-        skipSpace();
-      }
-      return v;
-    }
-
-    var result = parseExpr();
-    skipSpace();
-    if (pos !== s.length) throw new Error('公式末尾有多余内容: "' + s.slice(pos) + '"');
-    return result;
-  }
-
-  // 指标可以来自公式 (indicator.formula) 或者后台已经算好整条序列直接传过来的 (indicator.dataKey，目前只有 SAR)
-  function computeIndicatorSeries(chartId, indicator) {
-    var candles = data[chartId].candles;
-    if (indicator.dataKey) {
-      var raw = data[chartId][indicator.dataKey];
-      if (!raw) throw new Error('这张图没有 ' + indicator.dataKey + ' 数据');
-      return raw;
-    }
-    var ctx = {
-      series: {
-        close: candles.map(function (c) { return c.close; }),
-        open: candles.map(function (c) { return c.open; }),
-        high: candles.map(function (c) { return c.high; }),
-        low: candles.map(function (c) { return c.low; }),
-        volume: candles.map(function (c) { return c.volume; })
-      }
-    };
-    var result = evalFormula(indicator.formula, ctx);
-    if (!isArr(result)) throw new Error('公式结果必须是一条随时间变化的序列，不能只是一个固定数字');
-    var points = [];
-    candles.forEach(function (c, i) {
-      var v = result[i];
-      if (v !== null && v !== undefined && !isNaN(v)) points.push({ time: c.time, value: v });
-    });
-    return points;
-  }
-
-  // scale === 'volume': 跟成交量柱共用一条坐标轴 (适合"成交量均线"这种)
-  // scale === 'own': 给这个指标单独开一条自动缩放的坐标轴，叠在图上但数值范围不跟价格挂钩 (适合 RSI/MACD 这类震荡指标)
-  // 否则 (scale === 'price' 或没设置): 跟K线共用右侧价格坐标轴 (适合均线/布林带/SAR 这类跟价格同单位的指标)
-  function scaleIdFor(indicator) {
-    if (indicator.scale === 'volume') return '';
-    if (indicator.scale === 'own') return 'ind-' + (indicator.scaleGroup || indicator.id);
-    return undefined;
-  }
-
-  // ---------- 一目均衡表 (Ichimoku Cloud): 5 条线 + 先行带 A/B 之间的云 ----------
-  // 数值由后台 compute_ichimoku() 按 TradingView 同一套算法算好 (连未来 25 根的日期都排好了)，这里只负责画。
-  // 颜色跟 TradingView 内置脚本一样
-  var ICHIMOKU_LINES = [
-    { key: 'conversion', color: '#2962FF' },  // 转换线
-    { key: 'base', color: '#B71C1C' },        // 基准线
-    { key: 'lagging', color: '#43A047' },     // 延迟线
-    { key: 'lead_a', color: '#A5D6A7' },      // 先行带 A
-    { key: 'lead_b', color: '#EF9A9A' }       // 先行带 B
-  ];
-  var CLOUD_UP = 'rgba(67, 160, 71, 0.22)';    // 先行带 A 在 B 上方
-  var CLOUD_DOWN = 'rgba(244, 67, 54, 0.22)';  // 先行带 A 在 B 下方
-
-  // Lightweight Charts 没有"两条线之间填色"，用 v4.1 的 series primitive 直接在画布上画多边形。
-  // 两条线交叉的那一段按交点切成两个三角形，颜色才会在交叉点准确切换 (跟 TradingView 一样)
-  function CloudPrimitive(leadA, leadB) {
-    var bByTime = {};
-    leadB.forEach(function (p) { bByTime[p.time] = p.value; });
-    this._pairs = leadA.filter(function (p) { return p.time in bByTime; })
-      .map(function (p) { return { time: p.time, a: p.value, b: bByTime[p.time] }; });
-    this._chart = null;
-    this._series = null;
-    var self = this;
-    this._paneView = {
-      zOrder: function () { return 'bottom'; },  // 画在K线下面
-      renderer: function () { return { draw: function (target) { self._draw(target); } }; }
-    };
-  }
-  CloudPrimitive.prototype.attached = function (param) { this._chart = param.chart; this._series = param.series; };
-  CloudPrimitive.prototype.detached = function () { this._chart = null; this._series = null; };
-  CloudPrimitive.prototype.updateAllViews = function () {};
-  CloudPrimitive.prototype.paneViews = function () { return [this._paneView]; };
-  CloudPrimitive.prototype._draw = function (target) {
-    if (!this._chart) return;
-    var timeScale = this._chart.timeScale();
-    var series = this._series;
-    var pts = [];
-    this._pairs.forEach(function (p) {
-      var x = timeScale.timeToCoordinate(p.time);
-      var ya = series.priceToCoordinate(p.a);
-      var yb = series.priceToCoordinate(p.b);
-      if (x !== null && ya !== null && yb !== null) pts.push({ x: x, ya: ya, yb: yb, d: p.a - p.b });
-    });
-    function poly(ctx, corners, color) {
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(corners[0][0], corners[0][1]);
-      for (var k = 1; k < corners.length; k++) ctx.lineTo(corners[k][0], corners[k][1]);
-      ctx.closePath();
-      ctx.fill();
-    }
-    target.useMediaCoordinateSpace(function (scope) {
-      var ctx = scope.context;
-      for (var i = 0; i + 1 < pts.length; i++) {
-        var p = pts[i], q = pts[i + 1];
-        if (p.d * q.d < 0) {
-          var t = p.d / (p.d - q.d);
-          var cx = p.x + (q.x - p.x) * t, cy = p.ya + (q.ya - p.ya) * t;
-          poly(ctx, [[p.x, p.ya], [cx, cy], [p.x, p.yb]], p.d > 0 ? CLOUD_UP : CLOUD_DOWN);
-          poly(ctx, [[cx, cy], [q.x, q.ya], [q.x, q.yb]], q.d > 0 ? CLOUD_UP : CLOUD_DOWN);
-        } else {
-          var up = p.d !== 0 ? p.d > 0 : q.d > 0;
-          poly(ctx, [[p.x, p.ya], [q.x, q.ya], [q.x, q.yb], [p.x, p.yb]], up ? CLOUD_UP : CLOUD_DOWN);
-        }
-      }
-    });
-  };
-
-  function addIchimokuToChart(chartId, reg) {
-    var ich = data[chartId].ichimoku;
-    if (!ich) throw new Error('这张图没有一目均衡表数据');
-    var list = ICHIMOKU_LINES.map(function (line) {
-      var series = reg.chart.addLineSeries({
-        color: line.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
-      });
-      series.setData(ich[line.key]);
-      return series;
-    });
-    list[3].attachPrimitive(new CloudPrimitive(ich.lead_a, ich.lead_b));
-    // 先行带往未来多画了 25 根，重新缩放一下才看得到整片云
-    reg.chart.timeScale().fitContent();
-    return list;
-  }
-
-  function addCustomIndicatorSeriesToChart(chartId, indicator) {
-    var reg = chartRegistry[chartId];
-    if (!reg) return;
-    try {
-      if (indicator.composite === 'ichimoku') {
-        reg.customSeries[indicator.id] = addIchimokuToChart(chartId, reg);
-        return;
-      }
-      var opts = { color: indicator.color, lineWidth: indicator.dotted ? 1 : 2, priceLineVisible: false };
-      if (indicator.dotted) opts.lineStyle = LightweightCharts.LineStyle.Dotted;
-      var scaleId = scaleIdFor(indicator);
-      if (scaleId !== undefined) opts.priceScaleId = scaleId;
-      var series = reg.chart.addLineSeries(opts);
-      series.setData(computeIndicatorSeries(chartId, indicator));
-      if (indicator.scale === 'own') {
-        reg.chart.priceScale(scaleId).applyOptions({ scaleMargins: { top: 0.05, bottom: 0.05 } });
-      }
-      reg.customSeries[indicator.id] = series;
-    } catch (e) {
-      console.warn('指标 "' + indicator.name + '" 在 ' + chartId + ' 渲染失败: ' + e.message);
-    }
-  }
-  function applyIndicatorToAllCharts(indicator) {
-    Object.keys(chartRegistry).forEach(function (chartId) { addCustomIndicatorSeriesToChart(chartId, indicator); });
-  }
-  function removeIndicator(id) {
-    customIndicators = customIndicators.filter(function (ind) { return ind.id !== id; });
-    saveIndicators();
-    Object.keys(chartRegistry).forEach(function (chartId) {
-      var reg = chartRegistry[chartId];
-      var entry = reg.customSeries[id];
-      if (entry) {
-        // 一目均衡表这类组合指标存的是一组 series
-        [].concat(entry).forEach(function (series) { reg.chart.removeSeries(series); });
-        delete reg.customSeries[id];
-        if (Array.isArray(entry)) reg.chart.timeScale().fitContent();
-      }
-    });
-    renderPresetGrid();
-  }
-  function escapeHtml(str) {
-    return String(str).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
-  function renderIndicatorListItem(ind) {
-    var list = document.getElementById('ind-list');
-    if (!list) return;
-    var detail = ind.formula || (ind.composite === 'ichimoku' ? '转换线 / 基准线 / 延迟线 / 先行带A·B + 云' : (ind.dataKey ? '(内置指标)' : ''));
-    var li = document.createElement('li');
-    li.innerHTML = '<span class="ind-swatch" style="background:' + ind.color + '"></span>' +
-      '<span class="ind-name">' + escapeHtml(ind.name) + '</span>' +
-      '<code class="ind-formula">' + escapeHtml(detail) + '</code>' +
-      '<button type="button" class="ind-remove" aria-label="删除">×</button>';
-    li.querySelector('.ind-remove').addEventListener('click', function () {
-      removeIndicator(ind.id);
-      li.remove();
-    });
-    list.appendChild(li);
-  }
-
-  // ---------- 预设指标库: 分类导航 + 一键添加 ----------
-  var INDICATOR_PRESETS = [
-    { id: 'sma20', category: 'trend', name: 'SMA20', formula: 'sma(close,20)', color: '#3d8ce8', scale: 'price' },
-    { id: 'sma50', category: 'trend', name: 'SMA50', formula: 'sma(close,50)', color: '#1f5fa8', scale: 'price' },
-    { id: 'ema50', category: 'trend', name: 'EMA50', formula: 'ema(close,50)', color: '#8a5ce8', scale: 'price' },
-    { id: 'sar', category: 'trend', name: 'SAR', dataKey: 'psar', color: '#e8a33d', scale: 'price', dotted: true },
-    { id: 'boll_upper', category: 'trend', name: '布林带上轨(20,2)', formula: 'sma(close,20)+2*stdev(close,20)', color: '#e86e6e', scale: 'price' },
-    { id: 'boll_mid', category: 'trend', name: '布林带中轨(20)', formula: 'sma(close,20)', color: '#c3c2b7', scale: 'price' },
-    { id: 'boll_lower', category: 'trend', name: '布林带下轨(20,2)', formula: 'sma(close,20)-2*stdev(close,20)', color: '#6ee89b', scale: 'price' },
-    { id: 'ichimoku', category: 'trend', name: '一目均衡表(9,26,52)', composite: 'ichimoku', color: '#2962FF', scale: 'price' },
-
-    { id: 'rsi14', category: 'momentum', name: 'RSI(14)', formula: 'rsi(close,14)', color: '#e8a33d', scale: 'own' },
-    { id: 'macd_line', category: 'momentum', name: 'MACD线(12,26)', formula: 'ema(close,12)-ema(close,26)', color: '#3d8ce8', scale: 'own', scaleGroup: 'macd' },
-    { id: 'macd_signal', category: 'momentum', name: 'MACD信号线(9)', formula: 'ema(ema(close,12)-ema(close,26),9)', color: '#e86e6e', scale: 'own', scaleGroup: 'macd' },
-    { id: 'stoch_k', category: 'momentum', name: 'Stochastic %K(14)', formula: '(close-lowest(low,14))/(highest(high,14)-lowest(low,14))*100', color: '#8a5ce8', scale: 'own' },
-    { id: 'cci20', category: 'momentum', name: 'CCI(20)', formula: '((high+low+close)/3-sma((high+low+close)/3,20))/(0.015*stdev((high+low+close)/3,20))', color: '#3dbf8e', scale: 'own' },
-    { id: 'wr14', category: 'momentum', name: 'Williams %R(14)', formula: '(highest(high,14)-close)/(highest(high,14)-lowest(low,14))*-100', color: '#e86ec2', scale: 'own' },
-
-    { id: 'atr14', category: 'volatility', name: 'ATR(14)', formula: 'atr(14)', color: '#e8a33d', scale: 'own' },
-    { id: 'boll_width', category: 'volatility', name: '布林带带宽(20,2)', formula: '(sma(close,20)+2*stdev(close,20)-(sma(close,20)-2*stdev(close,20)))/sma(close,20)', color: '#3d8ce8', scale: 'own' },
-
-    { id: 'obv', category: 'volume', name: 'OBV', formula: 'obv()', color: '#8a5ce8', scale: 'own' },
-    { id: 'vol_sma20', category: 'volume', name: '成交量均线(20)', formula: 'sma(volume,20)', color: '#e8a33d', scale: 'volume' },
-    { id: 'vwap20', category: 'volume', name: '滚动VWAP(20)', formula: 'sum((high+low+close)/3*volume,20)/sum(volume,20)', color: '#3dbf8e', scale: 'price' }
-  ];
-  var activeCategory = 'trend';
-
-  function addPresetIndicator(preset) {
-    var indicator = {
-      id: 'ind-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-      presetId: preset.id,
-      name: preset.name,
-      color: preset.color,
-      scale: preset.scale,
-      scaleGroup: preset.scaleGroup,
-      dotted: preset.dotted
-    };
-    if (preset.composite) indicator.composite = preset.composite;
-    else if (preset.dataKey) indicator.dataKey = preset.dataKey;
-    else indicator.formula = preset.formula;
-    customIndicators.push(indicator);
-    saveIndicators();
-    renderIndicatorListItem(indicator);
-    applyIndicatorToAllCharts(indicator);
-    renderPresetGrid();
-  }
-
-  function renderPresetGrid() {
-    var wrap = document.getElementById('ind-presets');
-    var customForm = document.getElementById('ind-custom-form');
-    var hint = document.getElementById('ind-formula-hint');
-    if (!wrap || !customForm || !hint) return;
-    if (activeCategory === 'custom') {
-      wrap.hidden = true;
-      customForm.hidden = false;
-      hint.hidden = false;
-      return;
-    }
-    wrap.hidden = false;
-    customForm.hidden = true;
-    hint.hidden = true;
-    wrap.innerHTML = '';
-    var addedPresetIds = customIndicators.map(function (i) { return i.presetId; }).filter(Boolean);
-    INDICATOR_PRESETS.filter(function (p) { return p.category === activeCategory; }).forEach(function (preset) {
-      var isAdded = addedPresetIds.indexOf(preset.id) !== -1;
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'ind-preset-btn' + (isAdded ? ' added' : '');
-      btn.innerHTML = '<span class="ind-swatch" style="background:' + preset.color + '"></span>' + escapeHtml(preset.name) + (isAdded ? ' ✓' : '');
-      if (isAdded) {
-        btn.disabled = true;
-      } else {
-        btn.addEventListener('click', function () { addPresetIndicator(preset); });
-      }
-      wrap.appendChild(btn);
-    });
-  }
-
-  var indTabs = document.querySelectorAll('.ind-tab');
-  indTabs.forEach(function (tab) {
-    tab.addEventListener('click', function () {
-      activeCategory = tab.dataset.cat;
-      indTabs.forEach(function (t) { t.classList.toggle('active', t === tab); });
-      renderPresetGrid();
-    });
-  });
-
-  customIndicators = loadSavedIndicators();
-  // 兼容旧版本存的数据 (那时候还没有 scale 字段，默认当成跟价格同轴处理)
-  customIndicators.forEach(function (ind) { if (!ind.scale) ind.scale = 'price'; });
-  customIndicators.forEach(renderIndicatorListItem);
-  renderPresetGrid();
-
-  // ---------- K 线图渲染 ----------
-  function renderChart(chartId) {
-    var el = document.getElementById(chartId);
-    if (!el || !window.LightweightCharts || el.dataset.rendered) return;
-    el.dataset.rendered = '1';
-
-    var chart = LightweightCharts.createChart(el, {
-      width: el.clientWidth,
-      height: 260,
-      layout: { background: { color: 'transparent' }, textColor: colors.text },
-      grid: {
-        vertLines: { color: colors.grid },
-        horzLines: { color: colors.grid }
-      },
-      rightPriceScale: { borderColor: colors.grid },
-      timeScale: { borderColor: colors.grid },
-      crosshair: { mode: LightweightCharts.CrosshairMode.Normal }
-    });
-
-    // 空心K线: 上涨只描边(空心)，下跌实心填满
-    var candleSeries = chart.addCandlestickSeries({
-      upColor: 'rgba(0, 0, 0, 0)',
-      downColor: colors.down,
-      borderUpColor: colors.up,
-      borderDownColor: colors.down,
-      wickUpColor: colors.up,
-      wickDownColor: colors.down,
-      borderVisible: true
-    });
-    candleSeries.setData(data[chartId].candles);
-
-    var emaSeries = chart.addLineSeries({
-      color: colors.ema,
-      lineWidth: 2,
-      priceLineVisible: false
-    });
-    emaSeries.setData(data[chartId].ema20);
-
-    // 成交量柱状图，叠加在图表下方约 20% 的区域
-    var volumeSeries = chart.addHistogramSeries({
-      priceScaleId: '',
-      priceFormat: { type: 'volume' }
-    });
-    volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-    volumeSeries.setData(data[chartId].candles.map(function (c) {
-      return { time: c.time, value: c.volume, color: c.close >= c.open ? colors.up : colors.down };
-    }));
-
-    chart.timeScale().fitContent();
-
-    chartRegistry[chartId] = { chart: chart, candleSeries: candleSeries, emaSeries: emaSeries, volumeSeries: volumeSeries, customSeries: {} };
-    customIndicators.forEach(function (ind) { addCustomIndicatorSeriesToChart(chartId, ind); });
-
-    // 鼠标/触摸移到某根K线时，显示当天开高低收+成交量；没有悬停时默认显示最新一天
-    var infoEl = document.getElementById(chartId + '-info');
-    function showBar(bar, vol) {
-      if (!infoEl || !bar) return;
-      var volText = vol && typeof vol.value === 'number' ? vol.value.toLocaleString() : '-';
-      infoEl.innerHTML = '开 <b>' + bar.open + '</b>　高 <b>' + bar.high + '</b>　低 <b>' + bar.low + '</b>　收 <b>' + bar.close + '</b>　量 <b>' + volText + '</b>';
-    }
-    var lastCandle = data[chartId].candles[data[chartId].candles.length - 1];
-    showBar(lastCandle, { value: lastCandle ? lastCandle.volume : null });
-
-    chart.subscribeCrosshairMove(function (param) {
-      var bar = param.seriesData ? param.seriesData.get(candleSeries) : null;
-      var vol = param.seriesData ? param.seriesData.get(volumeSeries) : null;
-      showBar(bar || lastCandle, vol || { value: lastCandle ? lastCandle.volume : null });
-    });
-
-    new ResizeObserver(function (entries) {
-      chart.applyOptions({ width: entries[0].contentRect.width });
-    }).observe(el);
-  }
-
-  // 懒加载: 图表滚动到快进入可视范围才真正渲染，避免一次性创建几百个图表卡住页面
-  var lazyObserver = new IntersectionObserver(function (entries) {
-    entries.forEach(function (entry) {
-      if (entry.isIntersecting) {
-        renderChart(entry.target.id);
-        lazyObserver.unobserve(entry.target);
-      }
-    });
-  }, { rootMargin: '200px 0px' });
-
-  Object.keys(data).forEach(function (chartId) {
-    var el = document.getElementById(chartId);
-    if (el) lazyObserver.observe(el);
-  });
-
-  // ---------- 设置面板交互 ----------
-  var toggleBtn = document.getElementById('settings-toggle');
-  var panel = document.getElementById('settings-panel');
-  if (toggleBtn && panel) {
-    toggleBtn.addEventListener('click', function () {
-      var willOpen = panel.hidden;
-      panel.hidden = !willOpen;
-      toggleBtn.setAttribute('aria-expanded', String(willOpen));
-    });
-  }
-
-  COLOR_KEYS.forEach(function (key) {
-    var input = document.getElementById('color-' + key);
-    if (!input) return;
-    input.value = colors[key];
-    input.addEventListener('input', function () {
-      document.documentElement.style.setProperty('--' + key, input.value);
-      colors = computeColors();
-      updateAllChartColors();
-      saveColors();
-    });
-  });
-
-  var resetBtn = document.getElementById('color-reset');
-  if (resetBtn) {
-    resetBtn.addEventListener('click', function () {
-      COLOR_KEYS.forEach(function (k) { document.documentElement.style.removeProperty('--' + k); });
-      try { localStorage.removeItem(COLOR_STORAGE_KEY); } catch (e) {}
-      colors = computeColors();
-      COLOR_KEYS.forEach(function (k) {
-        var input = document.getElementById('color-' + k);
-        if (input) input.value = colors[k];
-      });
-      updateAllChartColors();
-    });
-  }
-
-  var addBtn = document.getElementById('ind-add');
-  if (addBtn) {
-    addBtn.addEventListener('click', function () {
-      var nameEl = document.getElementById('ind-name');
-      var formulaEl = document.getElementById('ind-formula');
-      var colorEl = document.getElementById('ind-color');
-      var errEl = document.getElementById('ind-error');
-      errEl.hidden = true;
-
-      var name = nameEl.value.trim();
-      var formula = formulaEl.value.trim();
-      var color = colorEl.value;
-
-      if (!name || !formula) {
-        errEl.textContent = '请填写名称和公式';
-        errEl.hidden = false;
-        return;
-      }
-      if (formula.length > 300) {
-        errEl.textContent = '公式太长了';
-        errEl.hidden = false;
-        return;
-      }
-      var ownScaleEl = document.getElementById('ind-own-scale');
-      var scale = ownScaleEl && ownScaleEl.checked ? 'own' : 'price';
-      var indicator = { id: 'ind-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7), name: name, formula: formula, color: color, scale: scale };
-
-      var firstChartId = Object.keys(data)[0];
-      if (firstChartId) {
-        try {
-          computeIndicatorSeries(firstChartId, indicator);
-        } catch (e) {
-          errEl.textContent = '公式错误: ' + e.message;
-          errEl.hidden = false;
-          return;
-        }
-      }
-
-      customIndicators.push(indicator);
-      saveIndicators();
-      renderIndicatorListItem(indicator);
-      applyIndicatorToAllCharts(indicator);
-      nameEl.value = '';
-      formulaEl.value = '';
-      if (ownScaleEl) ownScaleEl.checked = false;
-    });
-  }
-
-  // 点表头排序 (带升/降序箭头)
-  var table = document.getElementById('watchlist-table');
-  if (table) {
-    var tbody = table.querySelector('tbody');
-    var ths = Array.from(table.querySelectorAll('th'));
-    ths.forEach(function (th, idx) {
-      if (th.dataset.type === 'none') return; // 走势图那一列不排序
-      var asc = true;
-      th.addEventListener('click', function () {
-        var rows = Array.from(tbody.querySelectorAll('tr'));
-        var type = th.dataset.type;
-        rows.sort(function (a, b) {
-          var ac = a.children[idx], bc = b.children[idx];
-          var av = ac.dataset.value !== undefined ? ac.dataset.value : ac.textContent;
-          var bv = bc.dataset.value !== undefined ? bc.dataset.value : bc.textContent;
-          if (type === 'num') { av = parseFloat(av); bv = parseFloat(bv); }
-          if (av < bv) return asc ? -1 : 1;
-          if (av > bv) return asc ? 1 : -1;
-          return 0;
-        });
-        // 用 DocumentFragment 一次性批量搬运，比逐行 appendChild 少触发几次重排
-        var frag = document.createDocumentFragment();
-        rows.forEach(function (r) { frag.appendChild(r); });
-        tbody.appendChild(frag);
-        ths.forEach(function (other) {
-          var arrow = other.querySelector('.arrow');
-          if (arrow) arrow.textContent = '';
-        });
-        var currentArrow = th.querySelector('.arrow');
-        if (currentArrow) currentArrow.textContent = asc ? '▲' : '▼';
-        asc = !asc;
-      });
-    });
-
-    // 搜索框: 按代码/名称即时过滤表格
-    var filterInput = document.getElementById('table-filter');
-    var countEl = document.getElementById('table-count');
-    var allRows = Array.from(tbody.querySelectorAll('tr'));
-    function updateCount(shown) {
-      if (countEl) countEl.textContent = shown === allRows.length ? allRows.length + ' 支' : shown + ' / ' + allRows.length + ' 支';
-    }
-    updateCount(allRows.length);
-    if (filterInput) {
-      filterInput.addEventListener('input', function () {
-        var q = filterInput.value.trim().toLowerCase();
-        var shown = 0;
-        allRows.forEach(function (row) {
-          var hit = !q || (row.dataset.search || '').indexOf(q) !== -1;
-          row.hidden = !hit;
-          if (hit) shown++;
-        });
-        updateCount(shown);
-      });
-    }
-  }
-})();
-</script>
+TEMPLATE_BAR_HTML = """
+<div class="tpl-bar" id="tpl-bar">
+  <input type="text" id="tpl-name" class="tpl-name" maxlength="30" spellcheck="false" aria-label="筛选器名称 (改名自动保存)" title="点一下改名，自动保存">
+  <select id="tpl-select" class="tpl-select" aria-label="切换指标模板"></select>
+  <button type="button" id="tpl-new" class="tpl-btn">＋ 新模板</button>
+  <button type="button" id="tpl-del" class="tpl-btn">删除</button>
+  <span id="tpl-status" class="tpl-status" aria-live="polite">✓ 已自动保存</span>
+</div>
 """
 
 DOWNLOADS_CSS = """
@@ -1749,36 +1035,60 @@ def build_html_report(stocks, downloads=None):
             continue
 
         chart_id = f"chart-{code}"
-        ai_html = f"<p>{s['ai_comment']}</p>" if s["ai_comment"] else ""  # 点评被过滤光了就整段不显示
-        chart_payload[chart_id] = {"candles": data["candles"], "ema20": data["ema20"], "psar": data["psar"],
-                                   "ichimoku": data.get("ichimoku")}
+        bars = dict(data.get("chart_history") or {})
+        if "1d" not in bars:
+            # 多周期数据整个抓不到时，至少用策略那份 90 天日线把"天"画出来
+            candles = data["candles"]
+            bars["1d"] = {
+                "t": [calendar.timegm(datetime.strptime(c["time"], "%Y-%m-%d").timetuple()) for c in candles],
+                "o": [c["open"] for c in candles], "h": [c["high"] for c in candles],
+                "l": [c["low"] for c in candles], "c": [c["close"] for c in candles],
+                "v": [c["volume"] for c in candles],
+            }
+        chart_payload[chart_id] = {"bars": bars}
 
+        prev_close = round(data["prev_close"], 3) if data["prev_close"] else None
+        change = data["close"] - prev_close if prev_close else 0
+        change_pct = change / prev_close * 100 if prev_close else 0
+        change_class = "change-up" if change > 0 else "change-down" if change < 0 else "change-neutral"
+        sign = "+" if change > 0 else ""
+        # 筛选条件做成一行小标签 (不带表情符号)，例如 "EMA20多头 · SAR多头 · T3形态突破"
+        tags = " · ".join(part.strip() for part in s["reason"].replace("🎯", "").split("+") if part.strip())
+        rel_vol = data.get("rel_volume")
+        sar_pill = '<span class="pill pill-up">多头</span>' if data["sar_bullish_now"] else '<span class="pill pill-down">空头</span>'
+        quote_items = [
+            ("成交量", fmt_volume(data["volume"])),
+            ("相对量", f"{rel_vol:.2f}×" if rel_vol is not None else "—"),
+            ("RSI(14)", fmt_num(data["rsi"], "{:.1f}")),
+            ("50日均线", fmt_num(data["sma50"], "{:.3f}")),
+            ("EMA20", fmt_num(data["ema20_latest"], "{:.3f}")),
+            ("SAR", sar_pill),
+        ]
+        quote_grid = "".join(f"<div><dt>{k}</dt><dd>{v}</dd></div>" for k, v in quote_items)
+
+        # 图表下方只放数据 (quote)，不放说明文字/图例/符号；AI 点评只保留在下载的 Excel/PDF 里
         cards.append(f"""<section class="card">
             <div class="card-head">
-                <h2>{s['name']} <span class="code">{code}</span></h2>
-                <div class="stats">
-                    <span>现价 <b>{data['close']}</b></span>
-                    <span>RSI(14) <b>{fmt_num(data['rsi'], '{}')}</b></span>
-                    <span>50日均线 <b>{data['sma50']}</b></span>
-                </div>
+                <h2>{html.escape(s['name'])} <span class="code">{code}</span></h2>
+                <div class="card-price"><b>{data['close']:.3f}</b> <span class="{change_class}">{sign}{change:.3f} ({sign}{change_pct:.2f}%)</span></div>
             </div>
-            <div id="{chart_id}-info" class="ohlc-info"></div>
-            <div id="{chart_id}" class="chart"></div>
-            <div class="legend">
-                <span class="dot up"></span>上涨
-                <span class="dot down"></span>下跌
-                <span class="dot ema"></span>EMA20
-                <span class="dot vol"></span>成交量
+            <p class="card-tags">{html.escape(tags)}</p>
+            <div class="tf-bar" id="{chart_id}-tf"></div>
+            <div class="chart-wrap">
+                <div id="{chart_id}" class="chart"></div>
+                <div class="chart-legends" id="{chart_id}-legends"></div>
             </div>
-            <div class="signal">
-                <strong>🚨 {s['reason']}</strong>
-                {ai_html}
+            <div class="quote">
+                <div class="quote-live" id="{chart_id}-live"></div>
+                <dl class="quote-grid">{quote_grid}</dl>
             </div>
         </section>""")
 
     # 默认按成交量从高到低排 (跟 TradingView 选股器一样)，点表头仍然可以改排序
     table_rows = [row for _, row in sorted(table_rows, key=lambda r: r[0], reverse=True)]
 
+    # 放进 <script> 里，"</" 转义掉，免得名字里万一有 "</script>" 把脚本截断
+    chart_json = json.dumps(chart_payload, separators=(",", ":")).replace("</", "<\\/")
     no_data_note = f"<p class='no-data'>另有 {no_data_count} 支股票数据不足，未列入。</p>" if no_data_count else ""
 
     return f"""<!DOCTYPE html>
@@ -1787,7 +1097,7 @@ def build_html_report(stocks, downloads=None):
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>马股自动分析报告</title>
-<script src="vendor/lightweight-charts.js"></script>
+<script src="vendor/lightweight-charts.js?v=5.2.1"></script>
 <style>
   /* 🎨 图表配色：想换颜色直接改这里的 hex 值即可 (--up / --down / --ema) */
   :root {{
@@ -1857,38 +1167,13 @@ def build_html_report(stocks, downloads=None):
   }}
   h2 {{ margin: 0; font-size: 1.05rem; }}
   .code {{ color: var(--muted); font-weight: normal; font-size: 0.9rem; }}
-  .stats {{ display: flex; gap: 0.75rem; color: var(--text-secondary); font-size: 0.85rem; flex-wrap: wrap; }}
-  .stats b {{ color: var(--text-primary); }}
-  .chart {{ width: 100%; height: 260px; }}  /* 要跟 JS 里 createChart 的 height 一致，否则图会溢出盖住下面的图例 */
-  .legend {{ display: flex; gap: 1rem; align-items: center; color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem; }}
-  .dot {{ display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.25rem; vertical-align: middle; }}
-  .dot.up {{ background: transparent; border: 2px solid var(--up); }}
-  .dot.down {{ background: var(--down); }}
-  .dot.ema {{ background: var(--ema); }}
-  .dot.vol {{ background: var(--muted); }}
-  .signal {{
-    margin-top: 0.75rem;
-    padding: 0.6rem 0.75rem;
-    border-left: 3px solid var(--ema);
-    background: color-mix(in srgb, var(--ema) 10%, transparent);
-    border-radius: 4px;
-    font-size: 0.9rem;
-  }}
-  .signal p {{ margin: 0.35rem 0 0; color: var(--text-secondary); }}
   .no-data {{ color: var(--muted); }}
   .change-up {{ color: var(--up); font-weight: 600; }}
   .change-down {{ color: var(--down); font-weight: 600; }}
   .change-neutral {{ color: var(--muted); }}
-  .ohlc-info {{
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    margin-bottom: 0.25rem;
-    min-height: 1.1em;
-    white-space: nowrap;
-    overflow-x: auto;
-  }}
-  .ohlc-info b {{ color: var(--text-primary); }}
   h2.section {{ font-size: 1.1rem; margin: 2rem 0 1rem; }}
+  h2.section.with-sub {{ margin-bottom: 0.2rem; }}
+  .section-count {{ color: var(--muted); font-weight: normal; font-size: 0.9rem; }}
   .table-wrap {{ overflow-x: auto; }}
   table.data-table {{
     width: 100%;
@@ -1913,6 +1198,7 @@ def build_html_report(stocks, downloads=None):
   table.data-table .arrow {{ display: inline-block; width: 0.9em; color: var(--text-primary); }}
   table.data-table tbody tr:hover {{ background: var(--page); }}
 {SETTINGS_CSS}
+{CARD_CSS}
 {TABLE_CSS}
 {DOWNLOADS_CSS}
 </style>
@@ -1923,7 +1209,8 @@ def build_html_report(stocks, downloads=None):
 {SETTINGS_PANEL_HTML}
 {build_downloads_html(downloads)}
 
-<h2 class="section">🚨 信号 ({len(cards)})</h2>
+<h2 class="section with-sub">筛选器 <span class="section-count">({len(cards)})</span></h2>
+{TEMPLATE_BAR_HTML}
 <div class="grid">
 {''.join(cards) if cards else "<p class='no-data'>今日无符合条件的股票。</p>"}
 </div>
@@ -1958,11 +1245,12 @@ def build_html_report(stocks, downloads=None):
 
 <footer class="site-footer">
   <p>本报告及其筛选策略、代码与分析方法版权所有 © {datetime.now(MYT).year} CJA231，保留一切权利。未经书面授权，禁止复制、转载、二次分发或用于商业用途。</p>
+  <p>K 线图使用 <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> 的 Lightweight Charts™ (Apache 2.0)。</p>
   <p>© {datetime.now(MYT).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
 </footer>
 
-<script id="chart-data" type="application/json">{json.dumps(chart_payload)}</script>
-{CHART_SCRIPT}
+<script id="chart-data" type="application/json">{chart_json}</script>
+<script src="report.js?v={report_js_version()}"></script>
 </body>
 </html>"""
 
@@ -2096,7 +1384,7 @@ def main():
                 if deepseek_calls:
                     time.sleep(1)
                 ai_comment = strip_trade_advice(ask_deepseek(data, reason))
-                data["ichimoku"] = get_ichimoku(symbol, data["candles"][0]["time"])
+                data["chart_history"] = get_chart_history(symbol)
                 deepseek_calls += 1
                 print(f"✅ 找到机会: {symbol}")
 
