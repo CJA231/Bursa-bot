@@ -253,7 +253,8 @@ def _files_for(date):
 def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR):
     """
     导出当天的 CSV/Excel/PDF，删掉超出保留天数的旧文件夹，再生成"近 N 天合并"文件。
-    返回给网页用的清单: {"days": [{"date", "files"}...(新→旧)], "combined": {"xlsx", "csv"} 或 None}
+    返回给网页用的清单: {"days": [{"date", "generated_at", "files", "count", "signals"}...(新→旧)],
+                        "combined": {"xlsx", "csv"} 或 None}
     """
     date = report_date_of(stocks, today)
     rows = build_rows(stocks)
@@ -283,7 +284,14 @@ def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR):
         with open(data_path, encoding="utf-8") as f:
             payload = json.load(f)
         combined_days.append((d, payload["rows"]))
-        days.append({"date": d, "generated_at": payload.get("generated_at", ""), "files": _files_for(d)})
+        days.append({
+            "date": d,
+            "generated_at": payload.get("generated_at", ""),
+            "files": _files_for(d),
+            # 给网页上的日期选择条显示"这一天有什么": 共几支、信号是哪几支
+            "count": len(payload["rows"]),
+            "signals": [r["名称"] for r in payload["rows"] if r["类型"] == "信号"],
+        })
 
     combined = None
     if combined_days:

@@ -182,7 +182,9 @@ def detect_t3_pattern(df):
 - 旧表格里的 SMA50 列已去掉 (信号卡片里还有)
 
 ### 📥 下载报告 (`exports.py`)
-- 页面上方的 `<details>` 区块 (默认折叠)，列出最近 `KEEP_REPORT_DAYS = 7` 个**报告日** (只有交易日才有报告，所以约一周半)
+- 页面上方的 `<details>` 区块 (默认折叠)，最近 `KEEP_REPORT_DAYS = 7` 个**报告日** (只有交易日才有报告，所以约一周半)
+- 区块里是一条**日期选择条** (左旧右新，手机上左右滑)：每个日期显示 月/日 + 星期 + (有信号时) "● 信号"；点哪天，下方就显示那天的更新时间、信号股名字、共几支，CSV / Excel / PDF 三个按钮跟着换成那天的文件。默认选中最新一天，展开时自动滚到最右；键盘 ←/→/Home/End 可切换。没开 JS 也能下载最新一天 (按钮的默认链接就是最新一天)
+- `export_downloads()` 返回的每一天带 `count` (共几支) 和 `signals` (信号股名字)，从各天的 data.json 读出来
 - 每次运行 `main()` 在生成网页**之前**调用 `export_downloads()`，写到 `docs/downloads/<日期>/`：
   `bursa-report-<日期>.csv / .xlsx / .pdf` + `data.json` (合并文件的数据来源)
 - 同一天跑多次 → 覆盖，保留当天最后一次；超过 7 个日期的文件夹自动删掉 (只删名字是日期的文件夹)
@@ -291,6 +293,8 @@ def is_trading_day(today_myt): ...
 - API key 在 secret `DEEPSEEK_KEY`；`main.py` 开头 fail-fast，没有 key 直接 `SystemExit`
 - **Prompt cache**：固定说明全部放在 `DEEPSEEK_SYSTEM_PROMPT` (纯静态常量，不能拼时间戳/随机数)，每支股票的数据只放 user message。DeepSeek 按"从头逐字节匹配的最长公共前缀"打折，同一次运行命中多支股票时，第二支起能吃到缓存价
 - 每次调用会打印 `prompt_cache_hit_tokens / prompt_cache_miss_tokens`，在 Action 日志里看命中率
+- **不给买卖建议** (9/23 用户要求"图表下方不要出现买卖建议")：以前 prompt 要求给"买入/观望/卖出"建议，BMGREEN 的点评就出现了"建议观望，待站稳1.73再买入"。现在 prompt 只让它从技术面评价信号可靠性，并明确禁止买入/卖出/观望/持有/加减仓/止损/止盈/目标价等字眼
+- 模型不一定每次都听话，所以还有第二道保险 `strip_trade_advice()`：按标点切成分句，含 `TRADE_ADVICE_RE` 里任何字眼的分句整句删掉；全删光就不显示点评。网页卡片、Excel、PDF 都用过滤后的结果。注意"超买"这种技术名词不会被误删 (正则里没有单独的"买"字)
 
 ### 全市场清单怎么来的
 `scripts/fetch_watchlist.py`：

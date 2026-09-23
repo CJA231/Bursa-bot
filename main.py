@@ -2,6 +2,7 @@ import time
 PROCESS_START = time.perf_counter()  # 用来算"导入库"花了多久 (pandas_ta 会带进 numba，导入本身就要几秒)
 
 import os
+import re
 import json
 import html
 import yfinance as yf
@@ -292,11 +293,32 @@ def check_strategy(data):
 # 从第二支股票开始这一段就能命中缓存、按缓存价计费，比混在一起写省钱也通常更快。
 DEEPSEEK_SYSTEM_PROMPT = """你是专业的马来西亚股市分析师，同时是严谨的金融助手。
 
-任务: 根据用户给出的某支股票的技术信号和基本数据，用简短的中文 (50字以内) 完成两件事：
-1. 评价这个信号的可靠性。
-2. 给出"买入/观望/卖出"建议。
+任务: 根据用户给出的某支股票的技术信号和基本数据，用简短的中文 (50字以内) 从技术面评价这个信号的可靠性，
+例如 RSI 是否偏高或超买、现价相对 50 日均线的位置。
+
+严格要求: 只做客观的技术面描述，不要给出任何操作或投资建议，
+不要出现买入、卖出、观望、持有、加仓、减仓、止损、止盈、目标价之类的字眼。
 
 接下来用户消息里会给出这支股票的具体数据，请只根据这些数据作答，不要虚构未提供的信息。"""
+
+# 就算模型没听话，也把带操作建议的分句删掉再放进报告 (图表下方、Excel、PDF 都用这个结果)
+TRADE_ADVICE_RE = re.compile(
+    r"买入|买进|卖出|抛售|观望|建议|加仓|减仓|建仓|清仓|止损|止盈|目标价|入场|进场|离场|出场|持有|逢低|逢高|介入"
+)
+
+
+def strip_trade_advice(text):
+    """按标点切成分句，去掉含操作建议字眼的分句；全部被去掉就返回空字符串 (页面上不显示点评)。"""
+    if not text:
+        return ""
+    parts = re.split(r"([，,。！？!?；;：:\n])", text)
+    kept = []
+    for i in range(0, len(parts), 2):
+        clause, sep = parts[i], parts[i + 1] if i + 1 < len(parts) else ""
+        if clause.strip() and not TRADE_ADVICE_RE.search(clause):
+            kept.append(clause + sep)
+    result = "".join(kept).strip().rstrip("，,；;：:")
+    return result + "。" if result and result[-1] not in "。！？!?" else result
 
 
 def ask_deepseek(data, reason):
@@ -1361,51 +1383,150 @@ DOWNLOADS_CSS = """
   .downloads > summary::after { content: " ▸"; color: var(--muted); }
   .downloads[open] > summary::after { content: " ▾"; }
   .downloads-body { padding: 0 0.9rem 0.8rem; }
-  .dl-combined { font-size: 0.82rem; margin: 0 0 0.6rem; color: var(--text-secondary); }
-  .dl-table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
-  .dl-table td { padding: 0.35rem 0.4rem; border-top: 1px solid var(--border); white-space: nowrap; }
-  .dl-table td.dl-time { color: var(--muted); font-size: 0.75rem; }
+  /* 日期选择条: 左旧右新，放不下时左右滑动 */
+  .dl-days {
+    display: flex;
+    gap: 0.4rem;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    padding: 0.1rem 0 0.5rem;
+    scrollbar-width: thin;
+  }
+  .dl-day {
+    flex: 0 0 auto;
+    scroll-snap-align: end;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 3.6rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--page);
+    color: var(--text-secondary);
+    font: inherit;
+    cursor: pointer;
+    line-height: 1.25;
+  }
+  .dl-day b { font-size: 0.85rem; color: var(--text-primary); }
+  .dl-day small { font-size: 0.68rem; }
+  .dl-day .dl-sig { color: var(--up); font-size: 0.68rem; font-weight: 600; }
+  .dl-day[aria-checked="true"] { border-color: var(--text-primary); background: var(--surface); box-shadow: inset 0 0 0 1px var(--text-primary); }
+  .dl-day:focus-visible { outline: 2px solid var(--ema); outline-offset: 1px; }
+  .dl-picked { border-top: 1px solid var(--border); padding-top: 0.55rem; }
+  .dl-meta { font-size: 0.82rem; color: var(--text-secondary); margin: 0 0 0.45rem; }
+  .dl-meta b { color: var(--text-primary); }
+  .dl-combined { font-size: 0.78rem; margin: 0.7rem 0 0; color: var(--muted); }
   .dl-link {
     display: inline-block;
-    padding: 0.1rem 0.5rem;
-    margin-right: 0.3rem;
+    padding: 0.2rem 0.75rem;
+    margin: 0 0.3rem 0.2rem 0;
     border: 1px solid var(--border);
     border-radius: 999px;
     color: var(--text-primary);
     text-decoration: none;
-    font-size: 0.75rem;
+    font-size: 0.8rem;
   }
+  .dl-combined .dl-link { padding: 0.1rem 0.5rem; font-size: 0.75rem; }
   .dl-link:hover { background: var(--page); }
 """
 
+WEEKDAYS_ZH = "一二三四五六日"
+DOWNLOAD_FORMATS = (("csv", "CSV"), ("xlsx", "Excel"), ("pdf", "PDF"))
+
 
 def build_downloads_html(downloads):
-    """报告页面上的"📥 下载报告"区块。没有导出成功 (downloads 为 None) 就不显示。"""
+    """报告页面上的"📥 下载报告"区块：一条近 7 天的日期选择条，选中哪天就下载哪天的 CSV / Excel / PDF。
+    没有导出成功 (downloads 为 None) 就不显示。默认选中最新一天，不开 JS 也能直接下载最新一天。"""
     if not downloads or not downloads.get("days"):
         return ""
 
-    def links(files):
-        return "".join(f'<a class="dl-link" href="downloads/{files[k]}" download>{label}</a>'
-                       for k, label in (("csv", "CSV"), ("xlsx", "Excel"), ("pdf", "PDF")))
+    days = list(reversed(downloads["days"]))  # 选择条左旧右新，跟时间轴方向一致
+    info = []
+    for d in days:
+        dt = datetime.strptime(d["date"], "%Y-%m-%d")
+        signals = d.get("signals", [])
+        sig_text = f"信号 {len(signals)} 支 ({'、'.join(signals)})" if signals else "无信号"
+        info.append({
+            "date": d["date"],
+            "weekday": "周" + WEEKDAYS_ZH[dt.weekday()],
+            "short": f"{dt.month}/{dt.day}",
+            "time": d["generated_at"][-5:],
+            "summary": f"{sig_text} · 共 {d.get('count', 0)} 支",
+            "files": {k: f"downloads/{d['files'][k]}" for k, _ in DOWNLOAD_FORMATS},
+        })
 
-    rows = "".join(
-        f'<tr><td>{d["date"]}</td><td class="dl-time">{d["generated_at"][-5:]} 更新</td><td>{links(d["files"])}</td></tr>'
-        for d in downloads["days"]
+    # 放进 <script> 里，"</" 转义掉，免得名字里万一有 "</script>" 把脚本截断
+    days_json = json.dumps(info, ensure_ascii=False).replace("</", "<\\/")
+    latest = len(info) - 1
+    chips = "".join(
+        f'<button type="button" class="dl-day" role="radio" data-i="{i}" '
+        f'aria-checked="{"true" if i == latest else "false"}" tabindex="{0 if i == latest else -1}" '
+        f'aria-label="{x["date"]} {x["weekday"]}">'
+        f'<b>{x["short"]}</b><small>{x["weekday"]}</small>'
+        f'{"<span class=dl-sig>● 信号</span>" if days[i].get("signals") else "<small>" + x["time"] + "</small>"}'
+        f'</button>'
+        for i, x in enumerate(info)
     )
+    cur = info[latest]
+    buttons = "".join(f'<a class="dl-link" data-fmt="{k}" href="{cur["files"][k]}" download>{label}</a>'
+                      for k, label in DOWNLOAD_FORMATS)
     combined = downloads.get("combined")
     combined_html = (
-        f'<p class="dl-combined">近 {len(downloads["days"])} 天合并：'
+        f'<p class="dl-combined">近 {len(info)} 天合并：'
         f'<a class="dl-link" href="downloads/{combined["xlsx"]}" download>Excel (每天一个工作表)</a>'
         f'<a class="dl-link" href="downloads/{combined["csv"]}" download>CSV</a></p>'
         if combined else ""
     )
-    return f"""<details class="downloads">
+    return f"""<details class="downloads" id="downloads">
   <summary>📥 下载报告 (近 {downloads["keep_days"]} 个交易日)</summary>
   <div class="downloads-body">
+    <div class="dl-days" role="radiogroup" aria-label="选择日期">{chips}</div>
+    <div class="dl-picked">
+      <p class="dl-meta" aria-live="polite"><b>{cur["date"]} {cur["weekday"]}</b> · <span>{cur["time"]} 更新 · {html.escape(cur["summary"])}</span></p>
+      <div>{buttons}</div>
+    </div>
     {combined_html}
-    <table class="dl-table">{rows}</table>
   </div>
-</details>"""
+</details>
+<script>
+(function () {{
+  var DAYS = {days_json};
+  var box = document.getElementById("downloads");
+  if (!box) return;
+  var strip = box.querySelector(".dl-days");
+  var chips = strip.querySelectorAll(".dl-day");
+  var meta = box.querySelector(".dl-meta");
+  function pick(i, focus) {{
+    var d = DAYS[i];
+    chips.forEach(function (c, j) {{
+      c.setAttribute("aria-checked", j === i ? "true" : "false");
+      c.tabIndex = j === i ? 0 : -1;
+    }});
+    meta.querySelector("b").textContent = d.date + " " + d.weekday;
+    meta.querySelector("span").textContent = d.time + " 更新 · " + d.summary;
+    box.querySelectorAll(".dl-link[data-fmt]").forEach(function (a) {{
+      a.href = d.files[a.dataset.fmt];
+    }});
+    if (focus) chips[i].focus();
+    chips[i].scrollIntoView({{block: "nearest", inline: "nearest"}});
+  }}
+  chips.forEach(function (c) {{
+    c.addEventListener("click", function () {{ pick(+c.dataset.i); }});
+  }});
+  strip.addEventListener("keydown", function (e) {{
+    var cur = +(strip.querySelector('[aria-checked="true"]') || chips[0]).dataset.i;
+    var next = {{ArrowLeft: cur - 1, ArrowRight: cur + 1, Home: 0, End: DAYS.length - 1}}[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    pick(Math.max(0, Math.min(DAYS.length - 1, next)), true);
+  }});
+  // 展开时把选择条滚到最右 (最新一天)
+  box.addEventListener("toggle", function () {{
+    if (box.open) strip.scrollLeft = strip.scrollWidth;
+  }});
+}})();
+</script>"""
 
 
 # === 7. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
@@ -1473,6 +1594,7 @@ def build_html_report(stocks, downloads=None):
             continue
 
         chart_id = f"chart-{code}"
+        ai_html = f"<p>{s['ai_comment']}</p>" if s["ai_comment"] else ""  # 点评被过滤光了就整段不显示
         chart_payload[chart_id] = {"candles": data["candles"], "ema20": data["ema20"], "psar": data["psar"]}
 
         cards.append(f"""<section class="card">
@@ -1494,7 +1616,7 @@ def build_html_report(stocks, downloads=None):
             </div>
             <div class="signal">
                 <strong>🚨 {s['reason']}</strong>
-                <p>{s['ai_comment']}</p>
+                {ai_html}
             </div>
         </section>""")
 
@@ -1817,7 +1939,7 @@ def main():
                 # 防止 DeepSeek 限频：只在两次调用之间停 1 秒，最后一次调用之后不用等
                 if deepseek_calls:
                     time.sleep(1)
-                ai_comment = ask_deepseek(data, reason)
+                ai_comment = strip_trade_advice(ask_deepseek(data, reason))
                 deepseek_calls += 1
                 print(f"✅ 找到机会: {symbol}")
 
