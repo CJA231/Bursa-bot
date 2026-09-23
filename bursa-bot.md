@@ -37,9 +37,10 @@ Bursa-bot/
 ├── assets/screenshots/          # README 用的界面截图 (light/dark 各一张，用 <picture> 按 GitHub 主题切换)
 ├── docs/
 │   ├── index.html               # 生成的报告，GitHub Pages 从这里发布
+│   ├── report.js                # 报告页脚本 (K线图/指标/模板/设置面板/表格排序)，手写的，不是每次生成
 │   ├── downloads/               # 最近 7 个交易日的下载文件 + 7 天合并文件 (自动生成、自动清理)
 │   └── vendor/
-│       └── lightweight-charts.js  # TradingView 图表库 v4.1.3，Apache 2.0，160KB，自托管
+│       └── lightweight-charts.js  # TradingView 图表库 v5.2.1，Apache 2.0，自托管
 ├── scripts/
 │   ├── fetch_watchlist.py       # 用 Yahoo screener 拉全市场清单 → data/watchlist.json
 │   └── debug_stock.py           # 单股调试：看某支股票过去几天符不符合条件
@@ -52,11 +53,12 @@ Bursa-bot/
 ### main.py 的结构 (按文件顺序)
 1. 配置区域 (`VOLUME_TIERS`/`min_volume_for`、`FETCH_WORKERS` 等常量)
 2. DeepSeek 客户端
-3. `detect_t3_pattern` / `get_stock_data` / `get_intraday_closes` / `build_sparkline` / `fmt_volume`
+3. `detect_t3_pattern` / `get_stock_data` / `CHART_SOURCES` + `get_chart_history` (信号股多周期K线) / `get_intraday_closes` / `build_sparkline` / `fmt_volume`
 4. `check_strategy` (筛选策略)
 5. `DEEPSEEK_SYSTEM_PROMPT` + `ask_deepseek`
-6. 报告页面的前端代码常量：`SETTINGS_CSS`、`TABLE_CSS`、`SETTINGS_PANEL_HTML`、`CHART_SCRIPT`
-   (**这几个是普通字符串，不是 f-string**，JS/CSS 里的大括号不用写成 `{{ }}`)
+6. 报告页面的前端代码常量：`SETTINGS_CSS`、`TABLE_CSS`、`SETTINGS_PANEL_HTML`、`CARD_CSS`、`TEMPLATE_BAR_HTML`
+   (**这几个是普通字符串，不是 f-string**，CSS 里的大括号不用写成 `{{ }}`)
+   - JS 不在 main.py 里了，在 **`docs/report.js`** (手写文件，不是每次生成)；HTML 用 `report.js?v=<文件哈希>` 引用，改了脚本浏览器会自动拿新版
 7. `build_html_report` (大 f-string 模板，把上面的常量用 `{SETTINGS_CSS}` 这样拼进去)
 8. `send_notification` (ntfy)
 9. `main()`
@@ -131,41 +133,67 @@ def detect_t3_pattern(df):
 
 1. **标题 + 更新时间**
 2. **⚙️ 图表设置** 按钮 (点开是设置面板，见下)
-3. **🚨 信号** — 命中的股票，每支一张卡片，带 K 线图 + DeepSeek 点评
+3. **筛选器** — 命中的股票，每支一张卡片 (标题下面一行小字是指标模板名，见下)
 4. **📋 其余股票** — 仿 TradingView 选股器的紧凑表格
 5. 数据不足的股票只报个数量
 6. 版权页脚 (中英双语)
 
-### K 线图 (信号卡片里)
-- 库：TradingView Lightweight Charts v4.1.3，**自托管**在 `docs/vendor/`（不用 CDN，jsdelivr 在用户手机上被挡过）
-- 日线级别，显示最近 90 个交易日 (`CHART_HISTORY_DAYS`)
-- **空心蜡烛**：`upColor: 'rgba(0,0,0,0)'`（阳线透明=空心），阴线实心
-- EMA20 叠加线；下方成交量柱 (`priceScaleId: ''`，`scaleMargins {top:0.8, bottom:0}`)
-- 悬停显示当日 开/高/低/收 + 成交量
-  - 坑：`param.time` 是 BusinessDay 对象不是字符串，**必须用 `param.seriesData.get(series)` 取值**
+### 筛选器卡片 (9/23 按用户要求改成 TradingView 那样)
+- 用户原话要点：标题 "信号" 改成 "筛选器"，下面一行小字是筛选器名称、指标实时存成模板；**图表下方不要描述性文字和符号**，所有数据放图表下方 (quote)；
+  加指标时可以选放主图还是另开下方副图；图表左上角显示指标名字 + 删除 + 上下顺序；信号股可以切换 timeframe
+- 卡片从上到下：名称 + 代码 | 右边现价 + 涨跌 → 一行小字筛选条件 (`EMA20多头 · SAR多头 · T3形态突破`，去掉了 🎯🚨) → **周期导航条** → K 线图 (主图 + 副图) → **quote**
+  - quote 第一行 = 十字光标所在那根K线的 时间/开/高/低/收/涨跌/量 (没悬停时是最新一根)；下面是日线数据格子：成交量、相对量、RSI(14)、50日均线、EMA20、SAR 多空
+  - **AI 点评不再显示在卡片上** (用户说图表下方不要描述性文字)，只留在下载的 Excel/PDF 里；DeepSeek 照样调用
+  - 旧的图例 (上涨/下跌/EMA20/成交量 小色块) 和 🚨 信号框都删了
+- **周期**：1分 5分 10分 15分 30分 45分 1小时 2小时 4小时 天 周 月 (Yahoo 没有秒级数据，所以没有 30 秒)
+  - 后台 `get_chart_history()` 只给信号股并发抓 6 份 (`CHART_SOURCES`)：1m×5d(只留最近 2 天)、5m×5d、15m×1mo、60m×3mo、1d×2y、1mo×10y；网页再合成其他周期 (10 分=2×5 分，30/45 分由 15 分合成，2/4 小时由 1 小时合成，周由日线合成)
+  - 日内分组从早上 9:00 开市对齐 (`SESSION_START_MIN`)，跟 TradingView 一样
+  - 时间戳：日内 = 真实时间戳 +8 小时 (图表按 UTC 显示时刚好是马来西亚时间)；日线以上 = 当天 00:00 UTC
+  - 列式数组 `{t,o,h,l,c,v}` 传给前端，2 支信号股整页约 250KB
+  - 哪一份抓失败，对应周期按钮变灰；全部失败就用策略那份 90 天日线画"天/周"
+  - 选过的周期记在 localStorage `bursa_timeframe_v1`，下次打开默认用它
+  - 多了约 6 次 Yahoo 请求/信号股 (并发)，平常 0–3 支，约 +1–2 秒
+- **主图/副图**：图表库升级到 **Lightweight Charts v5.2.1** (v5 才有原生多窗格 `addSeries(..., paneIndex)`)
+  - 每个指标有 `pane: 'main' | 'sub'`；`paneGroup` 相同的副图指标共用一个窗格 (MACD 线 + 信号线)
+  - 设置面板 "添加到：自动 / 主图 / 新副图"；自动 = `scale` 是 own (震荡类) 的放副图，其余放主图
+  - 已添加列表里点 "主图/副图" 可以切换；主图高 300px，每个副图 +120px
+  - 旧版存的指标 `scale: own` 会自动搬到副图 (`normalizeIndicator`)
+- **图表左上角图例**：每个窗格一块，EMA20 (内置，不能删) + 该窗格的指标：色块 + 名称 + 十字光标位置的数值 + ↑ ↓ ×
+  - ↑ ↓ = 跟同一区域 (主图/副图) 的前后一个指标换位置；副图的顺序就是窗格从上到下的顺序
+  - 电脑上鼠标移过去才显示按钮，手机 (`hover: none`) 一直显示
+  - 图例位置用 `pane.getHTMLElement()` 算；拖动窗格分隔线后 `pointerup` 重新对齐
+- **指标全部在前端算** (不再用后台的 psar/ichimoku)：
+  - SAR：逐行照 pandas_ta `psar` 移植 (含 `_falling` 判断初始方向、`sar[0]=close[0]`)，跟策略判断的 SAR 用合成数据对过，**0 差异**；画成点 (`pointMarkersVisible`)
+  - 一目均衡表：JS 版跟 Pine 同算法的 Python 版对过，**0 差异**；未来 25 根时间按周期往后排 (日线跳过周末，月线按月，日内按分钟数)
+  - EMA20 也在前端按当前周期算
+- 图表里的 TradingView 标志关掉了 (`attributionLogo: false`)，改在页脚写明 "K 线图使用 TradingView 的 Lightweight Charts™"，这是官方要求的署名方式之一
 - 懒加载 (`IntersectionObserver`) + 自适应宽度 (`ResizeObserver`)
-- 图高 260px，**CSS `.chart` 的高度必须跟 JS `createChart` 的 `height` 一致**，否则图会溢出盖住下面的图例
+- 坑：周期按钮不能用 `scrollIntoView` 让选中的按钮露出来，会连整页一起滚走，只能改导航条的 `scrollLeft`
+
+### 指标模板 = "筛选器名称" (标题下方那行小字)
+- localStorage `bursa_templates_v1` = `{active, list: [{id, name, indicators: [...]}]}`；第一次用新版时把旧的 `bursa_custom_indicators_v1` 搬进 "我的筛选器"
+- 名称可以直接点着改；下拉框切换模板；＋新模板 (空的)；删除 (要确认，删光了会自动建一个空的)
+- 加/删/调顺序/切主副图/改名 **每次改动立刻保存**，旁边闪一下 "✓ 已自动保存"；存不了 (隐私模式) 会提示
+- 模板只存指标，不存颜色和周期
 
 ### 设置面板 (纯前端，存在浏览器 localStorage，不影响别人、不用重新部署)
 - **颜色**：上涨/下跌/EMA20 三个取色器，即时生效 (localStorage key `bursa_colors_v1`)
-- **技术指标**：横向滑动的分类导航 `趋势 / 动量 / 波动性 / 成交量 / 自定义公式`，
-  18 个预设指标点一下就加到所有图上 (localStorage key `bursa_custom_indicators_v1`)：
+- **技术指标**：横向滑动的分类导航 `趋势 / 动量 / 波动性 / 成交量 / 自定义公式`，19 个预设指标点一下就加到当前模板：
 
   | 分类 | 预设 |
   |---|---|
-  | 趋势 | SMA20、SMA50、EMA50、SAR、布林带上/中/下轨 |
+  | 趋势 | SMA20、SMA50、EMA50、SAR、布林带上/中/下轨、一目均衡表 |
   | 动量 | RSI(14)、MACD 线、MACD 信号线、Stochastic %K、CCI、Williams %R |
   | 波动性 | ATR(14)、布林带带宽 |
   | 成交量 | OBV、成交量均线(20)、滚动 VWAP(20) |
 
-  - **SAR 是后台算好的整条序列** (`get_stock_data` 返回的 `psar`，经 `chart_payload` 传给前端)，跟策略判断用的是同一份，不是前端近似
-  - 每个指标有坐标轴模式 `scale`：`price` 跟 K 线共用价格轴 (均线/布林/SAR/VWAP)；`own` 独立自动缩放 (RSI/MACD 等震荡指标，MACD 线和信号线用同一个 `scaleGroup` 共用一条轴)；`volume` 跟成交量柱共用
+  - 每个指标有 `scale`：`price` 跟 K 线共用价格轴；`own` 震荡类 (放主图时用独立坐标轴叠加)；`volume` 跟成交量柱共用
 - **自定义公式**：前端自带一个小型公式引擎 (`evalFormula`)
   - 变量：`close open high low volume`
   - 函数：`sma ema stdev highest lowest sum rsi atr obv abs`
   - 运算：`+ - * / ^`、括号、负号 (优先级跟 Python 一样，`-2^2 = -4`)
   - RSI/ATR 用 Wilder 平滑，跟 pandas_ta 一致
-  - 可勾"独立坐标轴"
+  - 加之前先用假数据试算一次，公式有错当场提示
 
 ### "其余股票" 表格
 - 第一列是序号 (CSS 计数器生成，排序/搜索后自动从 1 重新编号，跟股票列一起固定在左边)
@@ -180,6 +208,13 @@ def detect_t3_pattern(df):
 - 顶部搜索框按代码/名称即时过滤
 - 表格宽度跟内容走 (`width: auto`)，大屏不会被拉满
 - 旧表格里的 SMA50 列已去掉 (信号卡片里还有)
+
+### ☁️ 一目均衡表 (Ichimoku Cloud，9/23 按用户给的 TradingView Pine 脚本加入)
+- 设置面板「趋势」里的「一目均衡表(9,26,52)」，一次加 5 条线 + 云：转换线 `#2962FF`、基准线 `#B71C1C`、延迟线 `#43A047`、先行带A `#A5D6A7`、先行带B `#EF9A9A`；A 在 B 上方云是绿色，下方是红色 (颜色跟 TradingView 一样)
+- 算法跟 Pine 完全一样：`donchian(n) = (n日最高 + n日最低)/2`，先行带 `offset = displacement - 1 = 25`，延迟线 `offset = -25`
+- 一开始在后台算 (`compute_ichimoku`)，加了多周期后改到前端 `ichimokuSeries()`，每个周期各算各的；日线用 2 年数据，整张图都有云
+- 云是 **series primitive** (`attachPrimitive`) 直接在画布上画的 (库本身没有"两条线之间填色")；两条线交叉的那一段按交点切成两个三角形，颜色在交叉点准确切换
+- 只有信号卡片的K线图能加，表格里的迷你走势图不受影响
 
 ### 📥 下载报告 (`exports.py`)
 - 页面上方的 `<details>` 区块 (默认折叠)，最近 `KEEP_REPORT_DAYS = 7` 个**报告日** (只有交易日才有报告，所以约一周半)
@@ -330,6 +365,12 @@ yf.screen(EquityQuery('eq', ['region', 'my']))   # → 筛 quoteType == "EQUITY"
 | PR #16 只显示 2 个文件 | 前面的 LICENSE/删 cron 已经通过 PR #15 先合并了，不是漏了 |
 | 手机上 GitHub 顶部看不到 Settings | 窗口窄被收进 **"More"** 里了。仓库 About (描述/Topics) 不在 Settings，在 Code 首页右侧栏的齿轮 ⚙️ |
 
+### 9/23 运行记录 (PR #19 合并后)
+- **#212** (16:34，合并后第一次)：共 3 分 37 秒。requirements.txt 变了 → 缓存没命中，重装依赖 32 秒；分析 25 秒；报告 16:35:08 就推送了 (触发后 64 秒)；剩下 2.5 分钟是报告推送之后才保存 205MB 的依赖缓存 (这次压缩特别慢，上次同样大小只要 44 秒)。每周第一次运行、或者 requirements.txt 变了才会这样
+- **#213** (19:05)：共 55 秒 ✅ 缓存命中 (恢复 8 秒、跳过安装)；分析 34.2 秒 = 预筛选 0.8 + 抓取 24.3 + 筛选 & DeepSeek 6.7 (4 支信号) + 导出 0.7
+- 线上结果：4 支信号 (BMGREEN、OXB、NAIM、GIIB)，AI 点评**已经没有买卖建议**；表格 280 支；页面 519KB；下载区块出现，CSV/Excel/PDF 都能正常打开 (PDF 9 页)
+- ⚠️ **教训**：用户 16:33 合并 #19 的时候，一目均衡表和筛选器改版这两个 commit 还没推上去 → 没进 main。已 rebase 到最新 main 另开 **PR #20**。以后往一个已经开着的 PR 继续推之前，先确认它还没合并；推完要跟用户说清楚"PR 里多了什么"
+
 ### 协作规矩（重要）
 - **PR 由用户自己 merge**，我不要擅自 merge（曾经擅自 merge 了 PR #6，已认错）
 - **AskUserQuestion 里用户没选的选项就是不要做**（曾经擅自删了 `Bursa.yml`，已回滚；用户明确说保留）
@@ -377,6 +418,8 @@ CMSA 2007、SC Guidance Note **SC-GN/1-2020 (R2-2024)**、Digital Investment Man
 - [ ] 确认 12:15 是故意的还是想要 12:25
 - [ ] 9/23 性能优化合并后看一次真实运行的 ⏱️ 耗时行，确认 screener 预筛选生效、抓取失败没有变多
 - [x] ~~README 补真实表格截图~~ (9/23 用 run #209 的真实报告前 8 行截的)
+- [ ] **筛选器卡片改版合并后，等第一次真实运行，用线上的 docs/index.html 重拍 README 的信号卡片截图** (现在的截图还是旧版界面：旧图例 + 🚨 框；沙盒连不到 Yahoo，只能用真实运行的数据拍)
+- [ ] 真实运行后确认：Yahoo 对 .KL 的 1m/5m/15m/60m 数据都拿得到、60 分钟线的对齐时间 (9:00 还是 9:30)、午休时段有没有空K线
 - [ ] **2026-12-21 前**重新生成 PAT，更新 cron-job.org 所有任务的 Authorization header
 - [ ] (可选) 仓库 About 描述 / Topics / Social preview 图
 - [ ] (可选) `Bursa.yml` 清理 —— 用户已拒绝，别再提
