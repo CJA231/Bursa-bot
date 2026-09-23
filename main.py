@@ -1,3 +1,6 @@
+import time
+PROCESS_START = time.perf_counter()  # 用来算"导入库"花了多久 (pandas_ta 会带进 numba，导入本身就要几秒)
+
 import os
 import json
 import html
@@ -6,10 +9,11 @@ import pandas as pd
 import pandas_ta as ta
 import requests
 from openai import OpenAI
-import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+IMPORT_SECS = time.perf_counter() - PROCESS_START
 
 # === 1. 配置区域 ===
 # 默认自选股列表 (马股代码记得加 .KL)：在 data/watchlist.json 还没生成之前使用
@@ -43,13 +47,27 @@ WATCHLIST = load_watchlist()
 REPORT_PATH = os.path.join("docs", "index.html")
 REPORT_URL = "https://cja231.github.io/Bursa-bot/"
 CHART_HISTORY_DAYS = 90  # 图表显示最近约 90 个交易日
-MIN_DAILY_VOLUME = 500_000  # 流动性门槛：日成交量低于此值的股票不予展示
+# 流动性门槛 (按价格分级)：日成交量低于门槛的股票直接忽略，不进报告、也不参与信号判断
+# 低价股要求更高的成交量，过滤掉交投清淡、容易被少量资金拉动的仙股
+VOLUME_TIERS = [
+    (0.10, 5_000_000),   # 价格 < 0.10          → 成交量至少 5M
+    (0.20, 3_000_000),   # 0.10 ≤ 价格 < 0.20   → 至少 3M
+    (0.50, 1_000_000),   # 0.20 ≤ 价格 ≤ 0.50   → 至少 1M (0.50 本身也算在这一档)
+]
+MIN_DAILY_VOLUME = 500_000  # 其余价格 (> 0.50) 的门槛，保持不变
+
+
+def min_volume_for(price):
+    for upper, min_vol in VOLUME_TIERS:
+        if price < upper or (upper == 0.50 and price == 0.50):
+            return min_vol
+    return MIN_DAILY_VOLUME
 MYT = ZoneInfo("Asia/Kuala_Lumpur")
 
 # 并发抓取股票数据的线程数：yfinance 请求是网络 I/O，并发能大幅缩短整体运行时间
-# (实测: 1070 支股票串行抓取约 3 分钟，并发后可以降到几十秒)。
-# 数字太大容易被 Yahoo Finance 限流导致个别股票抓取失败，16 是经验上比较稳的取值。
-FETCH_WORKERS = 16
+# (实测: 串行 188 秒 → 16 线程 49.5 秒，run #207 在 16 线程下 0 支抓取失败)。
+# 数字太大容易被 Yahoo Finance 限流：日志里"数据不足/抓取失败"如果明显变多，就把这里调回 16。
+FETCH_WORKERS = 24
 
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY")
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC")  # 可选：手机推送通知 (ntfy.sh)，不设置则跳过推送
@@ -101,7 +119,7 @@ def detect_t3_pattern(df):
     return False
 
 # === 3. 获取数据并计算指标 ===
-def get_stock_data(symbol, retries=1):
+def get_stock_data(symbol, retries=1, check_volume=True):
     # retries=1: 并发抓取时个别请求偶尔会被 Yahoo Finance 短暂拒绝/超时，失败先重试一次再放弃，
     # 避免因为网络抖动而把本来有效的股票直接判定为"无数据"。
     for attempt in range(retries + 1):
@@ -113,6 +131,17 @@ def get_stock_data(symbol, retries=1):
             if len(df) < 50:
                 print(f"数据不足: {symbol}")
                 return None
+
+            # 成交量门槛放在算指标之前：实测 1070 支里约 3/4 会因为成交量不足被丢掉，
+            # 以前是先把 RSI/SMA/EMA/PSAR/T3 全算完才丢，白白占 CPU (这部分多线程也帮不上忙)
+            if check_volume:
+                # 先四舍五入到 3 位 (Bursa 最小跳动 0.005)，避免 0.0999999 这类浮点误差把 0.10 的股票分错档
+                last_close = round(float(df["Close"].iloc[-1]), 3)
+                last_volume = int(df["Volume"].iloc[-1])
+                threshold = min_volume_for(last_close)
+                if last_volume < threshold:
+                    return {"symbol": symbol, "low_volume": True, "close": round(last_close, 3),
+                            "volume": last_volume, "threshold": threshold}
 
             # 计算技术指标 (RSI、均线、EMA20、Parabolic SAR)
             df.ta.rsi(length=14, append=True)
@@ -433,10 +462,27 @@ TABLE_CSS = """
   table.data-table th[data-type="none"] { cursor: default; }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
   th.num { text-align: right; }
-  /* 股票列在手机上横向滑动时固定在左边 */
-  .stock-cell {
+  /* 序号列：用 CSS 计数器生成，排序/搜索之后会自动重新从 1 开始编号 (被搜索隐藏的行不计数) */
+  #watchlist-table tbody { counter-reset: row; }
+  #watchlist-table tbody tr { counter-increment: row; }
+  #watchlist-table td.idx-cell::before { content: counter(row); }
+  .idx-cell {
     position: sticky;
     left: 0;
+    z-index: 2;
+    width: 2.6rem;
+    min-width: 2.6rem;
+    max-width: 2.6rem;
+    text-align: right;
+    color: var(--muted);
+    background: var(--surface);
+    font-variant-numeric: tabular-nums;
+  }
+  table.data-table tbody tr:hover td.idx-cell { background: var(--page); }
+  /* 股票列在手机上横向滑动时固定在左边 (紧贴在序号列右边) */
+  .stock-cell {
+    position: sticky;
+    left: 2.6rem;
     z-index: 1;
     background: var(--surface);
     max-width: 150px;
@@ -1332,6 +1378,7 @@ def build_html_report(stocks):
             ema_class = "change-up" if data["close"] > data["ema20_latest"] else "change-down"
 
             table_rows.append((data["volume"], f"""<tr data-search="{code} {name.lower()}">
+                <td class="idx-cell"></td>
                 <td class="stock-cell" data-value="{name}"><span class="ticker">{name}</span><span class="stock-code">{code}</span></td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
                 <td class="num" data-value="{data['close']}">{data['close']:.3f}<span class="unit">MYR</span></td>
@@ -1529,6 +1576,7 @@ def build_html_report(stocks):
 <table class="data-table" id="watchlist-table">
   <thead>
     <tr>
+      <th data-type="none" class="idx-cell">#</th>
       <th data-type="text" class="stock-cell">股票 <span class="arrow"></span></th>
       <th data-type="none">走势</th>
       <th data-type="num" class="num">价格 <span class="arrow"></span></th>
@@ -1584,9 +1632,51 @@ def send_notification(hits):
 TRADING_DAY_REFERENCE = "1155.KL"
 
 
+SCREENER_PAGE_SIZE = 250  # Yahoo screener 单次请求上限
+
+
+def prefetch_quotes():
+    """
+    用 Yahoo screener 几个请求 (每页 250 支) 拿到全马股票的现价 + 当日成交量，
+    成交量不够门槛的股票就不用再去下载 6 个月历史了 (实测约 70% 的股票会被门槛挡掉)。
+    返回 {symbol: (price, volume)}；screener 出错就返回空 dict，调用方会退回"逐支下载历史再判断"。
+    """
+    try:
+        from yfinance import EquityQuery
+        query = EquityQuery("eq", ["region", "my"])
+        quotes, offset = {}, 0
+        for _ in range(20):  # 安全上限
+            result = yf.screen(query, offset=offset, size=SCREENER_PAGE_SIZE, sortField="ticker", sortAsc=True)
+            page = result.get("quotes", [])
+            for q in page:
+                symbol, price, volume = q.get("symbol"), q.get("regularMarketPrice"), q.get("regularMarketVolume")
+                if symbol and price is not None and volume is not None:
+                    quotes[symbol] = (round(float(price), 3), int(volume))
+            offset += SCREENER_PAGE_SIZE
+            if not page or offset >= result.get("total", 0):
+                break
+        return quotes
+    except Exception as e:
+        print(f"⚠️ screener 预筛选失败 ({e})，改为逐支下载历史数据再判断成交量")
+        return {}
+
+
+def fetch_stock(symbol):
+    """线程池里跑的单支股票任务：日线 + 指标；会进表格的股票顺便抓日内走势 (塞在 data["intraday"])。"""
+    data = get_stock_data(symbol)
+    if data and not data.get("low_volume") and not check_strategy(data)[0]:
+        data["intraday"] = get_intraday_closes(symbol)
+    return data
+
+
 def is_trading_day(today_myt):
-    ref_data = get_stock_data(TRADING_DAY_REFERENCE)
-    return bool(ref_data and ref_data["candles"] and ref_data["candles"][-1]["time"] == today_myt)
+    # 只需要知道最新一根日线是不是今天，抓 5 天就够了，不用拉 6 个月再算一遍全部指标
+    try:
+        df = yf.Ticker(TRADING_DAY_REFERENCE).history(period="5d")
+        return len(df) > 0 and df.index[-1].strftime("%Y-%m-%d") == today_myt
+    except Exception as e:
+        print(f"交易日判断失败 ({e})，按非交易日处理")
+        return False
 
 # === 主程序 ===
 def main():
@@ -1599,31 +1689,54 @@ def main():
         print(f"今天 ({today_myt}) 非交易日或数据尚未更新，跳过本次扫描。")
         return
 
-    symbols = [item["symbol"] for item in WATCHLIST]
-    print(f"并发抓取 {len(symbols)} 支股票的数据 (并发数: {FETCH_WORKERS}) ...")
-    # get_stock_data 是纯网络 I/O (等 yfinance 的 HTTP 请求)，用线程池并发抓取能大幅缩短总耗时；
-    # executor.map 按输入顺序返回结果，跟下面 zip(WATCHLIST, fetched) 的顺序对得上。
-    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
-        fetched = list(executor.map(get_stock_data, symbols))
-    print("抓取完成，开始筛选...")
+    # 第 1 步: screener 几个请求拿全市场现价+成交量，成交量不够的直接判定忽略，不用下载历史
+    t_pre = time.perf_counter()
+    quotes = prefetch_quotes()
+    prefiltered = {}
+    for item in WATCHLIST:
+        q = quotes.get(item["symbol"])
+        if q and q[1] < min_volume_for(q[0]):
+            prefiltered[item["symbol"]] = {"symbol": item["symbol"], "low_volume": True, "close": q[0],
+                                           "volume": q[1], "threshold": min_volume_for(q[0])}
+    pre_secs = time.perf_counter() - t_pre
+    print(f"screener 预筛选: 拿到 {len(quotes)} 支报价，其中 {len(prefiltered)} 支成交量不够、不用下载历史")
 
+    # 第 2 步: 剩下的才并发下载 6 个月历史 + 算指标。screener 里没有的股票也走这一步 (在这里再判断成交量)。
+    # 日线和日内走势放在同一个线程里抓：一支股票过了成交量门槛、又没命中信号 (会进表格)，就接着抓日内数据。
+    t_fetch = time.perf_counter()
+    symbols = [item["symbol"] for item in WATCHLIST if item["symbol"] not in prefiltered]
+    print(f"并发抓取 {len(symbols)} 支股票的历史数据 (并发数: {FETCH_WORKERS}) ...")
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
+        fetched_map = dict(zip(symbols, executor.map(fetch_stock, symbols)))
+    fetched = [prefiltered.get(item["symbol"]) or fetched_map.get(item["symbol"]) for item in WATCHLIST]
+    fetch_secs = time.perf_counter() - t_fetch
+
+    t_filter = time.perf_counter()
     stocks = []
+    low_volume_by_tier = {}
+    no_data = 0
+    deepseek_calls = 0
     for item, data in zip(WATCHLIST, fetched):
         symbol = item["symbol"]
 
-        # 流动性门槛: 成交量太低的股票直接跳过，不放进报告
-        if data and data["volume"] < MIN_DAILY_VOLUME:
-            print(f"⏭️ 成交量不足 ({data['volume']:,} < {MIN_DAILY_VOLUME:,}): {symbol}")
+        # 流动性门槛 (按价格分级，见 VOLUME_TIERS): 成交量不够的直接忽略，不放进报告
+        if data and data.get("low_volume"):
+            low_volume_by_tier[data["threshold"]] = low_volume_by_tier.get(data["threshold"], 0) + 1
             continue
+        if data is None:
+            no_data += 1
 
+        intraday = data.pop("intraday", None) if data else None
         matched, reason, ai_comment = False, None, None
         if data:
             matched, reason = check_strategy(data)
             if matched:
+                # 防止 DeepSeek 限频：只在两次调用之间停 1 秒，最后一次调用之后不用等
+                if deepseek_calls:
+                    time.sleep(1)
                 ai_comment = ask_deepseek(data, reason)
+                deepseek_calls += 1
                 print(f"✅ 找到机会: {symbol}")
-                # 为了防止 DeepSeek 限制频率，稍微停顿 1 秒 (命中的股票通常很少，串行处理即可)
-                time.sleep(1)
 
         stocks.append({
             "symbol": symbol,
@@ -1632,23 +1745,23 @@ def main():
             "matched": matched,
             "reason": reason,
             "ai_comment": ai_comment,
+            "intraday": intraday,
         })
+    filter_secs = time.perf_counter() - t_filter
 
-    # 表格里每一行的迷你日内走势图：只给会出现在表格里的股票 (有数据、没命中信号) 抓，
-    # 命中的股票已经有完整 K 线图了。同样用线程池并发，拿不到的在报告里退回用近 30 日收盘价画。
+    for threshold in sorted(low_volume_by_tier):
+        print(f"⏭️ 成交量低于 {threshold:,} 被忽略: {low_volume_by_tier[threshold]} 支")
     table_stocks = [s for s in stocks if s["data"] and not s["matched"]]
-    if table_stocks:
-        print(f"并发抓取 {len(table_stocks)} 支股票的日内走势 ...")
-        with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
-            intraday = list(executor.map(get_intraday_closes, [s["symbol"] for s in table_stocks]))
-        for s, closes in zip(table_stocks, intraday):
-            s["intraday"] = closes
-        got = sum(1 for c in intraday if c)
-        print(f"日内走势: {got}/{len(table_stocks)} 支拿到数据，其余用近 30 日走势代替")
+    got_intraday = sum(1 for s in table_stocks if s["intraday"])
+    print(f"进入报告: {len(stocks) - no_data} 支 (信号 {deepseek_calls} 支, 表格 {len(table_stocks)} 支)；"
+          f"数据不足/抓取失败 {no_data} 支")
+    print(f"日内走势: {got_intraday}/{len(table_stocks)} 支拿到数据，其余用近 30 日走势代替")
 
+    t_report = time.perf_counter()
     os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
     with open(REPORT_PATH, "w", encoding="utf-8") as f:
         f.write(build_html_report(stocks))
+    report_secs = time.perf_counter() - t_report
 
     hits = sum(1 for s in stocks if s["matched"])
     if hits:
@@ -1656,7 +1769,14 @@ def main():
     else:
         print("今日无符合条件的股票，报告已更新")
 
+    t_notify = time.perf_counter()
     send_notification(hits)
+    notify_secs = time.perf_counter() - t_notify
+
+    # 耗时分解：Action 跑超过 1 分钟时，直接看这一行就知道慢在哪
+    print(f"⏱️ 耗时: 导入库 {IMPORT_SECS:.1f}s | screener 预筛选 {pre_secs:.1f}s | 抓取+指标+日内 {fetch_secs:.1f}s | "
+          f"筛选+DeepSeek {filter_secs:.1f}s | 生成报告 {report_secs:.1f}s | 推送 {notify_secs:.1f}s | "
+          f"总计 {time.perf_counter() - PROCESS_START:.1f}s")
 
 if __name__ == "__main__":
     main()
