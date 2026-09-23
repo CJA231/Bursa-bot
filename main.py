@@ -13,6 +13,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from exports import export_downloads
+
 IMPORT_SECS = time.perf_counter() - PROCESS_START
 
 # === 1. 配置区域 ===
@@ -244,6 +246,13 @@ def build_sparkline(values, baseline=None, width=72, height=24):
     base_line = f'<line x1="0" x2="{width}" y1="{y(ref):.1f}" y2="{y(ref):.1f}"/>' if baseline is not None else ""
     return (f'<svg class="spark {trend}" viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
             f'preserveAspectRatio="none" aria-hidden="true">{base_line}<polyline points="{points}"/></svg>')
+
+
+def fmt_num(v, pattern, missing="—"):
+    """数字格式化；None / NaN 显示成 "—"。价格 14 天没动的股票 RSI 会是 NaN (0/0)，以前表格里直接显示 "nan"。"""
+    if v is None or (isinstance(v, float) and v != v):
+        return missing
+    return pattern.format(v)
 
 
 def fmt_volume(v):
@@ -1332,8 +1341,75 @@ CHART_SCRIPT = """
 </script>
 """
 
+DOWNLOADS_CSS = """
+  /* ---- 📥 下载报告 (近 7 天 CSV / Excel / PDF) ---- */
+  .downloads {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    max-width: 560px;
+  }
+  .downloads > summary {
+    cursor: pointer;
+    padding: 0.55rem 0.9rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    list-style: none;
+  }
+  .downloads > summary::-webkit-details-marker { display: none; }
+  .downloads > summary::after { content: " ▸"; color: var(--muted); }
+  .downloads[open] > summary::after { content: " ▾"; }
+  .downloads-body { padding: 0 0.9rem 0.8rem; }
+  .dl-combined { font-size: 0.82rem; margin: 0 0 0.6rem; color: var(--text-secondary); }
+  .dl-table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+  .dl-table td { padding: 0.35rem 0.4rem; border-top: 1px solid var(--border); white-space: nowrap; }
+  .dl-table td.dl-time { color: var(--muted); font-size: 0.75rem; }
+  .dl-link {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    margin-right: 0.3rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.75rem;
+  }
+  .dl-link:hover { background: var(--page); }
+"""
+
+
+def build_downloads_html(downloads):
+    """报告页面上的"📥 下载报告"区块。没有导出成功 (downloads 为 None) 就不显示。"""
+    if not downloads or not downloads.get("days"):
+        return ""
+
+    def links(files):
+        return "".join(f'<a class="dl-link" href="downloads/{files[k]}" download>{label}</a>'
+                       for k, label in (("csv", "CSV"), ("xlsx", "Excel"), ("pdf", "PDF")))
+
+    rows = "".join(
+        f'<tr><td>{d["date"]}</td><td class="dl-time">{d["generated_at"][-5:]} 更新</td><td>{links(d["files"])}</td></tr>'
+        for d in downloads["days"]
+    )
+    combined = downloads.get("combined")
+    combined_html = (
+        f'<p class="dl-combined">近 {len(downloads["days"])} 天合并：'
+        f'<a class="dl-link" href="downloads/{combined["xlsx"]}" download>Excel (每天一个工作表)</a>'
+        f'<a class="dl-link" href="downloads/{combined["csv"]}" download>CSV</a></p>'
+        if combined else ""
+    )
+    return f"""<details class="downloads">
+  <summary>📥 下载报告 (近 {downloads["keep_days"]} 个交易日)</summary>
+  <div class="downloads-body">
+    {combined_html}
+    <table class="dl-table">{rows}</table>
+  </div>
+</details>"""
+
+
 # === 7. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
-def build_html_report(stocks):
+def build_html_report(stocks, downloads=None):
     now = datetime.now(MYT).strftime("%Y-%m-%d %H:%M")
 
     cards = []
@@ -1390,7 +1466,7 @@ def build_html_report(stocks):
                 <td class="num {change_class}" data-value="{change_pct}">{change_sign}{change_pct:.2f}%</td>
                 <td class="num" data-value="{data['volume']}">{fmt_volume(data['volume'])}</td>
                 {rel_vol_cell}
-                <td class="num" data-value="{data['rsi']}">{data['rsi']:.1f}</td>
+                <td class="num" data-value="{fmt_num(data['rsi'], '{}', '-1')}">{fmt_num(data['rsi'], '{:.1f}')}</td>
                 <td data-value="{1 if data['sar_bullish_now'] else 0}">{sar_pill}</td>
                 <td class="num {ema_class}" data-value="{data['ema20_latest']}">{data['ema20_latest']:.3f}</td>
             </tr>"""))
@@ -1404,7 +1480,7 @@ def build_html_report(stocks):
                 <h2>{s['name']} <span class="code">{code}</span></h2>
                 <div class="stats">
                     <span>现价 <b>{data['close']}</b></span>
-                    <span>RSI(14) <b>{data['rsi']}</b></span>
+                    <span>RSI(14) <b>{fmt_num(data['rsi'], '{}')}</b></span>
                     <span>50日均线 <b>{data['sma50']}</b></span>
                 </div>
             </div>
@@ -1560,12 +1636,14 @@ def build_html_report(stocks):
   table.data-table tbody tr:hover {{ background: var(--page); }}
 {SETTINGS_CSS}
 {TABLE_CSS}
+{DOWNLOADS_CSS}
 </style>
 </head>
 <body>
 <h1>📢 马股自动分析报告</h1>
 <p class="updated">更新时间: {now} (MYT)</p>
 {SETTINGS_PANEL_HTML}
+{build_downloads_html(downloads)}
 
 <h2 class="section">🚨 信号 ({len(cards)})</h2>
 <div class="grid">
@@ -1762,10 +1840,21 @@ def main():
           f"数据不足/抓取失败 {no_data} 支")
     print(f"日内走势: {got_intraday}/{len(table_stocks)} 支拿到数据，其余用近 30 日走势代替")
 
+    # 导出 CSV / Excel / PDF 下载文件 (要在生成网页之前，网页上的下载区块才能列出最新的文件)。
+    # 导出出错不能拖垮主流程：报告照样生成和发布，只是这次没有下载区块。
+    t_export = time.perf_counter()
+    downloads = None
+    try:
+        downloads = export_downloads(stocks, today_myt, datetime.now(MYT).strftime("%Y-%m-%d %H:%M"))
+        print(f"📥 下载文件已导出: 保留 {len(downloads['days'])} 天 ({downloads['days'][0]['date']} 起)")
+    except Exception as e:
+        print(f"⚠️ 导出下载文件失败 ({type(e).__name__}: {e})，报告照常生成，只是这次没有下载区块")
+    export_secs = time.perf_counter() - t_export
+
     t_report = time.perf_counter()
     os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
     with open(REPORT_PATH, "w", encoding="utf-8") as f:
-        f.write(build_html_report(stocks))
+        f.write(build_html_report(stocks, downloads))
     report_secs = time.perf_counter() - t_report
 
     hits = sum(1 for s in stocks if s["matched"])
@@ -1780,7 +1869,7 @@ def main():
 
     # 耗时分解：Action 跑超过 1 分钟时，直接看这一行就知道慢在哪
     print(f"⏱️ 耗时: 导入库 {IMPORT_SECS:.1f}s | screener 预筛选 {pre_secs:.1f}s | 抓取+指标+日内 {fetch_secs:.1f}s | "
-          f"筛选+DeepSeek {filter_secs:.1f}s | 生成报告 {report_secs:.1f}s | 推送 {notify_secs:.1f}s | "
+          f"筛选+DeepSeek {filter_secs:.1f}s | 导出下载 {export_secs:.1f}s | 生成报告 {report_secs:.1f}s | 推送 {notify_secs:.1f}s | "
           f"总计 {time.perf_counter() - PROCESS_START:.1f}s")
 
 if __name__ == "__main__":

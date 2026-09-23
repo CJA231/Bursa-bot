@@ -3,3 +3,5 @@ pandas
 pandas_ta
 openai
 requests
+openpyxl
+reportlab

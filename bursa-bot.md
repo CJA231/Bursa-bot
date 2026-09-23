@@ -26,6 +26,7 @@
 ```
 Bursa-bot/
 ├── main.py                      # 主程序：抓数据 → 算指标 → 筛选 → 生成 HTML → 推送
+├── exports.py                   # 导出下载文件 (CSV / Excel / PDF)，见第 4 节"下载报告"
 ├── requirements.txt
 ├── README.md                    # GitHub 仓库首页介绍 (功能、架构图、免责声明)
 ├── LICENSE                      # All Rights Reserved (见第 9 节)
@@ -36,6 +37,7 @@ Bursa-bot/
 ├── assets/screenshots/          # README 用的界面截图 (light/dark 各一张，用 <picture> 按 GitHub 主题切换)
 ├── docs/
 │   ├── index.html               # 生成的报告，GitHub Pages 从这里发布
+│   ├── downloads/               # 最近 7 个交易日的下载文件 + 7 天合并文件 (自动生成、自动清理)
 │   └── vendor/
 │       └── lightweight-charts.js  # TradingView 图表库 v4.1.3，Apache 2.0，160KB，自托管
 ├── scripts/
@@ -179,6 +181,20 @@ def detect_t3_pattern(df):
 - 表格宽度跟内容走 (`width: auto`)，大屏不会被拉满
 - 旧表格里的 SMA50 列已去掉 (信号卡片里还有)
 
+### 📥 下载报告 (`exports.py`)
+- 页面上方的 `<details>` 区块 (默认折叠)，列出最近 `KEEP_REPORT_DAYS = 7` 个**报告日** (只有交易日才有报告，所以约一周半)
+- 每次运行 `main()` 在生成网页**之前**调用 `export_downloads()`，写到 `docs/downloads/<日期>/`：
+  `bursa-report-<日期>.csv / .xlsx / .pdf` + `data.json` (合并文件的数据来源)
+- 同一天跑多次 → 覆盖，保留当天最后一次；超过 7 个日期的文件夹自动删掉 (只删名字是日期的文件夹)
+- 另外生成 `bursa-report-last7.xlsx` (每天一个工作表) 和 `bursa-report-last7.csv` (多一列"日期")
+- 文件夹日期取**行情数据最新一根日线的日期**，不是系统时间 (FORCE_RUN 周末跑不会生成"周六"的文件)
+- 导出失败**不会**拖垮主流程：打印 ⚠️，报告照常生成，只是这次没有下载区块
+- daily.yml 发布步骤用 `git add -A docs/index.html docs/downloads`，`-A` 才会把删掉的旧文件夹一起提交
+- 格式细节：CSV 用 utf-8-sig (带 BOM，Excel 打开中文不乱码)；Excel 涨跌% 存成小数+百分比格式并上色、表头冻结+筛选；PDF 横向 A4，用 reportlab 自带的中文 CID 字体 `STSong-Light` (不用往仓库放字体文件)
+- 依赖：`openpyxl`、`reportlab` (requirements.txt)
+- 耗时：真实规模 (330 行 + 7 天合并) 约 1 秒，⏱️ 耗时行里的"导出下载"
+- ⚠️ **仓库体积**：每次运行提交约 190KB (当天文件夹) + 400KB (两个合并文件)，Excel/PDF 本身是压缩格式，git 没法按差异存。一天 10 次约多 3MB 历史、一年约 1GB。以后如果嫌大，可以改成"用 GitHub Actions 部署 Pages"(下载文件不进 git，只保留 data.json)
+
 ---
 
 ## 5. 排程 (✅ 已解决：外部定时器)
@@ -301,6 +317,9 @@ yf.screen(EquityQuery('eq', ['region', 'my']))   # → 筛 quoteType == "EQUITY"
 | K 线图盖住下面的图例 | CSS 容器 220px、JS 画 260px → 统一成 260px |
 | 日内走势颜色跟涨跌% 相反 (run #209 的 HEGROUP：+0.94% 但走势红色) | Yahoo 5 分钟线比最新成交价慢一点，最后一根还在昨收下面 → 走势线最后补上现价，终点=现价 |
 | 价格没变却显示红色 "-0.00%" (MMAG 0.025) | 现价四舍五入到 3 位、昨收没有，浮点尾数算出极小的负数 → 昨收也四舍五入再算；没变的走势图用灰色 (`spark-flat`) |
+| 表格/PDF 里 RSI 显示 "nan" (EAH 0.005) | 价格 14 天完全没动，RSI 的涨跌平均都是 0，0/0 = NaN → 网页显示 "—" (排序值 -1)；导出时 NaN 一律变成空白 (NaN 写进 xlsx 会让 Excel 报文件损坏) |
+| PDF 里 © 不显示 | 内置中文字体 STSong-Light 没有 © → 写成"版权所有"；emoji 也会被去掉 |
+| 本地测试时 `pkill -f "http.server ..."` 把自己的 shell 杀掉了 | pkill 的匹配串也出现在自己的命令行里，别在同一条命令里用 pkill 匹配自己的参数 |
 | 本地测试卡死 120s | 假数据让 1070 支全部命中，每次命中 `time.sleep(1)` → 测试时 patch 掉 sleep |
 | 测试产物污染 git | mock 的 `main()` 覆盖了真的 `docs/index.html` → 测试时把 `main.REPORT_PATH` 指到 /tmp |
 | **bursa-bot.md 丢过一次** | 9/22 把分支 reset 到 main 再 force-push，把只在分支上、还没合并的 bursa-bot.md commit 盖掉了 (9/23 从本地 reflog 找回)。**教训：reset/force-push 分支前先确认分支上有没有还没合并的 commit** |
