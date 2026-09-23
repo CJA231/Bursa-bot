@@ -405,6 +405,16 @@ yf.screen(EquityQuery('eq', ['region', 'my']))   # → 筛 quoteType == "EQUITY"
   - Website: `https://cja231.github.io/Bursa-bot/`
   - Topics: `stock-screener trading-bot bursa-malaysia technical-analysis python github-actions deepseek candlestick-chart fintech`
 
+### 合规检查 (9/23，非法律意见)
+- **图表库署名**：Lightweight Charts 的 Apache 2.0 + NOTICE 要求在用户看得到的页面上放 NOTICE 里的署名 + tradingview.com 链接。
+  v4 时代的页面完全没有 → 已补：页脚写上 NOTICE 原文 + 链接，`docs/vendor/NOTICE` 和 `docs/vendor/LICENSE-lightweight-charts` 也放进仓库
+- **行情数据**：yfinance 抓的是 Yahoo Finance 数据，Yahoo 条款只允许个人使用；Bursa 行情对外转发 (实时/延迟/收盘) 原则上要 Bursa 的 ISLA 信息服务许可。
+  现在个人、免费、公开网页 + 下载文件 → 风险低，但严格来说超出 Yahoo 条款；**收费/商业化前必须换成有授权的数据源**
+- **投资建议 (SC Malaysia / CMSA 2007)**：已经去掉买卖建议 + 有免责声明；但 SC 明说"免责声明不能免除牌照要求"。关键在于有没有收费/收佣金/拿回报 → 如果以后要收费提供信号，要先问马来西亚律师或 SC (可能需要 CMSRL 投资顾问牌照，或者跟持牌机构合作)
+- **GitHub Pages**：条款禁止拿来做网上生意/收费服务/SaaS
+- **改成 private 的后果**：免费账号 private 仓库不能用 Pages → 报告网站会下线 (要 GitHub Pro 才能保留，而且 Pro 的 Pages 网站本身还是公开的)；stars (目前 1 个) 会永久清零；目前 0 个 fork；Actions 在 private 仓库按分钟计费，免费账号每月 2000 分钟，我们大约每月 250–400 分钟，够用；cron-job.org 的 PAT 照常能用
+- 仓库描述 ("analyzing TradingView screeners … best opportunities") 跟实际不符 (数据来自 Yahoo、跟 TradingView 无关)，而且像在推荐买卖，建议用户自己改掉
+
 ### 另外一条线（已和 bot 开发分开）
 用户问过「把报告做成 App + 订阅服务」会不会踩马来西亚 SC 法规。关键词备查：
 CMSA 2007、SC Guidance Note **SC-GN/1-2020 (R2-2024)**、Digital Investment Management (DIM) framework、Bursa **ISLA** 数据授权。
