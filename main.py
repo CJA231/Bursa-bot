@@ -5,6 +5,7 @@ import os
 import re
 import json
 import html
+import math
 import calendar
 import hashlib
 import yfinance as yf
@@ -20,23 +21,124 @@ from exports import export_downloads
 
 IMPORT_SECS = time.perf_counter() - PROCESS_START
 
-# === 1. 配置区域 ===
-# 默认自选股列表 (马股代码记得加 .KL)：在 data/watchlist.json 还没生成之前使用
-DEFAULT_WATCHLIST = [
-    {"symbol": "1155.KL", "name": "Maybank 马银行"},
-    {"symbol": "1023.KL", "name": "Public Bank 大众银行"},
-    {"symbol": "5183.KL", "name": "Petronas Chemicals 国油化学"},
-    {"symbol": "5296.KL", "name": "MR DIY"},
-    {"symbol": "0083.KL", "name": "Press Metal 齐力工业"},
-    {"symbol": "5168.KL", "name": "Hartalega 哈达维格"},
-]
+# === 0. 市场设置 ===
+# 马股 (MY) 和美股 (US) 共用同一套程序，两边不一样的地方全部写在这里。
+# 用环境变量 MARKET 切换：MARKET=MY (默认，cron-job.org 的旧任务不传就是马股) / MARKET=US。
+# 两个市场的报告放在不同目录，互不影响：马股 docs/ → https://cja231.github.io/Bursa-bot/，
+# 美股 docs/us/ → https://cja231.github.io/Bursa-bot/us/；页面脚本 docs/report.js 两边共用 (市场差异看 <body> 的 data-*)。
+MARKETS = {
+    "MY": {
+        "name": "马股",
+        "title": "马股自动分析报告",
+        "universe": "Bursa 全部上市股票 (Main + ACE)",
+        "docs_dir": "docs",
+        "url": "https://cja231.github.io/Bursa-bot/",
+        "tz": "Asia/Kuala_Lumpur",
+        "tz_label": "MYT",
+        "currency": "MYR",
+        "currency_symbol": "RM",
+        "price_dp": 3,                # Bursa 最小跳动 0.005，价格显示 3 位小数
+        "session_start": 9 * 60,      # 开市时间 (当地时间，距午夜几分钟)：日内K线从这里开始对齐合成 15 分、1 小时…
+        "watchlist": os.path.join("data", "watchlist.json"),
+        # 在 data/watchlist.json 还没生成之前使用 (马股代码记得加 .KL)
+        "default_watchlist": [
+            {"symbol": "1155.KL", "name": "Maybank 马银行"},
+            {"symbol": "1023.KL", "name": "Public Bank 大众银行"},
+            {"symbol": "5183.KL", "name": "Petronas Chemicals 国油化学"},
+            {"symbol": "5296.KL", "name": "MR DIY"},
+            {"symbol": "0083.KL", "name": "Press Metal 齐力工业"},
+            {"symbol": "5168.KL", "name": "Hartalega 哈达维格"},
+        ],
+        # 流动性门槛 (按价格分级)：日成交量低于门槛的股票直接忽略，不进报告、也不参与信号判断
+        # 低价股要求更高的成交量，过滤掉交投清淡、容易被少量资金拉动的仙股
+        "volume_tiers": [
+            (0.10, 5_000_000),   # 价格 < 0.10          → 成交量至少 5M
+            (0.20, 3_000_000),   # 0.10 ≤ 价格 < 0.20   → 至少 3M
+            (0.50, 1_000_000),   # 0.20 ≤ 价格 ≤ 0.50   → 至少 1M (0.50 本身也算在这一档)
+        ],
+        "min_volume": 500_000,        # 其余价格 (> 0.50) 的门槛
+        "min_turnover": None,         # 马股按成交量 (股数) 分级，不看成交额
+        "screener": {"region": "my"},
+        "trading_ref": "1155.KL",     # 马银行，流动性最好，用它判断今天有没有开市
+        "news": {"hl": "en-MY", "gl": "MY", "ceid": "MY:en", "fallback": "Bursa"},
+        "analyst": "马来西亚股市",
+        "file_prefix": "bursa-report",
+        "search_hint": "例如 CYPARK / 5184",
+        "detail_per_run": 30,         # 一天跑 10 次，每次补 30 支个股资料就够
+        "news_per_run": 40,
+    },
+    "US": {
+        "name": "美股",
+        "title": "美股自动分析报告",
+        "universe": "市值 ≥ 100 亿美元的美股 (纽交所 / 纳斯达克)",
+        "docs_dir": os.path.join("docs", "us"),
+        "url": "https://cja231.github.io/Bursa-bot/us/",
+        "tz": "America/New_York",     # 夏令时自动处理 (日内K线时间也按当天的 UTC 偏移换算，见 local_epoch)
+        "tz_label": "美东时间",
+        "currency": "USD",
+        "currency_symbol": "US$",
+        "price_dp": 2,
+        "session_start": 9 * 60 + 30,
+        # 没有清单文件：扫描范围直接用下面 screener 的结果 (每次运行都按最新市值重新找)；
+        # screener 出错时才退回这几支大型股，报告至少还能生成
+        "watchlist": None,
+        "default_watchlist": [
+            {"symbol": "AAPL", "name": "Apple"},
+            {"symbol": "MSFT", "name": "Microsoft"},
+            {"symbol": "NVDA", "name": "NVIDIA"},
+            {"symbol": "AMZN", "name": "Amazon"},
+            {"symbol": "GOOGL", "name": "Alphabet"},
+            {"symbol": "META", "name": "Meta Platforms"},
+        ],
+        # 美股股价从几美元到几十万美元都有，用股数分级不合理，改看成交额 (价格 × 股数)：
+        # 门槛股数 = 最低成交额 ÷ 价格 (见 min_volume_for)
+        "volume_tiers": [],
+        "min_volume": 1_000_000,      # 只有价格异常 (≤ 0) 时才用得到
+        "min_turnover": 20_000_000,   # 日成交额至少 2000 万美元
+        # 只要纽交所 / 纳斯达克挂牌的普通股 (不要场外 OTC)，市值 ≥ 100 亿美元 (约 700 支)
+        "screener": {"region": "us", "exchanges": ["NYQ", "NMS", "NGM", "NCM", "ASE"], "min_market_cap": 10_000_000_000},
+        "trading_ref": "SPY",
+        "news": {"hl": "en-US", "gl": "US", "ceid": "US:en", "fallback": "stock"},
+        "analyst": "美国股市",
+        "file_prefix": "us-report",
+        "search_hint": "例如 AAPL / NVDA",
+        # 一天只跑一次、股票又多 (约 700 支)，每次多补一些，一周左右就能轮一遍
+        "detail_per_run": 120,
+        "news_per_run": 120,
+    },
+}
+MARKET_ID = (os.environ.get("MARKET") or "MY").strip().upper()
+if MARKET_ID not in MARKETS:
+    raise SystemExit(f"环境变量 MARKET={MARKET_ID!r} 不认识，只能是 {' / '.join(MARKETS)}")
+MKT = MARKETS[MARKET_ID]
 
-WATCHLIST_PATH = os.path.join("data", "watchlist.json")
+LOCAL_TZ = ZoneInfo(MKT["tz"])       # 交易所当地时间 (马股 MYT，美股美东时间)
+DOCS_ROOT = "docs"                   # GitHub Pages 的根目录：report.js、vendor/ 放在这里，两个市场共用
+DOCS_DIR = MKT["docs_dir"]           # 这个市场的报告、下载文件、K线/财报/新闻都放在这下面
+# 页面引用 report.js、vendor/ 的相对路径前缀：马股页面在根目录 ("")，美股页面在 us/ 下面 ("../")
+ASSET_PREFIX = "" if os.path.normpath(DOCS_DIR) == os.path.normpath(DOCS_ROOT) else \
+    os.path.relpath(DOCS_ROOT, DOCS_DIR).replace(os.sep, "/") + "/"
+PRICE_DP = MKT["price_dp"]
+PRICE_PATTERN = "{:." + str(PRICE_DP) + "f}"
+CURRENCY_SYMBOL = MKT["currency_symbol"]
+
+
+def fmt_price(v):
+    """价格按市场的位数显示 (马股 3 位、美股 2 位)"""
+    return PRICE_PATTERN.format(v)
+
+
+# === 1. 配置区域 ===
+DEFAULT_WATCHLIST = MKT["default_watchlist"]
+WATCHLIST_PATH = MKT["watchlist"]
 
 
 def load_watchlist():
-    # 优先用 scripts/fetch_watchlist.py 生成的全市场清单，
-    # 还没跑过那个脚本时 (或文件为空) 就退回默认的 6 支股票，确保 bot 不会因此坏掉
+    # 马股优先用 scripts/fetch_watchlist.py 生成的全市场清单，
+    # 还没跑过那个脚本时 (或文件为空) 就退回默认的 6 支股票，确保 bot 不会因此坏掉。
+    # 美股没有清单文件，返回空清单：扫描范围直接用 screener 的结果 (见 build_scan_list)
+    if not WATCHLIST_PATH:
+        return []
     try:
         with open(WATCHLIST_PATH, encoding="utf-8") as f:
             watchlist = json.load(f)
@@ -49,25 +151,30 @@ def load_watchlist():
 
 WATCHLIST = load_watchlist()
 
-REPORT_PATH = os.path.join("docs", "index.html")
-REPORT_URL = "https://cja231.github.io/Bursa-bot/"
+REPORT_PATH = os.path.join(DOCS_DIR, "index.html")
+REPORT_URL = MKT["url"]
 CHART_HISTORY_DAYS = 90  # 图表显示最近约 90 个交易日
-# 流动性门槛 (按价格分级)：日成交量低于门槛的股票直接忽略，不进报告、也不参与信号判断
-# 低价股要求更高的成交量，过滤掉交投清淡、容易被少量资金拉动的仙股
-VOLUME_TIERS = [
-    (0.10, 5_000_000),   # 价格 < 0.10          → 成交量至少 5M
-    (0.20, 3_000_000),   # 0.10 ≤ 价格 < 0.20   → 至少 3M
-    (0.50, 1_000_000),   # 0.20 ≤ 价格 ≤ 0.50   → 至少 1M (0.50 本身也算在这一档)
-]
-MIN_DAILY_VOLUME = 500_000  # 其余价格 (> 0.50) 的门槛，保持不变
+# 流动性门槛 (见 MARKETS 里的说明)：马股按价格分级的成交量，美股按成交额
+VOLUME_TIERS = MKT["volume_tiers"]
+MIN_DAILY_VOLUME = MKT["min_volume"]
+MIN_TURNOVER = MKT["min_turnover"]
 
 
 def min_volume_for(price):
+    """日成交量 (股数) 门槛。美股 = 最低成交额 ÷ 价格；马股按价格分级"""
+    if MIN_TURNOVER:
+        return math.ceil(MIN_TURNOVER / price) if price > 0 else MIN_DAILY_VOLUME
     for upper, min_vol in VOLUME_TIERS:
         if price < upper or (upper == 0.50 and price == 0.50):
             return min_vol
     return MIN_DAILY_VOLUME
-MYT = ZoneInfo("Asia/Kuala_Lumpur")
+
+
+def volume_rule_text(threshold):
+    """日志里"⏭️ …被忽略"那一行的说明。美股每支股票的门槛股数都不一样 (按价格算)，只写成交额"""
+    if MIN_TURNOVER:
+        return f"成交额低于 {CURRENCY_SYMBOL}{MIN_TURNOVER / 1e6:,.0f}M"
+    return f"成交量低于 {threshold:,}"
 
 # 并发抓取股票数据的线程数：yfinance 请求是网络 I/O，并发能大幅缩短整体运行时间
 # (实测: 串行 188 秒 → 16 线程 49.5 秒，run #207 在 16 线程下 0 支抓取失败)。
@@ -221,7 +328,7 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 "volume": last_volume,
                 "rel_volume": rel_volume,
                 "history_days": history_days,
-                "daily_bars": compact_bars(df, intraday=False),  # 双击看完整图表用 (只有表格股票会写进 table.json)
+                "daily_bars": compact_bars(df, intraday=False),  # 点开看完整图表 + 网页上的选股条件用 (只有表格股票会写进 table.json)
                 "candles": candles,
                 "ema20": ema20,
                 "psar": psar_series,
@@ -243,15 +350,23 @@ CHART_SOURCES = [
     ("1d", "1d", "2y", None),     # 天、周 (2 年够一目均衡表的先行带 B 画满整张图)
     ("1mo", "1mo", "10y", None),  # 月
 ]
-MYT_OFFSET_SECS = 8 * 3600
+
+
+def local_epoch(ts):
+    """日内K线的时间 → "交易所当地钟点当成 UTC" 的秒级时间戳，图表按 UTC 显示时刚好就是当地时间。
+    马股固定 +8 小时；美股夏令时 -4、冬令时 -5，按每一根K线自己那天的偏移算 (tz_convert 会处理夏令时)。"""
+    ts = pd.Timestamp(ts)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    return int(ts.timestamp()) + int(ts.tz_convert(LOCAL_TZ).utcoffset().total_seconds())
 
 
 def bars_payload(df, intraday):
     """DataFrame → 网页用的列式数组 {t,o,h,l,c,v} (比一根K线一个对象省一半以上体积)。
-    时间用秒级时间戳：日内K线加上 +8 小时，让图表按 UTC 显示时刚好就是马来西亚时间；日线以上用当天 00:00 UTC。"""
+    时间用秒级时间戳：日内K线换成当地钟点 (local_epoch)；日线以上用当天 00:00 UTC。"""
     df = df.dropna(subset=["Open", "High", "Low", "Close"])
     if intraday:
-        t = [int(ts.timestamp()) + MYT_OFFSET_SECS for ts in df.index]
+        t = [local_epoch(ts) for ts in df.index]
     else:
         t = [calendar.timegm(ts.date().timetuple()) for ts in df.index]
     return {
@@ -287,7 +402,7 @@ def get_chart_history(symbol):
 
 def get_intraday(symbol):
     """当天 (或最近一个交易日) 的 5 分钟K线。返回 (收盘价序列, 精简K线)：
-    收盘价给表格的迷你走势图，精简K线给"双击看完整图表"的日内周期用。拿不到就返回 (None, None)。"""
+    收盘价给表格的迷你走势图，精简K线给"点表格看完整图表"的日内周期用。拿不到就返回 (None, None)。"""
     try:
         df = yf.Ticker(symbol).history(period="1d", interval="5m")
         df = df.dropna(subset=["Open", "High", "Low", "Close"])
@@ -301,15 +416,16 @@ def get_intraday(symbol):
 
 def compact_bars(df, intraday):
     """
-    "其余股票"双击看完整图表用的精简K线 (全部表格股票放在同一个 docs/charts/table.json，打开时才下载)：
-    价格 ×1000 存成整数 (Bursa 最小跳动 0.005，3 位小数足够)；时间只存第一根 + 每根的间隔
+    "其余股票"点开看完整图表 (以及网页上的自定义选股条件) 用的精简K线
+    (全部表格股票放在同一个 docs/charts/table.json，用到时才下载)：
+    价格 ×1000 存成整数 (Bursa 最小跳动 0.005，美股 0.01，3 位小数足够)；时间只存第一根 + 每根的间隔
     (日线以天、日内以分钟为单位)。比 bars_payload 那种完整时间戳 + 小数小一半以上。
     """
     df = df.dropna(subset=["Open", "High", "Low", "Close"])
     if df.empty:
         return None
     if intraday:
-        ts, unit = [int(x.timestamp()) + MYT_OFFSET_SECS for x in df.index], 60
+        ts, unit = [local_epoch(x) for x in df.index], 60
     else:
         ts, unit = [calendar.timegm(x.date().timetuple()) for x in df.index], 86400
     return {
@@ -322,13 +438,15 @@ def compact_bars(df, intraday):
     }
 
 
-CHARTS_DIR = os.path.join("docs", "charts")
+CHARTS_DIR = os.path.join(DOCS_DIR, "charts")
 TABLE_CHARTS_FILE = os.path.join(CHARTS_DIR, "table.json")
+DOWNLOADS_DIR = os.path.join(DOCS_DIR, "downloads")
 
 
 def write_table_charts(stocks):
-    """把"其余股票"每一支的 6 个月日线 + 当天 5 分钟线写进 docs/charts/table.json。
-    网页里双击某一行才下载这个文件 (整页不会因此变大)；返回文件内容的短哈希，放在网址后面防止浏览器用旧缓存。"""
+    """把"其余股票"每一支的 6 个月日线 + 当天 5 分钟线写进 <市场目录>/charts/table.json。
+    网页里点开某一行、或者模板里有选股条件时才下载这个文件 (整页不会因此变大)；
+    返回文件内容的短哈希，放在网址后面防止浏览器用旧缓存。"""
     table = {}
     for s in stocks:
         d = s["data"]
@@ -342,16 +460,16 @@ def write_table_charts(stocks):
     return hashlib.sha1(body.encode()).hexdigest()[:10]
 
 
-# ---- 每支股票的详细资料: 近 4 季 + 近 2 年财报、2 年日线 + 10 年月线，存在 docs/stock/<代码>.json ----
-# 双击"其余股票"的一行 (或点卡片上的"完整图表 · 财报") 时才下载。财报一季才变一次，长期K线里
+# ---- 每支股票的详细资料: 近 4 季 + 近 2 年财报、2 年日线 + 10 年月线，存在 <市场目录>/stock/<代码>.json ----
+# 点开"其余股票"的一行 (或点卡片上的"完整图表 · 财报") 时才下载。财报一季才变一次，长期K线里
 # 最近 6 个月以外的部分也不会再变 (最近 6 个月每次运行都写在 table.json 里，网页打开时拼在一起)，
 # 所以每支一周抓一次就够。每次运行只补一小批 (DETAIL_PER_RUN 支)，不会拖慢运行：
-# 第一天跑几次就补齐全部表格股票，之后每周轮着刷新。
-DETAIL_DIR = os.path.join("docs", "stock")
+# 马股第一天跑几次就补齐全部表格股票，之后每周轮着刷新；美股一天只跑一次，每次多补一些。
+DETAIL_DIR = os.path.join(DOCS_DIR, "stock")
 DETAIL_MAX_AGE_DAYS = 7    # 有财报的: 一周刷新一次
 DETAIL_RETRY_DAYS = 2      # Yahoo 没给财报的: 两天后再试 (可能只是那次请求被限流，不想一错就等一周)
 DETAIL_PRUNE_DAYS = 30     # 超过 30 天没更新、这次也不在报告里的 (早就跌出成交量门槛了) 删掉
-DETAIL_PER_RUN = 30
+DETAIL_PER_RUN = MKT["detail_per_run"]
 DETAIL_WORKERS = 8
 DETAIL_HISTORY = (("d", "2y", "1d"), ("m", "10y", "1mo"))  # 跟筛选器卡片一样长
 FIN_QUARTERS = 4
@@ -427,7 +545,7 @@ def fetch_detail(symbol, today):
     a = financial_section(statement_values(get("income_stmt"), FIN_ROWS["income"]),
                           statement_values(get("balance_sheet"), FIN_ROWS["balance"]),
                           statement_values(get("cashflow"), FIN_ROWS["cashflow"]), FIN_YEARS)
-    # info: 公司全名 (搜新闻用，简称像 "JAG"、"SDG" 太容易搜到别的东西) + 财报货币 (马股大多是令吉，少数用美元报告)
+    # info: 公司全名 (搜新闻用，简称像 "JAG"、"SDG" 太容易搜到别的东西) + 财报货币 (马股大多是令吉，少数用美元报告；美股大多是美元)
     info = get("info") or {}
     fin = None
     if q["periods"] or a["periods"]:
@@ -501,34 +619,37 @@ def refresh_details(stocks, today):
 
 
 
-# ---- 个股新闻: 最近的新闻标题 + 链接，存在 docs/news/<代码>.json，每支半天更新一次 ----
+# ---- 个股新闻: 最近的新闻标题 + 链接，存在 <市场目录>/news/<代码>.json，每支半天更新一次 ----
 # 只存标题、来源、时间和原文链接 (不转载内文)。主要用 Google News RSS 按公司全名搜 (比 Yahoo 的个股新闻准，
 # Yahoo 对马股小公司常常给一堆无关的大盘新闻)；Google 那边拿不到时才退回 Yahoo。
-NEWS_DIR = os.path.join("docs", "news")
+NEWS_DIR = os.path.join(DOCS_DIR, "news")
 NEWS_MAX_AGE_HOURS = 12
-NEWS_PER_RUN = 40
+NEWS_PER_RUN = MKT["news_per_run"]
 NEWS_WORKERS = 8
 NEWS_KEEP = 8
 NEWS_MAX_DAYS = 90
 NEWS_PRUNE_DAYS = 30
 GOOGLE_NEWS_RSS = "https://news.google.com/rss/search"
-COMPANY_SUFFIX_RE = re.compile(r"[\s,.]*\b(berhad|bhd)\.?\s*$", re.I)
+# 公司全名结尾的公司形式 (只去掉最后一个)：马股 Berhad / Bhd，美股 Inc / Corp / Co / Ltd / plc / N.V. …
+COMPANY_SUFFIX_RE = re.compile(
+    r"[\s,.&]*\b(berhad|bhd|inc|incorporated|corp|corporation|co|company|ltd|limited|plc|n\.?\s?v|s\.?\s?a|ag|se)\.?\s*$", re.I)
 
 
 def news_query(name, long_name):
-    """搜索词: 有全名就用全名 (去掉 Berhad / Bhd 结尾，新闻里两种写法都有)，没有就用简称 + Bursa"""
+    """搜索词: 有全名就用全名 (去掉 Berhad / Inc 这类结尾，新闻里两种写法都有)，没有就用简称 + Bursa (美股是 stock)"""
     if long_name:
         base = COMPANY_SUFFIX_RE.sub("", long_name).strip()
         if len(base) >= 4:
             return f'"{base}"'
-    return f'"{name}" Bursa'
+    return f'"{name}" {MKT["news"]["fallback"]}'
 
 
 def google_news(query):
     """Google News RSS → [{title, source, link, time}]；请求失败会抛异常 (调用的地方决定要不要重试)"""
     import xml.etree.ElementTree as ET
     from email.utils import parsedate_to_datetime
-    r = requests.get(GOOGLE_NEWS_RSS, params={"q": f"{query} when:{NEWS_MAX_DAYS}d", "hl": "en-MY", "gl": "MY", "ceid": "MY:en"},
+    region = MKT["news"]
+    r = requests.get(GOOGLE_NEWS_RSS, params={"q": f"{query} when:{NEWS_MAX_DAYS}d", "hl": region["hl"], "gl": region["gl"], "ceid": region["ceid"]},
                      headers={"User-Agent": "Mozilla/5.0 (bursa-bot)"}, timeout=10)
     r.raise_for_status()
     items = []
@@ -706,10 +827,15 @@ def fmt_volume(v):
     return str(v)
 
 # === 4. 筛选策略 ===
-# 四个条件同时满足才算命中 (成交量 > 500k 已经在 main() 里作为门槛提前筛掉，这里不用重复判断):
+# 四个条件同时满足才算命中 (成交量门槛已经在 main() 里提前筛掉，这里不用重复判断):
 #   - EMA20 < 现价 (价格站上 EMA20)
 #   - SAR < 现价 (SAR 在价格下方，多头状态)
 #   - T3 形态 (放量创高后回调，今天再次突破)
+# ⚠️ 改这里的条件时，docs/report.js 里内置策略「后台默认策略」(s-backend) 的三条规则也要一起改，
+#    否则网页上套用"后台默认策略"筛出来的股票会跟后台信号对不上
+BACKEND_STRATEGY_PARTS = ["EMA20多头", "SAR多头", "T3形态突破"]
+
+
 def check_strategy(data):
     """
     在这里修改你的筛选条件
@@ -725,14 +851,14 @@ def check_strategy(data):
     if not data['t3_pattern']:
         return False, None
 
-    return True, "🎯 EMA20多头 + SAR多头 + T3形态突破"
+    return True, "🎯 " + " + ".join(BACKEND_STRATEGY_PARTS)
 
 # === 5. 呼叫 DeepSeek 进行分析 ===
 # system prompt 独立成常量、内容完全固定 (不拼时间戳/随机数)，且不含任何逐股票才知道的数据；
 # 每支股票变化的部分全部放进 user message。DeepSeek 的 prompt cache 是按"从头开始逐字节比对的
 # 最长公共前缀"计费打折的，一次运行里命中的股票经常不止一支，只要 system prompt 前缀完全一致，
 # 从第二支股票开始这一段就能命中缓存、按缓存价计费，比混在一起写省钱也通常更快。
-DEEPSEEK_SYSTEM_PROMPT = """你是专业的马来西亚股市分析师，同时是严谨的金融助手。
+DEEPSEEK_SYSTEM_PROMPT = f"""你是专业的{MKT['analyst']}分析师，同时是严谨的金融助手。
 
 任务: 根据用户给出的某支股票的技术信号和基本数据，用简短的中文 (50字以内) 从技术面评价这个信号的可靠性，
 例如 RSI 是否偏高或超买、现价相对 50 日均线的位置。
@@ -768,9 +894,9 @@ def ask_deepseek(data, reason):
 触发信号: {reason}
 
 基本数据:
-- 现价: RM {data['close']}
+- 现价: {CURRENCY_SYMBOL} {data['close']}
 - RSI (14): {data['rsi']}
-- 50日均线: {f"RM {data['sma50']}" if data['sma50'] is not None else "数据不足 (新上市，不到 50 个交易日)"}"""
+- 50日均线: {f"{CURRENCY_SYMBOL} {data['sma50']}" if data['sma50'] is not None else "数据不足 (新上市，不到 50 个交易日)"}"""
 
     try:
         response = client.chat.completions.create(
@@ -943,7 +1069,7 @@ UI_CSS = """
   .dock-list {
     position: absolute; left: 0; right: 0; bottom: calc(100% + 0.45rem); margin: 0; padding: 0.3rem; list-style: none;
     background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
-    max-height: 50vh; overflow-y: auto;
+    max-height: 50vh; max-height: 50dvh; overflow-y: auto;
   }
   .dock-list li { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.55rem 0.65rem; border-radius: 8px; cursor: pointer; font-size: 0.88rem; }
   .dock-list li[aria-selected="true"], .dock-list li[role="option"]:hover { background: var(--page); }
@@ -953,11 +1079,21 @@ UI_CSS = """
   .dock-chg { min-width: 4.2em; text-align: right; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
   .dock-list li.dock-empty { color: var(--muted); cursor: default; font-size: 0.82rem; }
 
+  /* iPhone: 输入框字号小于 16px 时，一点进去 Safari 就会自动放大整页，对话框顶部 (标题、×) 跟着被推到屏幕外
+     ("指标、模板"对话框一打开就把光标放进搜索框，所以一开就被切掉)。没有鼠标的设备上输入框一律 16px，
+     report.js 也不再一打开对话框就把光标放进输入框 */
+  @media (hover: none) {
+    .dlg input[type="text"], .dlg input[type="number"], .dlg input[type="search"], .dlg select, .dlg textarea,
+    .tpl-name, #table-filter, .table-sort { font-size: 16px; }
+  }
+
   @media (max-width: 640px) {
-    .dlg-overlay { padding: 0; align-items: flex-end; }
+    /* 从底部弹出；万一对话框比看得到的区域还高，margin-top: auto 会让它改成贴着顶部 (多出来的在下面，
+       里面本来就能滚动)，标题和 × 永远在屏幕里 —— 以前 align-items: flex-end 会把多出来的部分挤到屏幕上方 */
+    .dlg-overlay { padding: 0; align-items: flex-start; }
     /* dvh = 实际看得到的高度。iPhone Safari 的 vh 是按底部网址栏收起来算的，网址栏还在时对话框比屏幕高，
        顶部 (股票名称、代码、关闭按钮) 会被挤出屏幕外；不支持 dvh 的旧浏览器用前面那个 vh */
-    .dlg { width: 100%; max-height: 92vh; max-height: 92dvh; border-radius: 14px 14px 0 0; }
+    .dlg { width: 100%; margin-top: auto; max-height: 92vh; max-height: 92dvh; border-radius: 14px 14px 0 0; }
     .dlg.dlg-ind { height: 92vh; height: 92dvh; }
     .ind-dlg-main { flex-direction: column; gap: 0.4rem; }
     .ind-nav { flex: 0 0 auto; display: flex; gap: 0.3rem; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); padding: 0 0 0.4rem; scrollbar-width: none; }
@@ -985,7 +1121,6 @@ TABLE_CSS = """
     color: var(--text-primary);
   }
   .table-count { color: var(--muted); font-size: 0.8rem; margin-left: auto; }
-  .table-hint { margin: -0.2rem 0 0.5rem; font-size: 0.75rem; color: var(--muted); }
   #watchlist-table tbody tr { cursor: pointer; }
   #watchlist-table tbody tr:focus-visible { outline: 2px solid var(--ema); outline-offset: -2px; }
   .table-sort { display: none; font: inherit; font-size: 0.8rem; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.4rem; }
@@ -1111,7 +1246,7 @@ def report_js_version():
 
 
 CARD_CSS = """
-  /* ---- 筛选器: 模板名称 → 股票标签 → 全局工具栏 → 卡片轮播 ---- */
+  /* ---- 筛选器: 模板名称 → 选股条件面板 (STRATEGY_CSS) → 后台信号: 股票标签 → 全局工具栏 → 卡片轮播 ---- */
   .tpl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.8rem; font-size: 0.8rem; color: var(--muted); }
   .tpl-name {
     font: inherit; font-size: 0.85rem; color: var(--text-secondary);
@@ -1165,7 +1300,7 @@ CARD_CSS = """
   .tb-menu-wrap { position: relative; }
   .tb-menu {
     position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
-    width: 250px; max-height: min(70vh, 620px); overflow: auto;
+    width: 250px; max-height: min(70vh, 620px); max-height: min(70dvh, 620px); overflow: auto;
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25); padding: 0.3rem;
   }
@@ -1345,14 +1480,14 @@ CARD_CSS = """
     .fin-table thead th small { display: none; } /* 手机上只留 25Q3 / FY2025，四栏才放得下不用横向滑 */
     .card-fin { display: block; margin: 0.2rem 0 0; }
     .card-head { margin-right: 7rem; }
-    .tb-menu { position: fixed; left: 0.5rem; right: 0.5rem; top: auto; bottom: 0.5rem; width: auto; max-height: 70vh; }
+    .tb-menu { position: fixed; left: 0.5rem; right: 0.5rem; top: auto; bottom: 0.5rem; width: auto; max-height: 70vh; max-height: 70dvh; }
   }
 """
 
 TEMPLATE_BAR_HTML = """
 <div class="tpl-bar" id="tpl-bar">
   <span>模板</span>
-  <input type="text" id="tpl-name" class="tpl-name" maxlength="30" spellcheck="false" aria-label="筛选器名称 (当前指标模板，改名自动保存)" title="点一下改名，自动保存">
+  <input type="text" id="tpl-name" class="tpl-name" maxlength="30" spellcheck="false" aria-label="筛选器名称 (当前模板 = 选股条件 + 图表指标，改名自动保存)" title="点一下改名，自动保存">
   <span id="tpl-status" class="tpl-status" aria-live="polite">✓ 已自动保存</span>
 </div>
 """
@@ -1547,9 +1682,195 @@ def build_downloads_html(downloads):
 </script>"""
 
 
+DASH_CSS = """
+  /* ---- 左上角 ☰ 导航 (抽屉): 市场 (马股 / 美股) · 概览 · 筛选器种类 ---- */
+  .topbar { display: flex; align-items: center; gap: 0.6rem; margin: 0 0 0.25rem; }
+  .topbar h1 { margin: 0; min-width: 0; }
+  .dash-btn {
+    flex: 0 0 auto; width: 2.4rem; height: 2.4rem; display: inline-flex; align-items: center; justify-content: center;
+    font: inherit; font-size: 1.15rem; line-height: 1; color: var(--text-primary); cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  }
+  .dash-btn:hover { background: var(--page); }
+  .dash-btn[aria-expanded="true"] { background: var(--text-primary); color: var(--surface); }
+  html.dash-open { overflow: hidden; }
+  html.dash-open .dock { display: none; }
+  .dash-backdrop { position: fixed; inset: 0; z-index: 46; background: rgba(0, 0, 0, 0.4); }
+  .dash {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 47;
+    width: min(340px, 88vw); overflow-y: auto; overscroll-behavior: contain;
+    background: var(--surface); color: var(--text-primary); border-right: 1px solid var(--border);
+    box-shadow: 12px 0 40px rgba(0, 0, 0, 0.25);
+    padding: 0.8rem 1rem calc(1.2rem + env(safe-area-inset-bottom));
+  }
+  .dash-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; }
+  .dash-head b { font-size: 1rem; }
+  .dash-x { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; line-height: 1; padding: 0.1rem 0.4rem; border-radius: 6px; cursor: pointer; }
+  .dash-x:hover { background: var(--page); color: var(--text-primary); }
+  .dash-sec { border-top: 1px solid var(--border); padding: 0.7rem 0 0.8rem; }
+  .dash-sec h2 { margin: 0 0 0.5rem; font-size: 0.78rem; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; }
+  .dash-mkts { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .dash-mkt {
+    display: flex; flex-direction: column; gap: 0.1rem; padding: 0.5rem 0.65rem; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--page); color: var(--text-primary); text-decoration: none;
+  }
+  .dash-mkt b { font-size: 0.92rem; }
+  .dash-mkt small { font-size: 0.68rem; color: var(--muted); line-height: 1.35; }
+  .dash-mkt.on { border-color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--text-primary); background: var(--surface); }
+  a.dash-mkt:not(.on):hover { border-color: var(--text-secondary); }
+  .dash-mkt.off { opacity: 0.6; }
+  .dash-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem 0.8rem; margin: 0; }
+  .dash-stats dt { font-size: 0.7rem; color: var(--muted); }
+  .dash-stats dd { margin: 0; font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .dash-stats dd.dash-time { font-size: 0.8rem; font-weight: 500; }
+  .dash-note { margin: 0.55rem 0 0; font-size: 0.72rem; color: var(--muted); line-height: 1.5; }
+  .dash-links { list-style: none; margin: 0.6rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .dash-links a {
+    display: inline-block; font-size: 0.78rem; color: var(--text-primary); text-decoration: none;
+    border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.65rem;
+  }
+  .dash-links a:hover { background: var(--page); }
+  .dash-sub { margin: 0.2rem 0 0.35rem; font-size: 0.72rem; font-weight: 500; color: var(--text-secondary); }
+  .dash-list { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.6rem; }
+  .dash-item {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem; width: 100%; text-align: left;
+    font: inherit; color: var(--text-primary); background: none; cursor: pointer;
+    border: 1px solid var(--border); border-radius: 8px; padding: 0.45rem 0.65rem;
+  }
+  .dash-item:hover { background: var(--page); }
+  .dash-item.on { border-color: var(--text-primary); box-shadow: inset 3px 0 0 var(--text-primary); }
+  .dash-item-name { font-size: 0.86rem; font-weight: 600; }
+  .dash-item small { font-size: 0.7rem; color: var(--muted); line-height: 1.4; }
+  .dash-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0 0 0.8rem; }
+  .dash-act {
+    font: inherit; font-size: 0.78rem; color: var(--text-primary); cursor: pointer;
+    background: var(--page); border: 1px solid var(--border); border-radius: 999px; padding: 0.25rem 0.75rem;
+  }
+  .dash-act.primary { background: var(--text-primary); color: var(--surface); border-color: var(--text-primary); }
+"""
+
+STRATEGY_CSS = """
+  /* ---- 筛选器: 自定义选股条件面板 (内容由 report.js 生成) + "后台信号"小标题 ---- */
+  .strategy-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 0.9rem 0.8rem; }
+  .strategy-panel:empty { display: none; }
+  .sp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; }
+  .sp-title { font-weight: 600; font-size: 0.92rem; }
+  .sp-match { font-size: 0.75rem; color: var(--muted); }
+  .sp-actions { margin-left: auto; display: flex; gap: 0.4rem; }
+  .sp-btn {
+    font: inherit; font-size: 0.8rem; color: var(--text-primary); cursor: pointer; white-space: nowrap;
+    background: var(--page); border: 1px solid var(--border); border-radius: 999px; padding: 0.3rem 0.8rem;
+  }
+  .sp-btn:hover { border-color: var(--text-secondary); }
+  .sp-btn.primary { background: var(--text-primary); color: var(--surface); border-color: var(--text-primary); }
+  .sp-empty { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.6; }
+  .sp-rules { list-style: none; margin: 0.55rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .sp-rule {
+    font-size: 0.78rem; line-height: 1.4; padding: 0.15rem 0.6rem; border-radius: 999px; max-width: 100%;
+    border: 1px solid var(--border); background: var(--page); color: var(--text-secondary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sp-rule.err { color: var(--down); border-color: color-mix(in srgb, var(--down) 45%, transparent); }
+  .sp-err { margin: 0.4rem 0 0; font-size: 0.75rem; color: var(--down); }
+  .sp-stat { margin: 0.65rem 0 0.35rem; font-size: 0.8rem; color: var(--text-secondary); }
+  .sp-stat b { color: var(--text-primary); font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+  .sp-stat small { color: var(--muted); }
+  .sp-hits { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+  .sp-hit {
+    display: grid; grid-template-columns: 1.8rem minmax(0, 1fr) auto 4.6rem 4.4rem; align-items: baseline; gap: 0.5rem;
+    padding: 0.5rem 0.3rem; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 0.84rem;
+  }
+  .sp-hit:hover { background: var(--page); }
+  .sp-hit:focus-visible { outline: 2px solid var(--ema); outline-offset: -2px; }
+  .sp-idx { color: var(--muted); font-size: 0.72rem; text-align: right; font-variant-numeric: tabular-nums; }
+  .sp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sp-code { color: var(--muted); font-size: 0.72rem; margin-left: 0.3rem; }
+  .sp-sig { font-size: 0.64rem; color: var(--ema); border: 1px solid currentColor; border-radius: 4px; padding: 0 0.25rem; margin-left: 0.3rem; }
+  .sp-price, .sp-chg, .sp-vol { text-align: right; font-variant-numeric: tabular-nums; }
+  .sp-price { font-weight: 600; }
+  .sp-vol { color: var(--text-secondary); font-size: 0.78rem; }
+  .sp-more { display: block; margin: 0.6rem auto 0; }
+  .sp-loading { margin: 0.6rem 0 0.2rem; font-size: 0.8rem; color: var(--muted); }
+  h3.subsection { font-size: 1rem; margin: 1.5rem 0 0.15rem; }
+  .sub-note { margin: 0 0 0.8rem; font-size: 0.78rem; color: var(--muted); line-height: 1.5; }
+
+  /* 条件编辑器对话框: 每条条件一行 (左边 比较 右边)，手机上自动换行 */
+  .dlg.dlg-rules { width: min(720px, 100%); }
+  .rules-dlg { display: flex; flex-direction: column; gap: 0.7rem; }
+  .rl-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem 1rem; }
+  .rl-live { margin: 0; font-size: 0.82rem; color: var(--text-secondary); }
+  .rl-live b { color: var(--text-primary); }
+  .rl-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .rl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; padding: 0.5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--page); }
+  .rl-no { font-size: 0.72rem; color: var(--muted); min-width: 1.1rem; }
+  .dlg .rl-row select, .dlg .rl-row input { background: var(--surface); }
+  .dlg .rl-len { width: 4.6rem; }
+  .dlg .rl-num { width: 6.5rem; }
+  .dlg .rl-formula { flex: 1 1 16rem; min-width: 0; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
+  .dlg .rl-del { margin-left: auto; display: inline-flex; align-items: center; }
+  .rl-del .ico { width: 14px; height: 14px; }
+  .rl-warn, .rl-err { flex-basis: 100%; margin: 0; font-size: 0.75rem; line-height: 1.5; }
+  .rl-warn { color: var(--text-secondary); }
+  .rl-warn::before { content: "⚠ "; color: #d08a00; }
+  .rl-err { color: var(--down); }
+  .rl-add { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .rl-empty { font-size: 0.82rem; color: var(--muted); margin: 0; }
+  .rl-foot-note { margin: 0; font-size: 0.75rem; color: var(--muted); }
+  .tpl-backup { margin-top: 0.9rem; }
+  @media (max-width: 640px) {
+    .sp-hit { grid-template-columns: 1.4rem minmax(0, 1fr) auto 4.2rem; gap: 0.4rem; }
+    .sp-vol { display: none; }
+  }
+"""
+
+
+def build_dashboard_html(signal_count, stock_count, updated, has_downloads):
+    """左上角 ☰ 打开的导航抽屉。「筛选器种类」的内容 (我的模板 + 内置策略) 由 report.js 生成，
+    因为模板存在浏览器的 localStorage 里，后台不知道；「条件命中」的数字也是 report.js 算完填进 #dash-hits。"""
+    markets = []
+    for mid, m in MARKETS.items():
+        label = f'<b>{html.escape(m["name"])}</b><small>{html.escape(m["universe"])}</small>'
+        if mid == MARKET_ID:
+            markets.append(f'<a class="dash-mkt on" href="./" aria-current="page">{label}</a>')
+        elif os.path.exists(os.path.join(m["docs_dir"], "index.html")):
+            href = os.path.relpath(m["docs_dir"], DOCS_DIR).replace(os.sep, "/") + "/"
+            markets.append(f'<a class="dash-mkt" href="{html.escape(href)}">{label}</a>')
+        else:  # 另一个市场还没跑过 (例如美股第一次手动运行之前)，链接点了会 404，先不给点
+            markets.append(f'<span class="dash-mkt off" aria-disabled="true"><b>{html.escape(m["name"])}</b>'
+                           f'<small>第一次运行后出现</small></span>')
+    return f"""<div class="dash-backdrop" id="dash-backdrop" hidden></div>
+<nav class="dash" id="dash" aria-label="导航" hidden>
+  <div class="dash-head"><b>导航</b><button type="button" class="dash-x" aria-label="关闭导航">×</button></div>
+  <section class="dash-sec" aria-labelledby="dash-h-mkt">
+    <h2 id="dash-h-mkt">市场</h2>
+    <div class="dash-mkts">{''.join(markets)}</div>
+  </section>
+  <section class="dash-sec" aria-labelledby="dash-h-ov">
+    <h2 id="dash-h-ov">概览</h2>
+    <dl class="dash-stats">
+      <div><dt>后台信号</dt><dd>{signal_count}</dd></div>
+      <div><dt>报告内股票</dt><dd>{stock_count}</dd></div>
+      <div><dt>条件命中</dt><dd id="dash-hits" title="当前模板的选股条件在报告里命中几支">—</dd></div>
+      <div><dt>更新时间</dt><dd class="dash-time">{html.escape(updated)}</dd></div>
+    </dl>
+    <p class="dash-note">扫描范围：{html.escape(MKT["universe"])}；成交量达标的股票才会进报告。</p>
+    <ul class="dash-links">
+      <li><a href="#sec-screener">筛选器</a></li>
+      <li><a href="#sec-signals">后台信号</a></li>
+      <li><a href="#sec-table">其余股票</a></li>
+      {'<li><a href="#downloads">下载报告</a></li>' if has_downloads else ''}
+    </ul>
+  </section>
+  <section class="dash-sec" aria-labelledby="dash-h-scr">
+    <h2 id="dash-h-scr">筛选器种类</h2>
+    <div id="dash-screeners"><p class="dash-note">需要开启 JavaScript 才能看到你的模板。</p></div>
+  </section>
+</nav>"""
+
+
 # === 7. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
 def build_html_report(stocks, downloads=None, table_charts_version=None):
-    now = datetime.now(MYT).strftime("%Y-%m-%d %H:%M")
+    now = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M")
 
     cards = []
     chips = []
@@ -1599,7 +1920,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None):
             sar_value = -1 if data["sar_bullish_now"] is None else int(data["sar_bullish_now"])
             ema = data["ema20_latest"]
             ema_cell = (
-                f'<td class="num col-ema {"change-up" if data["close"] > ema else "change-down"}" data-label="EMA20" data-value="{ema}">{ema:.3f}</td>'
+                f'<td class="num col-ema {"change-up" if data["close"] > ema else "change-down"}" data-label="EMA20" data-value="{ema}">{fmt_price(ema)}</td>'
                 if ema is not None else '<td class="num col-ema" data-label="EMA20" data-value="-1">—</td>'
             )
             new_badge = history_badge(data)
@@ -1608,7 +1929,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None):
                 <td class="idx-cell"></td>
                 <td class="stock-cell" data-value="{name}"><span class="ticker">{name}</span><span class="stock-code">{code}</span>{new_badge}</td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
-                <td class="num col-price" data-value="{data['close']}">{data['close']:.3f}<span class="unit">MYR</span></td>
+                <td class="num col-price" data-value="{data['close']}">{fmt_price(data['close'])}<span class="unit">{MKT['currency']}</span></td>
                 <td class="num col-change {change_class}" data-value="{change_pct}">{change_sign}{change_pct:.2f}%</td>
                 <td class="num col-vol" data-label="成交量" data-value="{data['volume']}">{fmt_volume(data['volume'])}</td>
                 {rel_vol_cell}
@@ -1644,19 +1965,19 @@ def build_html_report(stocks, downloads=None, table_charts_version=None):
             ("成交量", fmt_volume(data["volume"])),
             ("相对量", f"{rel_vol:.2f}×" if rel_vol is not None else "—"),
             ("RSI(14)", fmt_num(data["rsi"], "{:.1f}")),
-            ("50日均线", fmt_num(data["sma50"], "{:.3f}")),
-            ("EMA20", fmt_num(data["ema20_latest"], "{:.3f}")),
+            ("50日均线", fmt_num(data["sma50"], PRICE_PATTERN)),
+            ("EMA20", fmt_num(data["ema20_latest"], PRICE_PATTERN)),
             ("SAR", sar_pill),
         ]
         quote_grid = "".join(f"<div><dt>{k}</dt><dd>{v}</dd></div>" for k, v in quote_items)
 
         # 图表下方只放数据 (quote)，不放说明文字/图例/符号；AI 点评只保留在下载的 Excel/PDF 里
         chips.append(f'''<button type="button" class="sym-chip" aria-current="false"><b>{html.escape(s['name'])}</b>'''
-                     f'''<span class="sym-price">{data['close']:.3f}</span><span class="{change_class}">{sign}{change_pct:.2f}%</span></button>''')
+                     f'''<span class="sym-price">{fmt_price(data['close'])}</span><span class="{change_class}">{sign}{change_pct:.2f}%</span></button>''')
         cards.append(f"""<section class="card" data-chart="{chart_id}" aria-roledescription="卡片" aria-label="{html.escape(s['name'])} {code}">
             <div class="card-head">
                 <h2>{html.escape(s['name'])} <span class="code">{code}</span>{history_badge(data)}</h2>
-                <div class="card-price"><b>{data['close']:.3f}</b> <span class="{change_class}">{sign}{change:.3f} ({sign}{change_pct:.2f}%)</span></div>
+                <div class="card-price"><b>{fmt_price(data['close'])}</b> <span class="{change_class}">{sign}{fmt_price(change)} ({sign}{change_pct:.2f}%)</span></div>
             </div>
             <p class="card-tags">{html.escape(tags)}</p>
             <p class="tf-note" id="{chart_id}-tfnote" hidden></p>
@@ -1676,14 +1997,20 @@ def build_html_report(stocks, downloads=None, table_charts_version=None):
     # 放进 <script> 里，"</" 转义掉，免得名字里万一有 "</script>" 把脚本截断
     chart_json = json.dumps(chart_payload, separators=(",", ":")).replace("</", "<\\/")
     no_data_note = f"<p class='no-data'>另有 {no_data_count} 支股票数据不足，未列入。</p>" if no_data_count else ""
+    downloads_html = build_downloads_html(downloads)
+    dashboard_html = build_dashboard_html(len(cards), len(cards) + len(table_rows), f"{now} ({MKT['tz_label']})", bool(downloads_html))
+    # 马股 / 美股两个页面共用 report.js，市场差异全部放在 <body> 的 data-* 里给脚本读
+    body_attrs = (f'data-market="{MARKET_ID}" data-session-start="{MKT["session_start"]}" data-price-dp="{PRICE_DP}" '
+                  f'data-search-hint="{html.escape(MKT["search_hint"])}" '
+                  f'data-table-charts="{f"charts/table.json?v={table_charts_version}" if table_charts_version else ""}"')
 
     return f"""<!DOCTYPE html>
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>马股自动分析报告</title>
-<script src="vendor/lightweight-charts.js?v=5.2.1"></script>
+<title>{MKT['title']}</title>
+<script src="{ASSET_PREFIX}vendor/lightweight-charts.js?v=5.2.1"></script>
 <style>
   /* 🎨 图表配色：想换颜色直接改这里的 hex 值即可 (--up / --down / --ema) */
   :root {{
@@ -1782,18 +2109,28 @@ def build_html_report(stocks, downloads=None, table_charts_version=None):
 {CARD_CSS}
 {TABLE_CSS}
 {DOWNLOADS_CSS}
+{DASH_CSS}
+{STRATEGY_CSS}
 </style>
 </head>
-<body data-table-charts="{f'charts/table.json?v={table_charts_version}' if table_charts_version else ''}">
-<h1>📢 马股自动分析报告</h1>
-<p class="updated">更新时间: {now} (MYT)</p>
-{build_downloads_html(downloads)}
+<body {body_attrs}>
+<header class="topbar">
+  <button type="button" class="dash-btn" id="dash-btn" aria-label="导航：市场、概览、筛选器种类" aria-controls="dash" aria-expanded="false">☰</button>
+  <h1>📢 {MKT['title']}</h1>
+</header>
+<p class="updated">更新时间: {now} ({MKT['tz_label']})</p>
+{dashboard_html}
+{downloads_html}
 
-<h2 class="section with-sub">筛选器 <span class="section-count">({len(cards)})</span></h2>
+<h2 class="section with-sub" id="sec-screener">筛选器</h2>
 {TEMPLATE_BAR_HTML}
+<div class="strategy-panel" id="strategy-panel"></div>
+
+<h3 class="subsection" id="sec-signals">后台信号 <span class="section-count">({len(cards)})</span></h3>
+<p class="sub-note">后台每次运行用固定策略 ({' + '.join(BACKEND_STRATEGY_PARTS)}) 筛出来的股票，附多周期K线图。扫描范围：{html.escape(MKT['universe'])}</p>
 {build_screener_html(cards, chips)}
 
-<h2 class="section">📋 其余股票 ({len(table_rows)})</h2>
+<h2 class="section" id="sec-table">📋 其余股票 ({len(table_rows)})</h2>
 <div class="table-toolbar">
   <input type="search" id="table-filter" placeholder="🔍 搜索代码或名称" autocomplete="off">
   <select id="table-sort" class="table-sort" aria-label="排序">
@@ -1809,7 +2146,6 @@ def build_html_report(stocks, downloads=None, table_charts_version=None):
   </select>
   <span id="table-count" class="table-count"></span>
 </div>
-<p class="table-hint">双击任一行 (手机上点一下) 查看完整K线图、近 4 季 / 近 2 年财报和最近新闻</p>
 <div class="table-wrap">
 <table class="data-table" id="watchlist-table">
   <thead>
@@ -1834,14 +2170,14 @@ def build_html_report(stocks, downloads=None, table_charts_version=None):
 {no_data_note}
 
 <footer class="site-footer">
-  <p>本报告及其筛选策略、代码与分析方法版权所有 © {datetime.now(MYT).year} CJA231，保留一切权利。未经书面授权，禁止复制、转载、二次分发或用于商业用途。</p>
+  <p>本报告及其筛选策略、代码与分析方法版权所有 © {datetime.now(LOCAL_TZ).year} CJA231，保留一切权利。未经书面授权，禁止复制、转载、二次分发或用于商业用途。</p>
   <p>K 线图: TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · <a href="https://www.tradingview.com/" target="_blank" rel="noopener">https://www.tradingview.com/</a> (Apache License 2.0)</p>
   <p>行情数据来自公开渠道 (Yahoo Finance)，可能有延迟或错误，仅供个人研究参考，不构成投资建议。</p>
-  <p>© {datetime.now(MYT).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
+  <p>© {datetime.now(LOCAL_TZ).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
 </footer>
 
 <script id="chart-data" type="application/json">{chart_json}</script>
-<script src="report.js?v={report_js_version()}"></script>
+<script src="{ASSET_PREFIX}report.js?v={report_js_version()}"></script>
 </body>
 </html>"""
 
@@ -1857,7 +2193,7 @@ def send_notification(hits):
             "https://ntfy.sh/",
             json={
                 "topic": NTFY_TOPIC,
-                "title": "📢 马股报告已更新",
+                "title": f"📢 {MKT['name']}报告已更新",
                 "message": message,
                 "click": REPORT_URL,
                 "tags": ["chart_with_upwards_trend"],
@@ -1867,25 +2203,36 @@ def send_notification(hits):
     except Exception as e:
         print(f"推送通知失败: {e}")
 
-# 判断今天是否为交易日的参考股：固定用流动性极佳的蓝筹股，跟 WATCHLIST 具体内容无关
+# 判断今天是否为交易日的参考股：固定用流动性极佳的股票 (马股马银行、美股 SPY)，跟 WATCHLIST 具体内容无关
 # (非交易日/公共假期时 yfinance 不会有当天的数据)
-TRADING_DAY_REFERENCE = "1155.KL"
+TRADING_DAY_REFERENCE = MKT["trading_ref"]
 
 
 SCREENER_PAGE_SIZE = 250  # Yahoo screener 单次请求上限
 
 
+def screener_query():
+    """Yahoo screener 的查询条件：马股 = 地区 my (全部股票)；美股 = 地区 us + 纽交所/纳斯达克 + 市值门槛"""
+    from yfinance import EquityQuery
+    cfg = MKT["screener"]
+    conditions = [EquityQuery("eq", ["region", cfg["region"]])]
+    if cfg.get("exchanges"):
+        conditions.append(EquityQuery("is-in", ["exchange", *cfg["exchanges"]]))
+    if cfg.get("min_market_cap"):
+        conditions.append(EquityQuery("gte", ["intradaymarketcap", cfg["min_market_cap"]]))
+    return conditions[0] if len(conditions) == 1 else EquityQuery("and", conditions)
+
+
 def prefetch_quotes():
     """
-    用 Yahoo screener 几个请求 (每页 250 支) 拿到全马股票的现价 + 当日成交量，
-    成交量不够门槛的股票就不用再去下载 6 个月历史了 (实测约 70% 的股票会被门槛挡掉)。
+    用 Yahoo screener 几个请求 (每页 250 支) 拿到整个市场的现价 + 当日成交量，
+    成交量不够门槛的股票就不用再去下载 6 个月历史了 (马股实测约 70% 的股票会被门槛挡掉)。
     返回 (quotes, equities)：quotes = {symbol: (price, volume)}；equities = {symbol: 名称}，只算普通股
-    (跟 scripts/fetch_watchlist.py 同一个规则)，用来找出清单里还没有的新上市股票。
+    (跟 scripts/fetch_watchlist.py 同一个规则)，马股用来找出清单里还没有的新上市股票，美股直接当扫描范围。
     screener 出错就返回两个空 dict，调用方会退回"逐支下载历史再判断"。
     """
     try:
-        from yfinance import EquityQuery
-        query = EquityQuery("eq", ["region", "my"])
+        query = screener_query()
         quotes, equities, offset = {}, {}, 0
         for _ in range(20):  # 安全上限
             result = yf.screen(query, offset=offset, size=SCREENER_PAGE_SIZE, sortField="ticker", sortAsc=True)
@@ -1907,10 +2254,17 @@ def prefetch_quotes():
 
 def build_scan_list(equities):
     """
-    扫描范围 = data/watchlist.json 清单 + screener 里有、清单里还没有的普通股 (多半是新上市)。
+    马股: 扫描范围 = data/watchlist.json 清单 + screener 里有、清单里还没有的普通股 (多半是新上市)。
     清单只有手动跑 scripts/fetch_watchlist.py 才会更新，以前新股要等有人更新清单才会被扫描到。
     另外新股刚上市时 Yahoo 还没有名称，清单里名字就是代码 (例如 0468.KL)，这里顺便换成 screener 的新名称。
+    美股: 没有清单，扫描范围就是 screener 找到的普通股 (市值门槛以上)；screener 出错时退回几支默认的大型股。
     """
+    if not WATCHLIST:
+        if equities:
+            print(f"📋 screener 找到 {len(equities)} 支股票 ({MKT['universe']})")
+            return [{"symbol": sym, "name": name} for sym, name in sorted(equities.items())]
+        print(f"⚠️ screener 没拿到股票清单，这次只扫描默认的 {len(DEFAULT_WATCHLIST)} 支")
+        return [dict(item) for item in DEFAULT_WATCHLIST]
     scan, known = [], set()
     for item in WATCHLIST:
         name = item["name"]
@@ -1933,24 +2287,24 @@ def fetch_stock(symbol):
     return data
 
 
-def is_trading_day(today_myt):
-    # 只需要知道最新一根日线是不是今天，抓 5 天就够了，不用拉 6 个月再算一遍全部指标
+def is_trading_day(today_local):
+    # 只需要知道最新一根日线是不是今天 (交易所当地日期)，抓 5 天就够了，不用拉 6 个月再算一遍全部指标
     try:
         df = yf.Ticker(TRADING_DAY_REFERENCE).history(period="5d")
-        return len(df) > 0 and df.index[-1].strftime("%Y-%m-%d") == today_myt
+        return len(df) > 0 and df.index[-1].strftime("%Y-%m-%d") == today_local
     except Exception as e:
         print(f"交易日判断失败 ({e})，按非交易日处理")
         return False
 
 # === 主程序 ===
 def main():
-    today_myt = datetime.now(MYT).strftime("%Y-%m-%d")
-    print(f"开始扫描 ({today_myt})...")
+    today_local = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")
+    print(f"开始扫描{MKT['name']} ({today_local} {MKT['tz_label']})...")
 
     if FORCE_RUN:
         print("⚠️ FORCE_RUN 模式：跳过交易日检查，直接用最新可用数据扫描 (用于测试)。")
-    elif not is_trading_day(today_myt):
-        print(f"今天 ({today_myt}) 非交易日或数据尚未更新，跳过本次扫描。")
+    elif not is_trading_day(today_local):
+        print(f"今天 ({today_local}) 非交易日或数据尚未更新，跳过本次扫描。")
         return
 
     # 第 1 步: screener 几个请求拿全市场现价+成交量，成交量不够的直接判定忽略，不用下载历史
@@ -1984,9 +2338,10 @@ def main():
     for item, data in zip(scan_list, fetched):
         symbol = item["symbol"]
 
-        # 流动性门槛 (按价格分级，见 VOLUME_TIERS): 成交量不够的直接忽略，不放进报告
+        # 流动性门槛 (马股按价格分级，美股按成交额，见 min_volume_for): 成交量不够的直接忽略，不放进报告
         if data and data.get("low_volume"):
-            low_volume_by_tier[data["threshold"]] = low_volume_by_tier.get(data["threshold"], 0) + 1
+            tier = 0 if MIN_TURNOVER else data["threshold"]  # 美股每支的门槛股数都不一样，合成一行
+            low_volume_by_tier[tier] = low_volume_by_tier.get(tier, 0) + 1
             continue
         if data is None:
             no_data += 1
@@ -2018,7 +2373,7 @@ def main():
     filter_secs = time.perf_counter() - t_filter
 
     for threshold in sorted(low_volume_by_tier):
-        print(f"⏭️ 成交量低于 {threshold:,} 被忽略: {low_volume_by_tier[threshold]} 支")
+        print(f"⏭️ {volume_rule_text(threshold)} 被忽略: {low_volume_by_tier[threshold]} 支")
     table_stocks = [s for s in stocks if s["data"] and not s["matched"]]
     got_intraday = sum(1 for s in table_stocks if s["intraday"])
     print(f"进入报告: {len(stocks) - no_data} 支 (信号 {deepseek_calls} 支, 表格 {len(table_stocks)} 支)；"
@@ -2030,21 +2385,24 @@ def main():
     t_export = time.perf_counter()
     downloads = None
     try:
-        downloads = export_downloads(stocks, today_myt, datetime.now(MYT).strftime("%Y-%m-%d %H:%M"))
+        downloads = export_downloads(stocks, today_local, datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M"),
+                                     downloads_dir=DOWNLOADS_DIR, title=MKT["title"], tz_label=MKT["tz_label"],
+                                     file_prefix=MKT["file_prefix"])
         print(f"📥 下载文件已导出: 保留 {len(downloads['days'])} 天 ({downloads['days'][0]['date']} 起)")
     except Exception as e:
         print(f"⚠️ 导出下载文件失败 ({type(e).__name__}: {e})，报告照常生成，只是这次没有下载区块")
     export_secs = time.perf_counter() - t_export
 
-    # 双击"其余股票"看完整图表用的K线 + 个股资料 (财报、长期K线，一周刷新一次，每次补一批)。出错都不影响报告本身
+    # 点开"其余股票"看完整图表 (以及网页上的选股条件) 用的K线 + 个股资料 (财报、长期K线，一周刷新一次，每次补一批)。
+    # 出错都不影响报告本身
     t_fin = time.perf_counter()
     table_charts_version = None
     try:
         table_charts_version = write_table_charts(stocks)
     except Exception as e:
-        print(f"⚠️ 写表格股票K线失败 ({type(e).__name__}: {e})，这次双击看不了完整图表")
+        print(f"⚠️ 写表格股票K线失败 ({type(e).__name__}: {e})，这次点表格看不了完整图表、选股条件也只算得了信号股")
     try:
-        tried, written, with_fin, pruned = refresh_details(stocks, today_myt)
+        tried, written, with_fin, pruned = refresh_details(stocks, today_local)
         if tried or pruned:
             print(f"📊 个股资料 (财报 + 2 年日线 + 10 年月线): 这次抓 {tried} 支，写入 {written} 支，其中 {with_fin} 支 Yahoo 有财报"
                   + (f"，{tried - written} 支没拿到下次再试" if tried > written else "")
@@ -2052,7 +2410,7 @@ def main():
     except Exception as e:
         print(f"⚠️ 更新个股资料失败 ({type(e).__name__}: {e})")
     try:
-        tried, written, with_items, pruned = refresh_news(stocks, datetime.now(MYT))
+        tried, written, with_items, pruned = refresh_news(stocks, datetime.now(LOCAL_TZ))
         if tried or pruned:
             print(f"📰 个股新闻: 这次抓 {tried} 支，写入 {written} 支，其中 {with_items} 支有最近 {NEWS_MAX_DAYS} 天的新闻"
                   + (f"，{tried - written} 支没拿到下次再试" if tried > written else "")

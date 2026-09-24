@@ -16,7 +16,7 @@
 - 生成一个**静态 HTML 报告**，用 GitHub Pages 发布
 - 有信号时往手机推送通知
 
-**报告地址**：https://cja231.github.io/Bursa-bot/
+**报告地址**：https://cja231.github.io/Bursa-bot/ (美股页面：https://cja231.github.io/Bursa-bot/us/，见第 4 节"自定义选股条件 + ☰ 导航 + 美股页面")
 **仓库**：`CJA231/Bursa-bot`（**必须是 public**，否则免费版 GitHub Pages 不能用）
 
 ---
@@ -39,8 +39,9 @@ Bursa-bot/
 │   ├── index.html               # 生成的报告，GitHub Pages 从这里发布
 │   ├── report.js                # 报告页脚本 (卡片轮播/工具栏/K线图/指标库/模板/表格)，手写的，不是每次生成
 │   ├── downloads/               # 最近 7 个交易日的下载文件 + 7 天合并文件 (自动生成、自动清理)
-│   ├── charts/table.json        # "其余股票"每支的 6 个月日线 + 当天 5 分钟线 (每次运行重写，双击时才下载)
+│   ├── charts/table.json        # "其余股票"每支的 6 个月日线 + 当天 5 分钟线 (每次运行重写，点开表格 / 模板有选股条件时才下载)
 │   ├── stock/<代码>.json         # 每支股票的财报 + 2 年日线 + 10 年月线 (一周刷新一次)，见第 4 节"完整图表 + 财报"
+│   ├── us/                      # 美股页面 (MARKET=US 时生成)：index.html + downloads/ charts/ stock/ news/，结构跟上面一样
 │   └── vendor/
 │       └── lightweight-charts.js  # TradingView 图表库 v5.2.1，Apache 2.0，自托管
 ├── scripts/
@@ -53,7 +54,8 @@ Bursa-bot/
 ```
 
 ### main.py 的结构 (按文件顺序)
-1. 配置区域 (`VOLUME_TIERS`/`min_volume_for`、`FETCH_WORKERS` 等常量)
+0. 市场设置 `MARKETS` (马股 MY / 美股 US，环境变量 `MARKET` 选) → `MKT`；`LOCAL_TZ`、`DOCS_DIR`、`ASSET_PREFIX`、`fmt_price` 都从这里来
+1. 配置区域 (`VOLUME_TIERS`/`min_volume_for`、`FETCH_WORKERS` 等常量，门槛数值在 `MARKETS` 里)
 2. DeepSeek 客户端
 3. `detect_t3_pattern` / `get_stock_data` / `CHART_SOURCES` + `get_chart_history` (信号股多周期K线) / `get_intraday` (日内收盘价给迷你走势 + 精简K线给完整图表) / `compact_bars` / `write_table_charts` / 个股资料 (`FIN_ROWS`、`fetch_detail`、`refresh_details`、`prune_details`) / `build_sparkline` / `fmt_volume`
 4. `check_strategy` (筛选策略)
@@ -141,9 +143,9 @@ def detect_t3_pattern(df):
 
 从上到下：
 
-1. **标题 + 更新时间**
+1. **☰ 按钮 + 标题 + 更新时间** (☰ = 左侧导航抽屉：市场 / 概览 / 筛选器种类)
 2. **📥 下载报告** (折叠)
-3. **筛选器** — 标题下面一行小字是当前指标模板名 → 股票标签 → 全局工具栏 → **卡片轮播** (一次一张)
+3. **筛选器** — 标题下面一行小字是当前模板名 → **选股条件面板** (`#strategy-panel`，report.js 生成) → 「后台信号 (N)」小标题 → 股票标签 → 全局工具栏 → **卡片轮播** (一次一张)
 4. **📋 其余股票** — 仿 TradingView 选股器的表格 (电脑撑满宽度，手机两行式)
 5. 完全没数据 / 抓取失败的股票只报个数量 (历史短的新股不算，照样进表格)
 6. 版权页脚 (中英双语 + TradingView 署名 + 数据来源说明)
@@ -189,14 +191,15 @@ def detect_t3_pattern(df):
 - 工具栏的「模板」按钮 = 打开同一个对话框，直接停在「我的模板」
 
 ### 指标模板 = "筛选器名称" (标题下方那行小字)
-- localStorage **`bursa_templates_v2`** = `{active, list: [{id, name, indicators: [...]}]}`；指标实例 = `{id, def, params, colors, width, pane, hidden}` (自定义公式多 `name/formula/scale`)
+- localStorage **`bursa_templates_v2`** = `{active, list: [{id, name, indicators: [...], rules: [...], match, origin?}]}`；指标实例 = `{id, def, params, colors, width, pane, hidden}` (自定义公式多 `name/formula/scale`)；`rules` / `match` / `origin` 见下面"自定义选股条件"
 - **迁移**：没有 v2 时读 v1 (`bursa_templates_v1`) 或更早的 `bursa_custom_indicators_v1`，按 `LEGACY_PRESETS` 把旧预设 id 换成新指标 + 参数 (布林带/MACD 多条合成一个、去重)；v1 不删，万一要回退还在
 - 名称可以直接点着改；加/删/调顺序/改参数/切主副图 **每次改动立刻保存**，旁边闪一下 "✓ 已自动保存"
 - 模板只存指标，不存颜色、周期、图表类型 (这三个是全局的)
 
 ### 公式引擎 (自定义公式 + 大部分内置指标都靠它算)
-- 变量：`close open high low volume`；函数：`sma ema stdev highest lowest sum rsi atr obv abs`
-- 运算：`+ - * / ^`、括号、负号 (优先级跟 Python 一样，`-2^2 = -4`)；RSI/ATR 用 Wilder 平滑，跟 pandas_ta 一致
+- 变量：`close open high low volume`；函数：`sma ema stdev highest lowest sum rsi atr obv abs`，9/24 第三轮加了 `ref(x,n) max min round crossup crossdown psar() supertrend() t3()`
+- 运算：`+ - * / ^`、括号、负号 (优先级跟 Python 一样，`-2^2 = -4`)；比较 `> < >= <= == !=` 和 `and / or / not` (也认 `&& || !`)，结果是逐根的 1 / 0；优先级 or < and < not < 比较 < 加减 < 乘除；RSI/ATR 用 Wilder 平滑，跟 pandas_ta 一致
+- EMA 跟 pandas_ta 一样用前 N 根的 SMA 当起点 (不够 N 根是空的)，SAR 起点也照 `df.ta.psar()` (见下面"跟后台对齐的三个坑")
 - 加之前先用假数据试算一次，公式有错当场提示
 
 ### "其余股票" 表格
@@ -216,7 +219,7 @@ def detect_t3_pattern(df):
 
 ### 🔍 完整图表 + 财报 (9/24，PR #23)
 用户要求：搜索其他股票时可以点开看完整走势图，双击表格一行打开，附上近 4 季财报和近 2 年年报的可视化。
-- **怎么打开**：电脑双击"其余股票"的一行、手机点一下 (手机双击会被当成放大页面)、键盘选中行按 Enter；筛选器卡片标题下方也有「完整图表 · 财报 ›」按钮。表格上方有一行提示
+- **怎么打开**：点"其余股票"的一行 (9/24 第三轮起电脑也是单击，网页上不再出现"双击"字眼；电脑上拖选文字不算)、键盘选中行按 Enter、点选股条件命中的一行；筛选器卡片标题下方也有「完整图表 · 财报 ›」按钮
 - **对话框** (`openStockModal`，`docs/report.js` 的"完整图表 + 财报"那一段)：周期按钮 + ƒx 指标 + 图表 + 开高低收 + 财报。图表就是卡片那套 `renderChart`，所以图表类型、指标、模板全部通用 (改了指标所有图表一起变)；关掉时 `destroyChart` + 删掉 `data[id]`
 - **K 线从哪来**：
   - 筛选器卡片：直接用卡片自己的数据 (2 年日线 + 10 年月线 + 1/5/15/60 分钟线)
@@ -237,7 +240,7 @@ def detect_t3_pattern(df):
   - ⚠️ 红绿配色对红绿色弱不友好 (验色脚本 deutan ΔE 4.1，不及格)，但正负同时还靠柱子方向 (基线上 / 下) 和数字的负号表达，所以保留跟全站一致的涨跌色
   - 手机 (≤ 640px)：图表两栏，SVG 会缩到约 0.7 倍，所以手机上 SVG 字号写大 (13/14px，实际显示约 9–10px)；表格藏掉日期小字，四季刚好放得下不用横向滑；周期按钮排两行
 - **完整年报 PDF**：只放了 Bursa 公司资料页链接 `bursamalaysia.com/trade/trading_resources/listing_directory/company-profile?stock_code=<代码>` (沙箱打不开 bursamalaysia.com，但 WebSearch 查到 Bursa 官网自己的页面就是这个网址格式，例如 `?stock_code=1818`、`?stock_code=5014`；年报在页面里的公司公告)
-- **大小**：table.json 约 5KB/支 (250 支约 1.2MB，gzip 后约 0.4MB，第一次双击才下载)；个股资料约 16KB/支 (250 支约 4MB)。每次运行都会提交 table.json，git 用 delta 压缩，实际增长比文件大小小很多，但仓库会慢慢变大 (如果以后改用 Actions 部署 Pages，这两个都可以不进 git)
+- **大小**：table.json 约 5KB/支 (250 支约 1.2MB，gzip 后约 0.4MB，第一次点开或模板有选股条件时才下载)；个股资料约 16KB/支 (250 支约 4MB)。每次运行都会提交 table.json，git 用 delta 压缩，实际增长比文件大小小很多，但仓库会慢慢变大 (如果以后改用 Actions 部署 Pages，这两个都可以不进 git)
 - `daily.yml` 的 `git add -A` 加上了 `docs/charts docs/stock`；两个目录里各放了一个空的 `.gitkeep`，因为 `git add` 碰到**不存在的路径会直接报错** (`fatal: pathspec ... did not match any files`)，非交易日 main.py 提前返回、目录还没生成时整个发布步骤就会失败
 
 ### 📰 个股新闻 + 对话框改版 + 手机防误触 (9/24 第二轮)
@@ -255,6 +258,50 @@ def detect_t3_pattern(df):
 - `daily.yml` 的 `git add` 加上 `docs/news` (目录里放了 `.gitkeep`)
 - 指标设置窗口左下角加了「🗑 删除」(点图例名称打开的就是它)
 - **底部搜索栏** (`report.js` 最后一段，`.dock`)：固定在页面最下方，打开对话框时藏起来。只搜今天报告里的股票 (信号卡片 + 表格)，排序 = 代码或名称完全一样 > 代码开头 > 名称开头 > 名称包含 > 代码包含，同分信号股在前；最多 8 条，↑↓ 选、Enter 打开、Esc 关；电脑上按 `/` 跳进搜索框。选中信号股 = 点那张卡片的「完整图表 · 财报」，表格股票 = `openTableRow(tr)`。输入框字号 16px (iPhone 小于 16px 会自动放大页面)；`body` 底部多留 5.5rem、toast 往上移，不会被挡住
+
+### 🧩 自定义选股条件 + ☰ 导航 + 美股页面 (9/24 第三轮)
+用户要求 (原话要点)：报告里的"筛选器"只由后台策略决定，希望能**自己组合条件、存成模板**；手机上打开"指标、模板"面板时**对话框顶部 (标题和 ×) 被切出屏幕外**；想**筛选美股，但美股要另开一页**，不要跟马股混在一起；左上角加一个 **dashboard 按钮**，点开分**概览**和**筛选器种类**；**"双击"这两个字不要出现在网页文案里**；做完**开 PR**。
+(这一轮先在另一个没有 GitHub 写入权限的对话里做了，那边的改动带不过来，这里是照交接文档在真实仓库上重新实现的。)
+
+**多市场 (main.py 最前面的 `MARKETS`，环境变量 `MARKET=MY` 默认 / `MARKET=US`)**
+- 两边的差异全部在 `MARKETS` 里：输出目录 (`docs/` vs `docs/us/`)、网址、时区、货币、价格小数位 (3 / 2)、开市时间 (9:00 / 9:30)、成交量门槛、screener 条件、交易日参考股 (`1155.KL` / `SPY`)、新闻地区、DeepSeek 提示词里的"马来西亚股市 / 美国股市"、下载文件名前缀 (`bursa-report` / `us-report`)、每次补几支个股资料 / 新闻
+- **美股范围**：screener `region=us` + 交易所 NYQ / NMS / NGM / NCM / ASE (不要场外 OTC) + `intradaymarketcap ≥ 100 亿美元`，预计 700 支左右。没有清单文件，每次按最新市值重新找 (screener 出错才退回 6 支大型股)
+- **美股成交量门槛按成交额**：日成交额 ≥ 2000 万美元 (门槛股数 = 2000 万 ÷ 价格，日志写"成交额低于 US$20M 被忽略")；美股股价从几块到几十万美元都有，按股数分级不合理。马股照旧按价格分级
+- 日内K线时间 `local_epoch()`：按交易所当地的 UTC 偏移换算 (美股夏令时自动，用 `tz_convert`)，取代原来写死的 +8 小时；网页日内K线合成从 `data-session-start` 开始对齐 (美股 9:30)
+- 美股一天只跑一次、股票又多 → `detail_per_run` / `news_per_run` = 120 (马股 30 / 40)，一周左右轮一遍
+- 页面 `<body>` 带 `data-market` `data-session-start` `data-price-dp` `data-search-hint`，`report.js` 两个页面共用 (美股页面引用 `../report.js`、`../vendor/`)；财报货币说明、完整年报链接也按市场 (美股 = SEC EDGAR 10-K)
+- `exports.py`：`write_pdf` / `export_downloads` / `_files_for` 多了 `title` `tz_label` `file_prefix` (不传就是原来的马股文案)
+- `daily.yml`：`market` 选项 (MY / US，不传 = MY，cron-job.org 旧任务不用改)；`concurrency: publish-report` (两个市场同时触发会排队，不取消)；`git add -A docs` (美股在 `docs/us/`)；**推之前 `git pull --rebase`** —— 排队的 run checkout 的是触发当时的 commit，前一个 run 推了新报告之后直接 push 会被拒 (两个市场写不同目录，rebase 不会冲突)；美股的 commit message 带 "(US)"
+- `check_strategy()` 的文案改从 `BACKEND_STRATEGY_PARTS` 拼；**改后台策略时，`docs/report.js` 内置策略 `s-backend` 的三条规则要一起改**
+
+**自定义选股条件 (docs/report.js)**
+- 模板 = 指标 + **选股条件**：`rules: [...]`、`match: 'all' | 'any'`，跟指标存在同一个 `bursa_templates_v2` (旧模板读进来 `rules` 是空的，行为不变)
+- 一条规则 `{id, a, op, b}` (`OPERANDS` 下拉：收盘/开盘/最高/最低价、前 N 日最高/最低价、SMA、EMA、SAR、Supertrend、RSI、MACD 线/信号线、ATR%、涨跌%、成交量、成交量均线、相对量、T3 形态突破；`b` 也可以是数字；`op` = > < ≥ ≤ 上穿 下穿，T3 是"成立/不成立") 或 `{id, formula}`；`ruleFormula()` 编译成公式，`ruleLabel()` 生成"RSI(14) 上穿 30"这种文字；两边单位 (`unit`) 不一样会提示但不挡
+- `seriesT3` = `detect_t3_pattern` 的逐根版本 (**改 T3 定义要两边一起改**)
+- 筛选 (`loadUniverse` / `refreshStrategy`)：信号卡片用页面自带的 2 年日线，表格股票用 `charts/table.json` 的 6 个月日线 (跟点开完整图表同一份，**模板有条件才下载**)；每支只看最新一根，按成交量从高到低列出，每页 30 支；公式错的条件标红、不参与筛选
+- 条件编辑器 (`openRulesDialog`)：改了 250ms 后自动存、实时显示"目前命中 N / 总数"
+- 内置选股策略 6 个 (`kind: 'strategy'`)：后台默认策略 (`s-backend`)、RSI 超卖回升、均线金叉、放量突破、MACD 金叉、Supertrend 转多；指标对话框的"内置模板"分成"选股策略 (带条件)"和"指标组合"两组。☰ 里点内置策略 = `applyBuiltin(bt, true)`，找 `origin` 一样的模板直接切过去 (不会越点越多份)；对话框里「套用」照旧每次复制一份
+- 我的模板：✎ 改名 (`window.prompt`)、导出备份 / 导入备份 (JSON，含模板 + 我的脚本 + 收藏；导入是合并，重名加"(导入)")
+- **跟后台对齐的三个坑** (用 9/24 真实数据 274 支 × 3 条规则逐一跟 Python `get_stock_data` 比对才发现)：
+  1. 后台比较的是四舍五入到 3 位的现价 / EMA20 / SAR (现价 0.075、EMA 0.0748 → 后台算"没站上") → 网页价格类的值先 `round(…,3)` 再比
+  2. pandas_ta 的 EMA 先用前 N 根的 SMA 当起点 (presma)，不够 N 根是 NaN → `seriesEMA` 改成一样 (新股 EMA20 要 20 天才有；图表上的 EMA 线也从第 N 根才开始画)
+  3. **`df.ta.psar()` 不会把 close 传进去** (pandas_ta 0.4.71b0 的 accessor 默认 `close=None`)，第一根 SAR 用最低价 (上升) / 最高价 (下降) → `seriesPSAR` 起点改成一样 (只有历史很短的新股看得出差别)
+  - 改完 274 × 3 条规则跟 Python **0 差异**，套用「后台默认策略」只命中 SORENTO 0326，跟后台一样
+  - 已知小差异：相对量规则要 21 天历史，表格那一栏新股不足 20 天会用现有几天平均 (只影响新股，不影响后台默认策略)
+
+**☰ 导航** (`build_dashboard_html` + `initDash` / `renderDashScreeners`)：左侧抽屉。市场 (马股 / 美股互相链接，另一个市场还没生成过就显示"第一次运行后出现"不能点)、概览 (后台信号、报告内股票、条件命中 `#dash-hits`、更新时间、跳到各区块)、筛选器种类 (我的模板 + 内置策略 + 新建筛选器 / 管理模板)。Esc、点遮罩关闭，Tab 困在抽屉里
+
+**去掉"双击"**：表格一律点一下就打开 (以前电脑要双击)，电脑上拖选文字 (例如复制代码) 放开时不算；手机"惯性滑动 400ms 内的点击不算"保留。网页文案里不再有"双击"
+
+**手机对话框顶部被切掉**：PR #25 的 dvh 修好了"完整图表"对话框，但"指标、模板"对话框还是被切 —— 差别是它一打开就把光标放进搜索框 (字号 13.6px)，**iPhone Safari 点进字号 < 16px 的输入框会自动放大整页**，对话框顶部就被推出屏幕。修法：没有鼠标的设备上输入框一律 16px；对话框打开时焦点放在 × (不弹键盘)；手机上对话框改成 `align-items: flex-start` + `margin-top: auto` (放得下照样贴底，万一比屏幕高就贴顶，标题和 × 永远在屏幕里)；图表类型选单、底部搜索列表也补上 dvh
+
+**验证** (这个沙箱连不上 Yahoo)：
+- 对齐：真实 9/24 数据 274 支，JS 三条规则 vs Python 逐一比对 0 差异 (见上)
+- 模拟 `main()` (yfinance 打桩)：马股 / 美股各跑一次；美股用马股数据换成美股代码、价格 ×100、日内往后挪 30 分钟 (9:30 开市)、时区换纽约。确认输出目录 (`docs/us/charts` 等)、`us-report-*`、两个页面导航的相对链接 (`us/`、`../`)、美股成交额门槛、screener 条件
+- Playwright (手机 iPhone 13 触控 + 电脑 1280×900)：套用内置策略、条件编辑器 (下拉 + 公式、写错公式、and/not/ref/or、全部/任一满足、单位提示)、改名、导出/导入备份、☰ 导航 (Esc、遮罩、新建、管理)、点命中行 / 表格行打开完整图表、拖选文字不打开、对话框标题在屏幕里、手机上输入框 16px 且焦点在 ×、美股 1 小时K线按 9:30 对齐，控制台 0 错误；**旧版 index.html + 新 report.js 也不报错** (合并后到 workflow 重新生成之前，线上就是这个组合)
+- 没验证到：真实 Yahoo 数据下美股 screener 拿到几支、跑多久、会不会被限流 → 合并后第一次手动跑 US 看日志
+
+**美股定时任务** (cron-job.org，跟马股同一个 URL / Header)：Body `{"ref":"main","inputs":{"force":"false","market":"US"}}`，Time zone 选 `America/New_York`，时间 `30 16 * * 1-5` (收盘后半小时，夏令时自动处理)
 
 ### ☁️ 一目均衡表 (Ichimoku Cloud，9/23 按用户给的 TradingView Pine 脚本加入)
 - 指标库「趋势」里的「一目均衡表」，一次加 5 条线 + 云 (4 个参数、5 种颜色都能改)：转换线 `#2962FF`、基准线 `#B71C1C`、延迟线 `#43A047`、先行带A `#A5D6A7`、先行带B `#EF9A9A`；A 在 B 上方云是绿色，下方是红色 (颜色跟 TradingView 一样)
@@ -432,6 +479,7 @@ screener 出错时就只扫清单里的股票 (跟以前一样)。清单文件�
   - 对话框里的通用按钮样式用了一串 `:not(...)`，优先级很高，会盖掉 "选中" 样式，选中态要加 `!important`
   - 手机上图例一行塞不下 名称+数值+5 个按钮，名称会被挤到 0 宽度 → 改成点一下这一行才展开按钮
   - **iPhone Safari 的 `vh` 比看得到的高度大** (按底部网址栏收起来算)：底部对齐的对话框用 `94vh` 时，顶部会跑到屏幕外 → 对话框高度一律 `vh` 后面再写一个 `dvh`
+  - **iPhone Safari 点进字号 < 16px 的输入框会自动放大整页** → 一打开就把光标放进搜索框的"指标、模板"对话框，dvh 修好了还是被切掉顶部 (9/24 第三轮才找到)。没有鼠标的设备上输入框一律 16px、对话框打开时焦点放在 ×
 - **9/24 完整图表 + 财报踩到的坑**：
   - `git add -A <路径>` 路径不存在会 fatal → 新目录先放 `.gitkeep` (见第 4 节)
   - SVG 的字号跟着 viewBox 缩放，同一张图在手机两栏里字会变成 6px → 手机上 CSS 把 SVG 字号写大
@@ -457,6 +505,7 @@ screener 出错时就只扫清单里的股票 (跟以前一样)。清单文件�
 | 手机上图表太靠右、滑页面一直误触；完整图表改成左边正方形图、右边财报、下面新闻 | 见第 4 节"个股新闻 + 对话框改版 + 手机防误触" | #24 |
 | 页面下方做一个固定的搜索栏，滑到哪里都能打股票名称 / 代码 | 底部搜索栏，选中直接打开完整图表 | #24 |
 | 手机上双击股票往下滑看财报时，看不到股票名称和代码 | iPhone Safari 的 `vh` 按网址栏收起来算，网址栏还在时对话框比屏幕高，顶部标题被挤出屏幕 → 对话框高度改用 `dvh` (前面留 `vh` 给旧浏览器)；价格 / 涨跌也搬进标题那一行 (标题不跟内容滚动) | #25 |
+| 自己组合选股条件存成模板；手机上"指标、模板"对话框顶部被切掉；美股另开一页；左上角 dashboard (概览 + 筛选器种类)；网页上不要出现"双击"；开 PR | 第 4 节"自定义选股条件 + ☰ 导航 + 美股页面" (对话框被切的真正原因是 iPhone 点进 < 16px 的输入框会放大整页) | 本 PR |
 
 ### 9/24 运行记录 (PR #23 合并后)
 - **#225** (17:12 MYT)：共 51 秒 ✅；分析 36.2 秒 = 预筛选 0.7 + 抓取 22.9 + 筛选 & DeepSeek 1.2 + 导出 0.7 + **图表+财报 8.7**
@@ -523,13 +572,20 @@ CMSA 2007、SC Guidance Note **SC-GN/1-2020 (R2-2024)**、Digital Investment Man
 
 ## 10. 下一步 TODO
 
+- [ ] **自定义选股条件 + 美股页面合并后** (第 4 节"自定义选股条件 + ☰ 导航 + 美股页面")：
+  1. 手动跑一次 workflow (`market` 选 MY)，线上马股页面才会用上新版 (☰、选股条件)
+  2. 手动跑一次 `market` 选 US、`force` 勾上，第一次生成美股页面 (马股页面导航里的"美股"要等这一步跑完才能点)
+  3. 在 cron-job.org 建美股定时任务 (见第 4 节那一段最后)
+  4. 看第一次美股 run 的日志：screener 找到几支 (预期 700 左右)、成交额门槛挡掉几支、跑多久、有没有被 Yahoo 限流；太慢就调 `FETCH_WORKERS` 或提高市值门槛
+  5. 手机上确认"指标、模板"对话框顶部不再被切掉；用户浏览器里的旧模板照常能用
+
 - [ ] 在 cron-job.org 建完剩下的时段 (见第 5 节"当前进度")
 - [ ] 确认 12:15 是故意的还是想要 12:25
 - [x] ~~9/23 性能优化合并后看一次真实运行的 ⏱️ 耗时行~~ (#210 起：预筛选跳过约 770 支，分析 30 秒左右，缓存命中时整个 run 约 45–55 秒)
 - [ ] **PR #22 (卡片轮播 + Supertrend) 合并后**看第一次真实运行：卡片翻页、图表类型、指标库在真实数据上正常；用户浏览器里旧模板有没有正确迁移 (`bursa_templates_v1` → `v2`)
 - [ ] **PR #23 合并后**看第一次真实运行：
   - ~~日志的 `📊 个股资料` 那行、table.json 大小、耗时~~ (#225：29/30 有财报，1.3MB，8.7 秒)
-  - 双击几支股票：2 年日线有没有接上、月线正常、财报数字跟 Bursa 公告对得上 (单位、季度)
+  - 点开几支股票：2 年日线有没有接上、月线正常、财报数字跟 Bursa 公告对得上 (单位、季度)
   - 用真实数据截完整图表 + 财报的图放进 README (现在的 README 截图都是真实数据，不要放模拟数据的图)
 - [ ] 新闻功能合并后看第一次真实运行：日志 `📰 个股新闻` 那行有几支有新闻、Google News 有没有被挡 (如果全部 0 条，考虑换来源)；点开几支看新闻是不是同一家公司
 - [ ] (看情况) 信号股很多时页面会变大 (真实数据约 75KB/支，12 支约 1MB)。要优化的话：每支信号股的K线数据也拆成 `docs/charts/<代码>.json`，翻到那张卡片才下载 (`docs/charts` 目录和 `git add` 已经有了)
