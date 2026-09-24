@@ -22,21 +22,21 @@ Bursa Bot 每个交易日自动扫描 **马来西亚交易所全部上市股票*
 <tr>
 <td width="58%" valign="top">
 
-**筛选器卡片**：命中策略的股票会有一张卡片，K 线图可以切换 1 分钟到月线等周期。下图叠加了布林带（在设置面板里一键添加）。<sub>（截图为改版前的界面，下次真实运行后更新）</sub>
+**筛选器卡片**：命中策略的股票会有一张卡片，K 线图可以切换 1 分钟到月线等周期。下图主图叠加了一目均衡表，下方两个副图是 RSI 和 MACD（都在设置面板里一键添加）。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/signal-card-dark.png">
-  <img src="assets/screenshots/signal-card-light.png" alt="筛选器卡片：BMGREEN 的 K 线图，叠加 EMA20、布林带和成交量">
+  <img src="assets/screenshots/signal-card-light.png" alt="筛选器卡片：BMGREEN 的日线图，主图叠加 EMA20、一目均衡表和成交量，下方副图是 RSI 和 MACD，图表下方是开高低收等数据">
 </picture>
 
 </td>
 <td width="42%" valign="top">
 
-**图表设置**：颜色和技术指标都能直接在网页上调整，指标按分类排好，点一下就加到图上。
+**图表设置**：颜色和技术指标都能直接在网页上调整，指标按分类排好，点一下就加到图上，可以选放主图还是另开副图。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/settings-panel-dark.png">
-  <img src="assets/screenshots/settings-panel-light.png" alt="图表设置面板：颜色选择器，按趋势/动量/波动性/成交量分类的指标库，已添加 RSI 和 MACD">
+  <img src="assets/screenshots/settings-panel-light.png" alt="图表设置面板：颜色选择器，添加到主图/副图的选项，按趋势/动量/波动性/成交量分类的指标库，已添加一目均衡表、RSI 和 MACD">
 </picture>
 
 </td>
@@ -50,7 +50,7 @@ Bursa Bot 每个交易日自动扫描 **马来西亚交易所全部上市股票*
   <img src="assets/screenshots/table-light.png" alt="选股表格：每行显示股票代码、日内迷你走势图、价格、涨跌%、成交量、相对成交量、RSI、SAR 多空和 EMA20，按成交量从高到低排序">
 </picture>
 
-<sub>截图均取自 2026-09-23 的真实运行结果（信号卡片为当天命中的 BMGREEN 0168；表格为 15:46 那次运行的前 8 行），仅用于展示界面，不构成任何买卖建议。</sub>
+<sub>截图均取自 2026-09-23 的真实运行结果（筛选器卡片为当天命中的 BMGREEN 0168，20:27 那次运行；表格为 15:46 那次运行的前 8 行），仅用于展示界面，不构成任何买卖建议。</sub>
 
 ## 报告怎么看
 

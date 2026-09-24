@@ -1245,7 +1245,8 @@ def build_html_report(stocks, downloads=None):
 
 <footer class="site-footer">
   <p>本报告及其筛选策略、代码与分析方法版权所有 © {datetime.now(MYT).year} CJA231，保留一切权利。未经书面授权，禁止复制、转载、二次分发或用于商业用途。</p>
-  <p>K 线图使用 <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> 的 Lightweight Charts™ (Apache 2.0)。</p>
+  <p>K 线图: TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · <a href="https://www.tradingview.com/" target="_blank" rel="noopener">https://www.tradingview.com/</a> (Apache License 2.0)</p>
+  <p>行情数据来自公开渠道 (Yahoo Finance)，可能有延迟或错误，仅供个人研究参考，不构成投资建议。</p>
   <p>© {datetime.now(MYT).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
 </footer>
 
