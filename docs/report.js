@@ -2221,6 +2221,9 @@
       title: opts.name + '  ' + opts.code, body: root, className: 'dlg-stock', focus: '.dlg-x',
       onClose: function () { destroyChart(id); delete data[id]; }
     });
+    // 价格 / 涨跌放进标题那一行 (标题不跟着内容滚动)，往下看财报、新闻时还看得到是哪支股票、现在多少钱
+    var svHead = root.querySelector('.sv-head');
+    if (svHead) dlg.el.querySelector('.dlg-head h3').insertAdjacentElement('afterend', svHead);
     root.querySelector('.sv-ind').addEventListener('click', function () { openIndicatorsDialog('all'); });
     var msg = root.querySelector('.sv-msg'), wrap = root.querySelector('.chart-wrap');
     var detail = loadDetail(opts.code);
