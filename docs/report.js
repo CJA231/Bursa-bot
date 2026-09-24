@@ -2459,6 +2459,7 @@
   buildToolbar();
 
   // ---------- "其余股票"表格: 点表头排序 + 手机上的排序下拉框 + 搜索 ----------
+  var openTableRow = null; // 底部搜索栏也要用
   var table = document.getElementById('watchlist-table');
   if (table) {
     var tbody = table.querySelector('tbody');
@@ -2514,6 +2515,7 @@
         (change ? '<span class="' + change.className.replace(/\b(num|col-change)\b/g, '').trim() + '">' + escapeHtml(change.textContent) + '</span>' : '') + '</span>';
       openStockModal({ code: tr.dataset.code, name: tr.dataset.name || tr.dataset.code, headHtml: head });
     }
+    openTableRow = openRow;
     // 手机上页面还在惯性滑动时，手指按下去是想停下来，不是想打开 → 滑动停下 400ms 内的点击不算
     var lastScroll = 0;
     window.addEventListener('scroll', function () { lastScroll = Date.now(); }, { passive: true });
@@ -2543,4 +2545,108 @@
       });
     }
   }
+  // ---------- 页面最下方固定的搜索栏: 滑到哪里都能直接打股票名称或代码，选中就打开完整图表 + 财报 + 新闻 ----------
+  (function () {
+    var entries = [];
+    document.querySelectorAll('.card[data-chart]').forEach(function (card) {
+      var h2 = card.querySelector('h2'), price = card.querySelector('.card-price b'), change = card.querySelector('.card-price .change-up, .card-price .change-down');
+      entries.push({ code: card.dataset.chart.replace(/^chart-/, ''), name: h2 ? h2.firstChild.textContent.trim() : '', card: card,
+        price: price ? price.textContent : '', change: change ? change.textContent.replace(/^.*\(|\)$/g, '') : '', up: change ? change.classList.contains('change-up') : null });
+    });
+    document.querySelectorAll('#watchlist-table tbody tr[data-code]').forEach(function (tr) {
+      var price = tr.querySelector('.col-price'), change = tr.querySelector('.col-change');
+      entries.push({ code: tr.dataset.code, name: tr.dataset.name || '', tr: tr, price: price ? price.firstChild.textContent : '',
+        change: change ? change.textContent.trim() : '', up: change ? (/change-up/.test(change.className) ? true : /change-down/.test(change.className) ? false : null) : null });
+    });
+    if (!entries.length) return;
+    var dock = document.createElement('div');
+    dock.className = 'dock';
+    dock.setAttribute('role', 'search');
+    dock.innerHTML = '<div class="dock-inner"><ul class="dock-list" id="dock-list" role="listbox" aria-label="搜索结果" hidden></ul>' +
+      '<input type="search" id="dock-input" placeholder="搜股票名称或代码，例如 CYPARK / 5184" autocomplete="off" autocapitalize="characters" spellcheck="false"' +
+      ' enterkeyhint="search" role="combobox" aria-expanded="false" aria-controls="dock-list" aria-autocomplete="list" aria-label="搜索股票"></div>';
+    document.body.appendChild(dock);
+    document.documentElement.classList.add('has-dock');
+    var input = dock.querySelector('input'), list = dock.querySelector('ul');
+    var shown = [], active = -1;
+
+    // 排序: 代码或名称完全一样 > 代码开头 > 名称开头 > 名称包含 > 代码包含；同分时信号股在前，再按页面原来的顺序 (成交量)
+    function search(q) {
+      q = q.trim().toLowerCase();
+      if (!q) return [];
+      var out = [];
+      entries.forEach(function (e, i) {
+        var code = e.code.toLowerCase(), name = e.name.toLowerCase(), s = -1;
+        if (code === q || name === q) s = 0; else if (code.indexOf(q) === 0) s = 1; else if (name.indexOf(q) === 0) s = 2;
+        else if (name.indexOf(q) !== -1) s = 3; else if (code.indexOf(q) !== -1) s = 4;
+        if (s !== -1) out.push({ e: e, s: s, i: i });
+      });
+      out.sort(function (a, b) { return a.s - b.s || (b.e.card ? 1 : 0) - (a.e.card ? 1 : 0) || a.i - b.i; });
+      return out.slice(0, 8).map(function (x) { return x.e; });
+    }
+    function setActive(i) {
+      active = i;
+      list.querySelectorAll('[role=option]').forEach(function (li, j) { li.setAttribute('aria-selected', j === i ? 'true' : 'false'); });
+      var cur = list.querySelector('[aria-selected=true]');
+      if (cur) { input.setAttribute('aria-activedescendant', cur.id); cur.scrollIntoView({ block: 'nearest' }); }
+      else input.removeAttribute('aria-activedescendant');
+    }
+    function render() {
+      var q = input.value;
+      shown = search(q);
+      if (!q.trim()) { hide(); return; }
+      list.innerHTML = shown.length ? shown.map(function (e, i) {
+        return '<li role="option" id="dock-opt-' + i + '" data-i="' + i + '" aria-selected="false"><b>' + escapeHtml(e.name) + '</b>' +
+          '<span class="dock-code">' + escapeHtml(e.code) + '</span>' + (e.card ? '<span class="dock-sig">信号</span>' : '') +
+          '<span class="dock-price">' + escapeHtml(e.price) + '</span>' +
+          '<span class="dock-chg ' + (e.up === true ? 'change-up' : e.up === false ? 'change-down' : '') + '">' + escapeHtml(e.change) + '</span></li>';
+      }).join('') : '<li class="dock-empty">今天的报告里没有「' + escapeHtml(q.trim()) + '」(成交量没达标的股票不在报告里，或者代码打错了)</li>';
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      setActive(shown.length ? 0 : -1);
+    }
+    function hide() {
+      list.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+      active = -1;
+    }
+    function open(e) {
+      if (!e) return;
+      hide();
+      input.value = '';
+      input.blur();
+      if (e.card) { var btn = e.card.querySelector('.card-fin'); if (btn) btn.click(); }
+      else if (e.tr && openTableRow) openTableRow(e.tr);
+    }
+    input.addEventListener('input', render);
+    input.addEventListener('focus', function () { if (input.value.trim()) render(); });
+    input.addEventListener('blur', function () { setTimeout(hide, 150); });
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        if (!shown.length) return;
+        ev.preventDefault();
+        setActive((active + (ev.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length);
+      } else if (ev.key === 'Enter') {
+        ev.preventDefault();
+        open(shown[active >= 0 ? active : 0]);
+      } else if (ev.key === 'Escape') {
+        hide();
+        input.blur();
+      }
+    });
+    list.addEventListener('mousedown', function (ev) { ev.preventDefault(); }); // 点选项时输入框不要先失焦把列表关掉
+    list.addEventListener('click', function (ev) {
+      var li = ev.target.closest('[data-i]');
+      if (li) open(shown[+li.dataset.i]);
+    });
+    // 电脑上在页面任何地方按 / 就跳到搜索栏
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      var el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      if (document.documentElement.classList.contains('dlg-open')) return;
+      ev.preventDefault();
+      input.focus();
+    });
+  })();
 })();

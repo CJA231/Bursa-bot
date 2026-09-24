@@ -922,6 +922,36 @@ UI_CSS = """
   }
   .bb-toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+  /* 页面最下方固定的搜索栏 (report.js 生成)；打开对话框时藏起来 */
+  .dock {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    padding: 0.5rem 1rem calc(0.5rem + env(safe-area-inset-bottom));
+    background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+  }
+  html.dlg-open .dock { display: none; }
+  html.has-dock body { padding-bottom: 5.5rem; }
+  html.has-dock .bb-toast { bottom: 5rem; }
+  .dock-inner { position: relative; max-width: 640px; margin: 0 auto; }
+  .dock-inner::before { content: "🔍"; position: absolute; left: 0.85rem; bottom: 0.72rem; font-size: 0.85rem; pointer-events: none; }
+  #dock-input {
+    width: 100%; font: inherit; font-size: 16px; /* 16px: iPhone 点输入框才不会自动放大页面 */
+    padding: 0.6rem 1rem 0.6rem 2.3rem; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--page); color: var(--text-primary);
+  }
+  #dock-input:focus { outline: 2px solid var(--ema); outline-offset: 0; }
+  .dock-list {
+    position: absolute; left: 0; right: 0; bottom: calc(100% + 0.45rem); margin: 0; padding: 0.3rem; list-style: none;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
+    max-height: 50vh; overflow-y: auto;
+  }
+  .dock-list li { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.55rem 0.65rem; border-radius: 8px; cursor: pointer; font-size: 0.88rem; }
+  .dock-list li[aria-selected="true"], .dock-list li[role="option"]:hover { background: var(--page); }
+  .dock-code { color: var(--muted); font-size: 0.78rem; }
+  .dock-sig { font-size: 0.68rem; color: var(--ema); border: 1px solid currentColor; border-radius: 4px; padding: 0 0.25rem; }
+  .dock-price { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .dock-chg { min-width: 4.2em; text-align: right; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+  .dock-list li.dock-empty { color: var(--muted); cursor: default; font-size: 0.82rem; }
+
   @media (max-width: 640px) {
     .dlg-overlay { padding: 0; align-items: flex-end; }
     .dlg { width: 100%; max-height: 92vh; border-radius: 14px 14px 0 0; }
