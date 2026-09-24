@@ -661,6 +661,8 @@ UI_CSS = """
     border-radius: 3px;
     font-size: 0.92em;
   }
+  .btn-danger { color: var(--down) !important; display: inline-flex; align-items: center; gap: 0.3rem; }
+  .btn-danger .ico { width: 13px; height: 13px; }
   .btn-primary { background: var(--text-primary) !important; color: var(--surface) !important; border-color: var(--text-primary) !important; }
   .form-error { color: var(--down); font-size: 0.8rem; margin: 0.4rem 0; }
 

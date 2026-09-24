@@ -1934,11 +1934,15 @@
       });
     });
     var dlg = openDialog({ title: isCustom ? (ind.name || '自定义公式') : def.name, body: root, footer: true, className: 'dlg-set' });
-    dlg.foot.innerHTML = '<button type="button" data-act="reset">恢复默认</button><span class="grow"></span><button type="button" data-act="cancel">取消</button><button type="button" class="btn-primary" data-act="ok">确定</button>';
+    // 点图例名称会打开这里，所以删除也放在这里 (手机上点名称最顺手，旁边的 🗑 要先点这一行才出现)
+    dlg.foot.innerHTML = '<button type="button" class="btn-danger" data-act="delete">' + ICON_TRASH + ' 删除</button><button type="button" data-act="reset">恢复默认</button>' +
+      '<span class="grow"></span><button type="button" data-act="cancel">取消</button><button type="button" class="btn-primary" data-act="ok">确定</button>';
     function err(msg) { var e = root.querySelector('.form-error'); e.textContent = msg; e.hidden = !msg; }
     dlg.foot.addEventListener('click', function (e) {
-      var act = e.target.dataset && e.target.dataset.act;
+      var btn = e.target.closest('button[data-act]'); // 点到按钮里的图标时 target 是 svg
+      var act = btn && btn.dataset.act;
       if (act === 'cancel') dlg.close();
+      else if (act === 'delete') { dlg.close(); removeIndicator(id); toast('已删除 ' + indLabel(ind)); }
       else if (act === 'reset') {
         def.inputs.forEach(function (i) { root.elements['p_' + i.key].value = i.def; });
         def.plots.forEach(function (pl) {
