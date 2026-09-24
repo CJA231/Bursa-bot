@@ -410,127 +410,145 @@ def ask_deepseek(data, reason):
 # 这几块单独写成普通字符串 (不是 f-string)，因为内容全是 JS/CSS 不需要 Python 变量插值，
 # 这样大括号不用到处写成 {{ }}，改起来更不容易出错。
 
-SETTINGS_CSS = """
-  /* 设置面板里好几个元素用 hidden 属性切换显示，但它们自己的 class 又写了 display: flex，
-     会盖掉浏览器默认的 [hidden] { display: none }，导致"隐藏"不生效。这里统一强制一下。 */
+UI_CSS = """
+  /* 有些元素自己的 class 写了 display: flex，会盖掉浏览器默认的 [hidden] { display: none }，这里统一强制一下 */
   [hidden] { display: none !important; }
-  .settings-toggle {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.4rem 0.75rem;
-    font-size: 0.85rem;
-    color: var(--text-primary);
-    cursor: pointer;
-    margin-bottom: 1rem;
-  }
-  .settings-toggle:hover { background: var(--page); }
-  .settings-panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1rem;
-    margin-bottom: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-  }
-  .settings-section h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
-  .settings-section label {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin-right: 1rem;
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-  }
-  .settings-section input[type="color"] {
-    width: 28px;
-    height: 28px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0;
-    background: none;
-    cursor: pointer;
-  }
-  .settings-section button {
-    background: var(--page);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.35rem 0.7rem;
-    font-size: 0.8rem;
-    color: var(--text-primary);
-    cursor: pointer;
-  }
-  .settings-section button:hover { background: var(--gridline); }
-  .hint { font-size: 0.78rem; color: var(--muted); line-height: 1.7; margin: 0 0 0.75rem; }
-  .hint code {
+  .ico { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .ico .f { fill: currentColor; }
+  .ico .f2 { fill: currentColor; opacity: 0.25; stroke: none; }
+  .ico .thick { stroke-width: 2.4; }
+  .hint { font-size: 0.78rem; color: var(--muted); line-height: 1.7; margin: 0.4rem 0 0.6rem; }
+  .hint code, .ind-row code {
     font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
     background: var(--page);
     padding: 0.05rem 0.3rem;
     border-radius: 3px;
+    font-size: 0.92em;
   }
-  .indicator-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
-  .indicator-form input[type="text"] {
-    background: var(--page);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.4rem 0.6rem;
-    font-size: 0.85rem;
+  .btn-primary { background: var(--text-primary) !important; color: var(--surface) !important; border-color: var(--text-primary) !important; }
+  .form-error { color: var(--down); font-size: 0.8rem; margin: 0.4rem 0; }
+
+  /* ---- 对话框 (指标库、指标设置、图表设置) ---- */
+  html.dlg-open { overflow: hidden; }
+  .dlg-overlay {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex; align-items: center; justify-content: center;
+    padding: 1rem;
+  }
+  .dlg {
+    background: var(--surface);
     color: var(--text-primary);
-  }
-  #ind-name { width: 130px; }
-  #ind-formula { flex: 1; min-width: 220px; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
-  .ind-error { color: var(--down); font-size: 0.8rem; margin: 0 0 0.5rem; }
-  .indicator-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
-  .indicator-list li { display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; background: var(--page); border-radius: 6px; padding: 0.35rem 0.6rem; }
-  .ind-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
-  .ind-name { font-weight: 600; white-space: nowrap; }
-  .ind-formula { color: var(--text-secondary); flex: 1; overflow-x: auto; white-space: nowrap; }
-  .ind-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 0.25rem; }
-  .ind-remove:hover { color: var(--down); }
-  .ind-tabs {
-    display: flex;
-    gap: 0.4rem;
-    overflow-x: auto;
-    padding-bottom: 0.4rem;
-    margin-bottom: 0.75rem;
-    -webkit-overflow-scrolling: touch;
-  }
-  .ind-tab {
-    flex: 0 0 auto;
-    background: var(--page);
     border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 0.35rem 0.9rem;
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    white-space: nowrap;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+    width: min(440px, 100%);
+    max-height: min(86vh, 760px);
+    display: flex; flex-direction: column;
+    overflow: hidden;
   }
-  .ind-tab.active { background: var(--text-primary); color: var(--surface); border-color: var(--text-primary); }
-  .ind-presets { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
-  .ind-preset-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    background: var(--page);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.4rem 0.7rem;
-    font-size: 0.82rem;
-    color: var(--text-primary);
-    cursor: pointer;
+  .dlg.dlg-ind { width: min(960px, 100%); height: min(86vh, 720px); }
+  .dlg-head { display: flex; align-items: center; justify-content: space-between; padding: 0.9rem 1rem 0.6rem; }
+  .dlg-head h3 { margin: 0; font-size: 1.05rem; }
+  .dlg-x { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; line-height: 1; cursor: pointer; padding: 0.1rem 0.4rem; border-radius: 6px; }
+  .dlg-x:hover { background: var(--page); color: var(--text-primary); }
+  .dlg-body { padding: 0 1rem 1rem; overflow: auto; flex: 1; min-height: 0; }
+  .dlg-foot { display: flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border-top: 1px solid var(--border); }
+  .dlg-foot .grow { flex: 1; }
+  .dlg button:not(.dlg-x):not(.ind-row-main):not(.ind-nav-item):not(.ind-star):not([role="tab"]),
+  .dlg select, .dlg input[type="text"], .dlg input[type="number"], .dlg input[type="search"], .dlg textarea {
+    font: inherit; font-size: 0.85rem; color: var(--text-primary);
+    background: var(--page); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.65rem;
   }
-  .ind-preset-btn:hover { background: var(--gridline); }
-  .ind-preset-btn .ind-swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .ind-preset-btn.added { opacity: 0.5; cursor: default; }
-  .ind-place { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-bottom: 0.75rem; font-size: 0.8rem; color: var(--text-secondary); }
-  .settings-section .ind-place button { border-radius: 999px; padding: 0.2rem 0.7rem; }
-  .settings-section .ind-place button[aria-checked="true"] { background: var(--text-primary); color: var(--surface); border-color: var(--text-primary); }
-  .ind-place small { color: var(--muted); font-size: 0.72rem; flex-basis: 100%; }
-  .settings-section .ind-move, .settings-section .ind-pane-toggle { padding: 0.1rem 0.4rem; font-size: 0.72rem; }
-  .ind-list-title { font-size: 0.85rem; margin: 0.5rem 0 0.4rem; color: var(--text-secondary); font-weight: 600; }
+  .dlg button { cursor: pointer; }
+  .dlg input[type="color"] { width: 34px; height: 26px; border: 1px solid var(--border); border-radius: 5px; padding: 0; background: none; cursor: pointer; }
+  .dlg label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; color: var(--text-secondary); }
+
+  /* 指标库对话框: 左边分类导航，右边列表 (手机上导航变成上方一排可滑动的标签) */
+  .ind-dlg { display: flex; flex-direction: column; height: 100%; gap: 0.6rem; }
+  .ind-dlg-top { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  .ind-search { flex: 1 1 260px; }
+  .ind-place { display: flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; color: var(--text-secondary); }
+  .dlg .ind-place button { border-radius: 999px !important; padding: 0.2rem 0.7rem !important; font-size: 0.78rem !important; }
+  /* 上面那条通用按钮样式的优先级很高 (一串 :not)，这里要用 !important 才盖得过 */
+  .dlg .ind-place button[aria-checked="true"] { background: var(--text-primary) !important; color: var(--surface) !important; border-color: var(--text-primary) !important; }
+  .ind-dlg-main { display: flex; gap: 0.75rem; flex: 1; min-height: 0; }
+  .ind-nav { flex: 0 0 170px; overflow: auto; border-right: 1px solid var(--border); padding-right: 0.5rem; }
+  .ind-nav-title { font-size: 0.72rem; color: var(--muted); margin: 0.6rem 0.4rem 0.25rem; }
+  .ind-nav-item {
+    display: flex; align-items: center; gap: 0.5rem; width: 100%; text-align: left;
+    font: inherit; font-size: 0.86rem; color: var(--text-primary);
+    background: none; border: none; border-radius: 6px; padding: 0.4rem 0.5rem;
+  }
+  .ind-nav-item.sub { padding-left: 1.6rem; font-size: 0.8rem; color: var(--text-secondary); }
+  .ind-nav-item:hover { background: var(--page); }
+  .ind-nav-item.active { background: var(--page); font-weight: 600; box-shadow: inset 3px 0 0 var(--text-primary); }
+  .ind-nav-ico { width: 1rem; text-align: center; color: var(--muted); }
+  .ind-pane { flex: 1; overflow: auto; min-width: 0; }
+  .ind-pane-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; margin: 0.3rem 0; }
+  .ind-pane-head h4 { margin: 0; font-size: 0.95rem; }
+  .head-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .ind-sub-head { font-size: 0.75rem; color: var(--muted); margin: 0.8rem 0 0.2rem; }
+  .ind-list { display: flex; flex-direction: column; }
+  .ind-row {
+    display: grid; grid-template-columns: 1.8rem minmax(0, 1.4fr) minmax(0, 1fr) auto; align-items: center;
+    gap: 0.4rem; padding: 0.15rem 0.3rem; border-radius: 6px;
+  }
+  .ind-row:hover, .ind-row:focus-within { background: var(--page); }
+  .ind-row.active { background: color-mix(in srgb, var(--ema) 10%, transparent); }
+  .ind-star { background: none; border: none; font-size: 1rem; color: var(--muted); padding: 0.2rem; }
+  .ind-star.on { color: #f5a623; }
+  .ind-star.static { text-align: center; }
+  .ind-row-main { display: flex; align-items: center; gap: 0.4rem; background: none; border: none; font: inherit; color: var(--text-primary); text-align: left; padding: 0.45rem 0.2rem; min-width: 0; }
+  .ind-row-name { font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ind-badge { font-size: 0.68rem; color: var(--up); border: 1px solid currentColor; border-radius: 999px; padding: 0 0.35rem; white-space: nowrap; }
+  .ind-row-cat { font-size: 0.75rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ind-row-actions { display: flex; gap: 0.25rem; opacity: 0; }
+  .ind-row:hover .ind-row-actions, .ind-row:focus-within .ind-row-actions, .ind-row-actions.always { opacity: 1; }
+  .dlg .ind-row-actions button { padding: 0.15rem 0.45rem; font-size: 0.78rem; display: inline-flex; align-items: center; }
+  .ind-row-info { grid-column: 2 / -1; font-size: 0.78rem; color: var(--text-secondary); line-height: 1.6; padding: 0 0.2rem 0.5rem; }
+  .ind-empty { color: var(--muted); font-size: 0.85rem; padding: 1rem 0.3rem; }
+  .script-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-end; margin: 0.4rem 0 0.8rem; }
+  .script-form .grow { flex: 1 1 220px; }
+  .script-form .hint, .script-form .form-error { flex-basis: 100%; margin: 0; }
+
+  /* 单个指标设置: 输入 / 样式 两页 */
+  .ind-set, .chart-set { display: flex; flex-direction: column; gap: 0.7rem; }
+  .tabs { display: flex; gap: 1rem; border-bottom: 1px solid var(--border); margin-bottom: 0.2rem; }
+  .tabs [role="tab"] { background: none; border: none; font: inherit; font-size: 0.9rem; color: var(--text-secondary); padding: 0.4rem 0; border-bottom: 2px solid transparent; cursor: pointer; }
+  .tabs [role="tab"][aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--text-primary); font-weight: 600; }
+  .tab-page { display: flex; flex-direction: column; gap: 0.7rem; }
+  .ind-set textarea { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; resize: vertical; }
+  .dlg label.color-row { flex-direction: row; align-items: center; justify-content: space-between; font-size: 0.85rem; color: var(--text-primary); }
+  .dlg label.check { flex-direction: row; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-primary); }
+  .seg { display: flex; align-items: center; gap: 0.8rem; font-size: 0.85rem; }
+  .seg > span { color: var(--text-secondary); font-size: 0.8rem; }
+  .dlg .seg label { flex-direction: row; align-items: center; gap: 0.3rem; color: var(--text-primary); font-size: 0.85rem; }
+  .color-grid { display: flex; flex-direction: column; gap: 0.6rem; }
+
+  .bb-toast {
+    position: fixed; left: 50%; bottom: 1.5rem; transform: translate(-50%, 1rem); z-index: 60;
+    background: var(--text-primary); color: var(--surface); font-size: 0.82rem;
+    padding: 0.5rem 0.9rem; border-radius: 999px; opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s;
+    max-width: calc(100vw - 2rem);
+  }
+  .bb-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 640px) {
+    .dlg-overlay { padding: 0; align-items: flex-end; }
+    .dlg { width: 100%; max-height: 92vh; border-radius: 14px 14px 0 0; }
+    .dlg.dlg-ind { height: 92vh; }
+    .ind-dlg-main { flex-direction: column; gap: 0.4rem; }
+    .ind-nav { flex: 0 0 auto; display: flex; gap: 0.3rem; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); padding: 0 0 0.4rem; scrollbar-width: none; }
+    .ind-nav-group { display: contents; }
+    .ind-nav-title { display: none; }
+    .ind-nav-item, .ind-nav-item.sub { width: auto; flex: 0 0 auto; padding: 0.3rem 0.7rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.8rem; color: var(--text-primary); }
+    .ind-nav-item.active { box-shadow: none; background: var(--text-primary); color: var(--surface); }
+    .ind-nav-ico { display: none; }
+    .ind-row { grid-template-columns: 1.8rem minmax(0, 1fr) auto; }
+    .ind-row-cat { grid-column: 2 / 3; grid-row: 2; margin-top: -0.35rem; padding-bottom: 0.3rem; }
+    .ind-row-actions { opacity: 1; grid-row: 1; grid-column: 3; }
+  }
 """
 
 TABLE_CSS = """
@@ -545,10 +563,11 @@ TABLE_CSS = """
     font-size: 0.85rem;
     color: var(--text-primary);
   }
-  .table-count { color: var(--muted); font-size: 0.8rem; }
-  /* 宽度跟着内容走，不要在大屏上被拉满整行，列与列之间才不会空一大截 */
-  table.data-table { font-size: 0.8rem; width: auto; min-width: min(100%, 760px); }
-  table.data-table th, table.data-table td { padding: 0.3rem 0.55rem; line-height: 1.3; }
+  .table-count { color: var(--muted); font-size: 0.8rem; margin-left: auto; }
+  .table-sort { display: none; font: inherit; font-size: 0.8rem; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.4rem; }
+  /* 电脑: 表格撑满整个页面宽度 */
+  table.data-table { font-size: 0.82rem; width: 100%; }
+  table.data-table th, table.data-table td { padding: 0.38rem 0.6rem; line-height: 1.3; }
   table.data-table th { font-weight: 500; font-size: 0.75rem; }
   table.data-table th[data-type="none"] { cursor: default; }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -595,68 +614,60 @@ TABLE_CSS = """
   }
   .stock-code { color: var(--muted); font-size: 0.7rem; vertical-align: middle; }
   .unit { color: var(--muted); font-size: 0.65em; margin-left: 2px; }
-  .spark-cell { padding-top: 0.15rem; padding-bottom: 0.15rem; }
-  .spark { display: block; }
-  .spark polyline { fill: none; stroke-width: 1.3; stroke-linejoin: round; }
+  .spark-cell { padding-top: 0.15rem; padding-bottom: 0.15rem; width: 18%; }
+  .spark { display: block; width: 100%; min-width: 72px; max-width: 220px; height: 28px; }
+  .spark polyline { fill: none; stroke-width: 1.3; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
   .spark-up polyline { stroke: var(--up); }
   .spark-down polyline { stroke: var(--down); }
   .spark-flat polyline { stroke: var(--muted); }
-  .spark line { stroke: var(--muted); stroke-width: 0.6; stroke-dasharray: 2 2; }
+  .spark line { stroke: var(--muted); stroke-width: 0.6; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
   .relvol-high { font-weight: 700; color: var(--text-primary); }
   .pill { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; }
   .pill-up { color: var(--up); background: color-mix(in srgb, var(--up) 14%, transparent); }
   .pill-down { color: var(--down); background: color-mix(in srgb, var(--down) 14%, transparent); }
+
+  /* 手机: 不再左右滑动整张表，每一行排成两层刚好塞进屏幕宽度
+     第一层  #  股票  走势  价格
+     第二层     量  相对量  RSI  SAR  EMA20  涨跌%
+     表头藏起来，改用搜索框旁边的"排序"下拉框 */
+  @media (max-width: 640px) {
+    .table-toolbar { flex-wrap: wrap; gap: 0.5rem; }
+    #table-filter { flex: 1 1 60%; }
+    .table-sort { display: block; }
+    .table-count { flex-basis: 100%; margin: 0; }
+    .table-wrap { overflow: visible; }
+    #watchlist-table, #watchlist-table tbody { display: block; width: 100%; }
+    #watchlist-table thead { display: none; }
+    #watchlist-table tbody tr {
+      display: grid;
+      grid-template-columns: 1.5rem repeat(5, minmax(0, 1fr)) auto;
+      grid-template-areas:
+        "idx   stock stock stock spark spark price"
+        ".     vol   relvol rsi  sar   ema   change";
+      align-items: center; column-gap: 0.35rem; row-gap: 0.1rem;
+      padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--border);
+    }
+    #watchlist-table td { display: block; padding: 0; border: none; background: none; position: static; min-width: 0; max-width: none; width: auto; }
+    #watchlist-table td.idx-cell { grid-area: idx; text-align: left; font-size: 0.72rem; }
+    #watchlist-table td.stock-cell { grid-area: stock; overflow: hidden; text-overflow: ellipsis; }
+    #watchlist-table td.spark-cell { grid-area: spark; }
+    #watchlist-table .spark { min-width: 0; height: 24px; }
+    #watchlist-table td.col-price { grid-area: price; font-weight: 600; font-size: 0.85rem; }
+    #watchlist-table td.col-change { grid-area: change; font-size: 0.8rem; }
+    #watchlist-table td.col-vol { grid-area: vol; }
+    #watchlist-table td.col-relvol { grid-area: relvol; }
+    #watchlist-table td.col-rsi { grid-area: rsi; }
+    #watchlist-table td.col-sar { grid-area: sar; }
+    #watchlist-table td.col-ema { grid-area: ema; }
+    #watchlist-table td[data-label] { text-align: left; font-size: 0.74rem; font-weight: 500; }
+    #watchlist-table td[data-label]::before { content: attr(data-label); display: block; font-size: 0.62rem; color: var(--muted); font-weight: 400; }
+    #watchlist-table td.col-ema.change-up, #watchlist-table td.col-ema.change-down { font-weight: 600; }
+    #watchlist-table .pill { padding: 0 0.35rem; font-size: 0.66rem; }
+    #watchlist-table .ticker { font-size: 0.74rem; }
+    #watchlist-table .unit { display: none; }
+  }
 """
 
-SETTINGS_PANEL_HTML = """
-<button id="settings-toggle" class="settings-toggle" type="button" aria-expanded="false">⚙️ 图表设置</button>
-<div id="settings-panel" class="settings-panel" hidden>
-  <div class="settings-section">
-    <h3>颜色</h3>
-    <label>上涨 <input type="color" id="color-up"></label>
-    <label>下跌 <input type="color" id="color-down"></label>
-    <label>EMA20 <input type="color" id="color-ema"></label>
-    <button type="button" id="color-reset">恢复默认</button>
-  </div>
-  <div class="settings-section">
-    <h3>技术指标</h3>
-    <div class="ind-tabs" id="ind-tabs">
-      <button type="button" class="ind-tab active" data-cat="trend">趋势</button>
-      <button type="button" class="ind-tab" data-cat="momentum">动量</button>
-      <button type="button" class="ind-tab" data-cat="volatility">波动性</button>
-      <button type="button" class="ind-tab" data-cat="volume">成交量</button>
-      <button type="button" class="ind-tab" data-cat="custom">自定义公式</button>
-    </div>
-
-    <div class="ind-place" role="radiogroup" aria-label="新指标放在哪里">
-      <span>添加到</span>
-      <button type="button" role="radio" data-place="auto" aria-checked="true">自动</button>
-      <button type="button" role="radio" data-place="main" aria-checked="false">主图</button>
-      <button type="button" role="radio" data-place="sub" aria-checked="false">新副图</button>
-      <small>自动 = 均线类放主图，RSI/MACD 这类震荡指标另开副图</small>
-    </div>
-
-    <div id="ind-presets" class="ind-presets"></div>
-
-    <div id="ind-custom-form" class="indicator-form" hidden>
-      <input type="text" id="ind-name" placeholder="名称，例如 SMA10">
-      <input type="text" id="ind-formula" placeholder="公式，例如 sma(close,10)">
-      <input type="color" id="ind-color" value="#e8a33d">
-      <button type="button" id="ind-add">添加到所有图表</button>
-    </div>
-    <p id="ind-error" class="ind-error" hidden></p>
-    <p class="hint" id="ind-formula-hint" hidden>
-      可用变量: <code>close</code> <code>open</code> <code>high</code> <code>low</code> <code>volume</code>
-      可用函数: <code>sma(x,n)</code> <code>ema(x,n)</code> <code>stdev(x,n)</code> <code>highest(x,n)</code> <code>lowest(x,n)</code> <code>rsi(x,n)</code> <code>atr(n)</code> <code>obv()</code> <code>sum(x,n)</code> <code>abs(x)</code><br>
-      例如: <code>sma(close,10)</code>　<code>ema(close,12)-ema(close,26)</code>　<code>sma(close,20)+2*stdev(close,20)</code>
-    </p>
-
-    <h4 class="ind-list-title">已添加 (当前模板，改动自动保存；↑ ↓ 调顺序，点"主图/副图"可以切换位置)</h4>
-    <ul id="ind-list" class="indicator-list"></ul>
-  </div>
-  <p class="hint">以上设置只保存在你自己的浏览器里，不会影响其他人看到的报告，下次自动更新报告后依然保留。</p>
-</div>
-"""
 
 # 图表脚本放在 docs/report.js (不再内嵌在 HTML 里)：浏览器可以缓存，改起来也好测试。
 # 网址后面带上文件内容的哈希，改了脚本后浏览器会自动拿新版本，不会用到缓存里的旧脚本。
@@ -672,105 +683,123 @@ def report_js_version():
 
 
 CARD_CSS = """
-  /* ---- 筛选器 (信号股) 卡片: 周期导航条 + 多窗格K线图 + 图表左上角指标图例 + 下方 quote 数据 ---- */
-  .tpl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 1rem; font-size: 0.8rem; color: var(--muted); }
+  /* ---- 筛选器: 模板名称 → 股票标签 → 全局工具栏 → 卡片轮播 ---- */
+  .tpl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.8rem; font-size: 0.8rem; color: var(--muted); }
   .tpl-name {
-    font: inherit;
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-    background: transparent;
-    border: 1px dashed transparent;
-    border-radius: 4px;
-    padding: 0.15rem 0.35rem;
-    width: 12em;
-    max-width: 60vw;
+    font: inherit; font-size: 0.85rem; color: var(--text-secondary);
+    background: transparent; border: 1px dashed transparent; border-radius: 4px;
+    padding: 0.15rem 0.35rem; width: 14em; max-width: 70vw;
   }
   .tpl-name:hover { border-color: var(--border); }
   .tpl-name:focus { outline: none; border-color: var(--muted); color: var(--text-primary); }
-  .tpl-select, .tpl-btn {
-    font: inherit;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 0.15rem 0.6rem;
-    cursor: pointer;
-  }
-  .tpl-btn:hover, .tpl-select:hover { color: var(--text-primary); }
   .tpl-status { font-size: 0.72rem; color: var(--up); opacity: 0; transition: opacity 0.3s; }
   .tpl-status.show { opacity: 1; }
-  .card-head { align-items: baseline; }
+
+  .screener { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  /* 股票标签: 像 TradingView 顶部的分页，放不下时左右滑 */
+  .sym-strip { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); background: var(--page); }
+  .sym-list { display: flex; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; scroll-behavior: smooth; }
+  .sym-list::-webkit-scrollbar { display: none; }
+  .sym-chip {
+    flex: 0 0 auto; display: inline-flex; align-items: baseline; gap: 0.35rem;
+    font: inherit; font-size: 0.78rem; color: var(--text-secondary);
+    background: none; border: none; border-right: 1px solid var(--border);
+    padding: 0.55rem 0.8rem; cursor: pointer; white-space: nowrap;
+  }
+  .sym-chip b { color: var(--text-primary); font-size: 0.82rem; }
+  .sym-chip .sym-price { font-variant-numeric: tabular-nums; }
+  .sym-chip:hover { background: var(--surface); }
+  .sym-chip.active { background: var(--surface); box-shadow: inset 0 -2px 0 var(--text-primary); }
+  .sym-nav, .tf-arrow {
+    flex: 0 0 auto; font: inherit; font-size: 1.05rem; line-height: 1; color: var(--text-secondary);
+    background: none; border: none; padding: 0 0.5rem; cursor: pointer;
+  }
+  .tf-arrow:disabled { visibility: hidden; }
+  .sym-nav:hover, .tf-arrow:hover { color: var(--text-primary); }
+
+  /* 全局工具栏: 周期 | 图表类型 ▾ | ƒx 指标 | 模板 | ⚙ */
+  .chart-toolbar { display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); }
+  .tb-tf { display: flex; align-items: center; flex: 1; min-width: 0; }
+  .tf-list { display: flex; gap: 0.1rem; overflow-x: auto; scroll-behavior: smooth; scrollbar-width: none; flex: 1; min-width: 0; }
+  .tf-list::-webkit-scrollbar { display: none; }
+  .tf-btn, .tb-btn {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 0.3rem;
+    font: inherit; font-size: 0.8rem; color: var(--text-secondary);
+    background: transparent; border: 1px solid transparent; border-radius: 6px;
+    padding: 0.28rem 0.5rem; cursor: pointer; white-space: nowrap;
+  }
+  .tf-btn:hover:not(:disabled), .tb-btn:hover { background: var(--page); color: var(--text-primary); }
+  .tf-btn[aria-selected="true"] { background: var(--page); border-color: var(--border); color: var(--text-primary); font-weight: 600; }
+  .tf-btn:disabled { opacity: 0.35; cursor: default; }
+  .tb-tools { display: flex; align-items: center; gap: 0.15rem; border-left: 1px solid var(--border); padding-left: 0.4rem; }
+  .tb-btn .fx { font-style: italic; font-weight: 700; font-family: Georgia, serif; }
+  .tb-caret { font-size: 0.65rem; color: var(--muted); }
+  .tb-menu-wrap { position: relative; }
+  .tb-menu {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
+    width: 250px; max-height: min(70vh, 620px); overflow: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25); padding: 0.3rem;
+  }
+  .tb-menu-group + .tb-menu-group { border-top: 1px solid var(--border); margin-top: 0.25rem; padding-top: 0.25rem; }
+  .tb-menu-item {
+    display: flex; align-items: center; gap: 0.65rem; width: 100%;
+    font: inherit; font-size: 0.86rem; color: var(--text-primary);
+    background: none; border: none; border-radius: 6px; padding: 0.45rem 0.6rem; cursor: pointer; text-align: left;
+  }
+  .tb-menu-item:hover, .tb-menu-item:focus { background: var(--page); outline: none; }
+  .tb-menu-item.on { background: var(--text-primary); color: var(--surface); }
+  .tb-menu-item[aria-disabled="true"] { color: var(--muted); cursor: default; }
+  .tb-menu-item small { margin-left: auto; font-size: 0.68rem; color: var(--muted); }
+
+  /* 卡片轮播: 一次一张，左右滑 / ‹ › / 点股票标签 */
+  .carousel { position: relative; }
+  .car-track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .car-track::-webkit-scrollbar { display: none; }
+  .car-track:focus-visible { outline: 2px solid var(--ema); outline-offset: -2px; }
+  .card { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; scroll-snap-stop: always; padding: 0.9rem 1rem 1rem; background: var(--surface); }
+  /* 右上角: ‹ 1 / 12 › (放在卡片标题旁边，不会挡到图表的价格坐标) */
+  .car-ctrl { position: absolute; top: 0.7rem; right: 0.8rem; z-index: 4; display: flex; align-items: center; gap: 0.25rem; }
+  .car-nav {
+    width: 1.9rem; height: 1.9rem; border-radius: 50%;
+    font: inherit; font-size: 1.15rem; line-height: 1; color: var(--text-primary);
+    background: var(--page); border: 1px solid var(--border); cursor: pointer;
+  }
+  .car-nav:hover:not(:disabled) { border-color: var(--text-secondary); }
+  .car-nav:disabled { opacity: 0.3; cursor: default; }
+  .car-count { min-width: 3.2em; text-align: center; font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.3rem 0.8rem; margin: 0 7.8rem 0.2rem 0; }
   .card-price { font-size: 0.9rem; font-variant-numeric: tabular-nums; }
   .card-price b { font-size: 1.05rem; margin-right: 0.3rem; }
   .card-tags { margin: 0 0 0.5rem; font-size: 0.75rem; color: var(--muted); }
-  /* 周期导航条: 放不下时左右滑，两边的 ‹ › 可以点着滚 */
-  .tf-bar { display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.4rem; min-height: 1.9rem; }
-  .tf-list {
-    display: flex;
-    gap: 0.15rem;
-    overflow-x: auto;
-    scroll-behavior: smooth;
-    scrollbar-width: none;
-    flex: 1;
-    min-width: 0;
-  }
-  .tf-list::-webkit-scrollbar { display: none; }
-  .tf-btn, .tf-arrow, .tf-ind {
-    flex: 0 0 auto;
-    font: inherit;
-    font-size: 0.78rem;
-    color: var(--text-secondary);
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    padding: 0.2rem 0.45rem;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .tf-btn:hover:not(:disabled), .tf-arrow:hover, .tf-ind:hover { background: var(--page); color: var(--text-primary); }
-  .tf-btn[aria-selected="true"] { background: var(--page); border-color: var(--border); color: var(--text-primary); font-weight: 600; }
-  .tf-btn:disabled { opacity: 0.35; cursor: default; }
-  .tf-arrow { font-size: 1rem; line-height: 1; padding: 0.15rem 0.35rem; }
-  .tf-arrow:disabled { visibility: hidden; }
-  .tf-ind { border-color: var(--border); }
+  .tf-note { margin: 0 0 0.4rem; font-size: 0.75rem; color: var(--down); }
   .chart-wrap { position: relative; }
-  .chart { width: 100%; height: 300px; }
-  /* 图表左上角的指标图例: 名称 + 当前值 + ↑ ↓ × (电脑上鼠标移过去才显示按钮，手机上一直显示) */
+  .chart { width: 100%; height: 440px; }
+  /* 图表左上角的指标图例: 名称 (点一下改参数) + 数值 + 👁 ⚙ ↑ ↓ × (电脑上鼠标移过去才显示按钮，手机上一直显示) */
   .chart-legends { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
   .lg-pane { position: absolute; left: 4px; right: 70px; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
   .lg-row {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    max-width: 100%;
-    font-size: 0.72rem;
-    line-height: 1.5;
-    padding: 0 0.3rem;
-    border-radius: 4px;
-    color: var(--text-secondary);
-    background: color-mix(in srgb, var(--surface) 70%, transparent);
-    pointer-events: auto;
-    white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 0.3rem; max-width: 100%;
+    font-size: 0.72rem; line-height: 1.5; padding: 0 0.3rem; border-radius: 4px;
+    color: var(--text-secondary); background: color-mix(in srgb, var(--surface) 72%, transparent);
+    pointer-events: auto; white-space: nowrap;
   }
   .lg-row.lg-error { color: var(--down); }
+  .lg-row.lg-hidden { opacity: 0.55; }
+  .lg-row.lg-hidden .lg-name { text-decoration: line-through; }
   .lg-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
-  .lg-name { overflow: hidden; text-overflow: ellipsis; }
-  .lg-val { font-variant-numeric: tabular-nums; display: inline-flex; gap: 0.3rem; }
+  .lg-name { flex-shrink: 0; max-width: 12em; font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; overflow: hidden; text-overflow: ellipsis; border-radius: 3px; }
+  .lg-name:hover { color: var(--text-primary); text-decoration: underline dotted; }
+  .lg-name.lg-static { cursor: default; text-decoration: none; }
+  .lg-val { font-variant-numeric: tabular-nums; display: inline-flex; gap: 0.3rem; min-width: 0; overflow: hidden; }
   .lg-ctrl { display: inline-flex; gap: 1px; }
   .lg-ctrl button {
-    font: inherit;
-    font-size: 0.72rem;
-    line-height: 1;
-    width: 1.35rem;
-    height: 1.2rem;
-    padding: 0;
-    color: var(--text-secondary);
-    background: var(--page);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    font: inherit; font-size: 0.72rem; line-height: 1; width: 1.35rem; height: 1.25rem; padding: 0;
+    color: var(--text-secondary); background: var(--page); border: 1px solid var(--border); border-radius: 3px; cursor: pointer;
   }
+  .lg-ctrl .ico { width: 13px; height: 13px; }
   .lg-ctrl button:hover:not(:disabled) { color: var(--text-primary); }
   .lg-ctrl button[data-act="del"]:hover { color: var(--down); }
   .lg-ctrl button:disabled { opacity: 0.3; cursor: default; }
@@ -778,31 +807,68 @@ CARD_CSS = """
     .lg-row .lg-ctrl { display: none; }
     .lg-row:hover .lg-ctrl, .lg-row:focus-within .lg-ctrl { display: inline-flex; }
   }
+  /* 手机 (没有鼠标): 点名称 = 打开设置；点这一行其他地方 = 展开 👁 ⚙ ↑ ↓ × (展开时先把数值藏起来，才放得下) */
+  @media (hover: none) {
+    .lg-row .lg-ctrl { display: none; }
+    .lg-row.open .lg-ctrl { display: inline-flex; }
+    .lg-row.open .lg-val { display: none; }
+    .lg-name { max-width: 9em; }
+    .lg-ctrl button { width: 1.7rem; height: 1.55rem; }
+  }
   /* 图表下方的数据 (quote): 第一行是十字光标所在那根K线，下面是日线数据 */
   .quote { margin-top: 0.5rem; border-top: 1px solid var(--border); padding-top: 0.45rem; font-size: 0.78rem; }
   .quote-live { display: flex; flex-wrap: wrap; gap: 0.2rem 0.7rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; min-height: 1.2em; }
   .quote-live b { color: var(--text-primary); font-weight: 600; }
   .quote-live .ql-time { color: var(--muted); }
-  .quote-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
-    gap: 0.35rem 0.6rem;
-    margin: 0.45rem 0 0;
-  }
+  .quote-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.35rem 0.6rem; margin: 0.45rem 0 0; }
   .quote-grid div { min-width: 0; }
   .quote-grid dt { color: var(--muted); font-size: 0.7rem; }
   .quote-grid dd { margin: 0; color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 640px) {
+    .chart { height: 300px; }
+    .card { padding: 0.75rem 0.7rem 0.85rem; }
+    .quote-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .tb-label, .tb-caret { display: none; }
+    .tb-tools { gap: 0; padding-left: 0.2rem; }
+    .tf-btn, .tb-btn { padding: 0.28rem 0.42rem; }
+    .car-ctrl { top: 0.55rem; right: 0.5rem; }
+    .card-head { margin-right: 7rem; }
+    .tb-menu { position: fixed; left: 0.5rem; right: 0.5rem; top: auto; bottom: 0.5rem; width: auto; max-height: 70vh; }
+  }
 """
 
 TEMPLATE_BAR_HTML = """
 <div class="tpl-bar" id="tpl-bar">
-  <input type="text" id="tpl-name" class="tpl-name" maxlength="30" spellcheck="false" aria-label="筛选器名称 (改名自动保存)" title="点一下改名，自动保存">
-  <select id="tpl-select" class="tpl-select" aria-label="切换指标模板"></select>
-  <button type="button" id="tpl-new" class="tpl-btn">＋ 新模板</button>
-  <button type="button" id="tpl-del" class="tpl-btn">删除</button>
+  <span>模板</span>
+  <input type="text" id="tpl-name" class="tpl-name" maxlength="30" spellcheck="false" aria-label="筛选器名称 (当前指标模板，改名自动保存)" title="点一下改名，自动保存">
   <span id="tpl-status" class="tpl-status" aria-live="polite">✓ 已自动保存</span>
 </div>
 """
+
+
+def build_screener_html(cards, chips):
+    """筛选器区块: 股票标签 + 全局工具栏 (由 report.js 填) + 卡片轮播。没有信号就只显示一句话。"""
+    if not cards:
+        return "<p class='no-data'>今日无符合条件的股票。</p>"
+    return f"""<section class="screener" id="screener" aria-label="筛选器图表">
+  <div class="sym-strip">
+    <button type="button" class="sym-nav" data-dir="-1" aria-label="股票标签向左滚动">‹</button>
+    <div class="sym-list" role="list">{''.join(chips)}</div>
+    <button type="button" class="sym-nav" data-dir="1" aria-label="股票标签向右滚动">›</button>
+  </div>
+  <div class="chart-toolbar" id="chart-toolbar"></div>
+  <div class="carousel">
+    <div class="car-track" id="car-track" tabindex="0" aria-label="左右滑动切换股票">
+{''.join(cards)}
+    </div>
+    <div class="car-ctrl">
+      <button type="button" class="car-nav prev" aria-label="上一支">‹</button>
+      <span class="car-count" id="car-count" aria-live="polite"></span>
+      <button type="button" class="car-nav next" aria-label="下一支">›</button>
+    </div>
+  </div>
+</section>"""
 
 DOWNLOADS_CSS = """
   /* ---- 📥 下载报告 (近 7 天 CSV / Excel / PDF) ---- */
@@ -975,6 +1041,7 @@ def build_html_report(stocks, downloads=None):
     now = datetime.now(MYT).strftime("%Y-%m-%d %H:%M")
 
     cards = []
+    chips = []
     chart_payload = {}
     table_rows = []
     no_data_count = 0
@@ -1014,8 +1081,8 @@ def build_html_report(stocks, downloads=None):
             name = html.escape(s["name"])
             rel_vol = data.get("rel_volume")
             rel_vol_cell = (
-                f'<td class="num{" relvol-high" if rel_vol >= 2 else ""}" data-value="{rel_vol}">{rel_vol:.2f}</td>'
-                if rel_vol is not None else '<td class="num" data-value="-1">—</td>'
+                f'<td class="num col-relvol{" relvol-high" if rel_vol >= 2 else ""}" data-label="相对量" data-value="{rel_vol}">{rel_vol:.2f}</td>'
+                if rel_vol is not None else '<td class="num col-relvol" data-label="相对量" data-value="-1">—</td>'
             )
             sar_pill = '<span class="pill pill-up">多头</span>' if data["sar_bullish_now"] else '<span class="pill pill-down">空头</span>'
             ema_class = "change-up" if data["close"] > data["ema20_latest"] else "change-down"
@@ -1024,13 +1091,13 @@ def build_html_report(stocks, downloads=None):
                 <td class="idx-cell"></td>
                 <td class="stock-cell" data-value="{name}"><span class="ticker">{name}</span><span class="stock-code">{code}</span></td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
-                <td class="num" data-value="{data['close']}">{data['close']:.3f}<span class="unit">MYR</span></td>
-                <td class="num {change_class}" data-value="{change_pct}">{change_sign}{change_pct:.2f}%</td>
-                <td class="num" data-value="{data['volume']}">{fmt_volume(data['volume'])}</td>
+                <td class="num col-price" data-value="{data['close']}">{data['close']:.3f}<span class="unit">MYR</span></td>
+                <td class="num col-change {change_class}" data-value="{change_pct}">{change_sign}{change_pct:.2f}%</td>
+                <td class="num col-vol" data-label="成交量" data-value="{data['volume']}">{fmt_volume(data['volume'])}</td>
                 {rel_vol_cell}
-                <td class="num" data-value="{fmt_num(data['rsi'], '{}', '-1')}">{fmt_num(data['rsi'], '{:.1f}')}</td>
-                <td data-value="{1 if data['sar_bullish_now'] else 0}">{sar_pill}</td>
-                <td class="num {ema_class}" data-value="{data['ema20_latest']}">{data['ema20_latest']:.3f}</td>
+                <td class="num col-rsi" data-label="RSI" data-value="{fmt_num(data['rsi'], '{}', '-1')}">{fmt_num(data['rsi'], '{:.1f}')}</td>
+                <td class="col-sar" data-label="SAR" data-value="{1 if data['sar_bullish_now'] else 0}">{sar_pill}</td>
+                <td class="num col-ema {ema_class}" data-label="EMA20" data-value="{data['ema20_latest']}">{data['ema20_latest']:.3f}</td>
             </tr>"""))
             continue
 
@@ -1067,13 +1134,15 @@ def build_html_report(stocks, downloads=None):
         quote_grid = "".join(f"<div><dt>{k}</dt><dd>{v}</dd></div>" for k, v in quote_items)
 
         # 图表下方只放数据 (quote)，不放说明文字/图例/符号；AI 点评只保留在下载的 Excel/PDF 里
-        cards.append(f"""<section class="card">
+        chips.append(f'''<button type="button" class="sym-chip" aria-current="false"><b>{html.escape(s['name'])}</b>'''
+                     f'''<span class="sym-price">{data['close']:.3f}</span><span class="{change_class}">{sign}{change_pct:.2f}%</span></button>''')
+        cards.append(f"""<section class="card" data-chart="{chart_id}" aria-roledescription="卡片" aria-label="{html.escape(s['name'])} {code}">
             <div class="card-head">
                 <h2>{html.escape(s['name'])} <span class="code">{code}</span></h2>
                 <div class="card-price"><b>{data['close']:.3f}</b> <span class="{change_class}">{sign}{change:.3f} ({sign}{change_pct:.2f}%)</span></div>
             </div>
             <p class="card-tags">{html.escape(tags)}</p>
-            <div class="tf-bar" id="{chart_id}-tf"></div>
+            <p class="tf-note" id="{chart_id}-tfnote" hidden></p>
             <div class="chart-wrap">
                 <div id="{chart_id}" class="chart"></div>
                 <div class="chart-legends" id="{chart_id}-legends"></div>
@@ -1146,11 +1215,6 @@ def build_html_report(stocks, downloads=None):
     font-size: 0.8rem;
     line-height: 1.6;
   }}
-  .grid {{
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: 1rem;
-  }}
   .card {{
     background: var(--surface);
     border: 1px solid var(--border);
@@ -1197,7 +1261,7 @@ def build_html_report(stocks, downloads=None):
   table.data-table th:hover {{ color: var(--text-primary); }}
   table.data-table .arrow {{ display: inline-block; width: 0.9em; color: var(--text-primary); }}
   table.data-table tbody tr:hover {{ background: var(--page); }}
-{SETTINGS_CSS}
+{UI_CSS}
 {CARD_CSS}
 {TABLE_CSS}
 {DOWNLOADS_CSS}
@@ -1206,18 +1270,26 @@ def build_html_report(stocks, downloads=None):
 <body>
 <h1>📢 马股自动分析报告</h1>
 <p class="updated">更新时间: {now} (MYT)</p>
-{SETTINGS_PANEL_HTML}
 {build_downloads_html(downloads)}
 
 <h2 class="section with-sub">筛选器 <span class="section-count">({len(cards)})</span></h2>
 {TEMPLATE_BAR_HTML}
-<div class="grid">
-{''.join(cards) if cards else "<p class='no-data'>今日无符合条件的股票。</p>"}
-</div>
+{build_screener_html(cards, chips)}
 
 <h2 class="section">📋 其余股票 ({len(table_rows)})</h2>
 <div class="table-toolbar">
   <input type="search" id="table-filter" placeholder="🔍 搜索代码或名称" autocomplete="off">
+  <select id="table-sort" class="table-sort" aria-label="排序">
+    <option value="5:desc" selected>成交量 ↓</option>
+    <option value="4:desc">涨跌% ↓</option>
+    <option value="4:asc">涨跌% ↑</option>
+    <option value="6:desc">相对量 ↓</option>
+    <option value="7:desc">RSI ↓</option>
+    <option value="7:asc">RSI ↑</option>
+    <option value="3:desc">价格 ↓</option>
+    <option value="3:asc">价格 ↑</option>
+    <option value="1:asc">名称 A→Z</option>
+  </select>
   <span id="table-count" class="table-count"></span>
 </div>
 <div class="table-wrap">
@@ -1229,7 +1301,7 @@ def build_html_report(stocks, downloads=None):
       <th data-type="none">走势</th>
       <th data-type="num" class="num">价格 <span class="arrow"></span></th>
       <th data-type="num" class="num">涨跌% <span class="arrow"></span></th>
-      <th data-type="num" class="num" data-default-sort="desc">成交量 <span class="arrow">▼</span></th>
+      <th data-type="num" class="num" data-default-sort="desc" aria-sort="descending">成交量 <span class="arrow">▼</span></th>
       <th data-type="num" class="num">相对量 <span class="arrow"></span></th>
       <th data-type="num" class="num">RSI <span class="arrow"></span></th>
       <th data-type="num">SAR <span class="arrow"></span></th>

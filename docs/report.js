@@ -1,6 +1,7 @@
 /*!
  * Bursa Bot 报告页脚本
- * 筛选器 (信号股) 的多周期K线图、主图/副图指标、图表左上角图例、指标模板、设置面板，以及"其余股票"表格的排序/搜索。
+ * 筛选器 (信号股) 卡片轮播、全局工具栏 (周期 / 图表类型 / 指标 / 模板 / 设置)、主图/副图指标与可调参数、
+ * 图表左上角图例、指标模板，以及"其余股票"表格的排序/搜索。
  * 依赖 vendor/lightweight-charts.js (TradingView Lightweight Charts v5)。
  * 版权所有 CJA231，保留一切权利。
  */
@@ -517,29 +518,21 @@
   }
 
   // ---------- 一目均衡表 (Ichimoku Cloud)，按 TradingView 内置 Pine 脚本的算法 ----------
-  var ICHIMOKU = { conversion: 9, base: 26, spanB: 52, displacement: 26 };
-  var ICHIMOKU_LINES = [
-    { key: 'conversion', name: '转换线', color: '#2962FF' },
-    { key: 'base', name: '基准线', color: '#B71C1C' },
-    { key: 'lagging', name: '延迟线', color: '#43A047' },
-    { key: 'leadA', name: '先行带A', color: '#A5D6A7' },
-    { key: 'leadB', name: '先行带B', color: '#EF9A9A' }
-  ];
   var CLOUD_UP = 'rgba(67, 160, 71, 0.22)';   // 先行带 A 在 B 上方
   var CLOUD_DOWN = 'rgba(244, 67, 54, 0.22)'; // 先行带 A 在 B 下方
 
-  function ichimokuSeries(bars, tf) {
+  function ichimokuSeries(bars, tf, p) {
     var high = bars.map(function (b) { return b.high; });
     var low = bars.map(function (b) { return b.low; });
     function donchian(n) {
       var hh = seriesExtreme(high, n, Math.max), ll = seriesExtreme(low, n, Math.min);
       return hh.map(function (h, i) { return h === null || ll[i] === null ? null : (h + ll[i]) / 2; });
     }
-    var conversion = donchian(ICHIMOKU.conversion);
-    var base = donchian(ICHIMOKU.base);
+    var conversion = donchian(p.conversion);
+    var base = donchian(p.base);
     var leadA = conversion.map(function (c, i) { return c === null || base[i] === null ? null : (c + base[i]) / 2; });
-    var leadB = donchian(ICHIMOKU.spanB);
-    var shift = ICHIMOKU.displacement - 1; // Pine: offset = displacement - 1
+    var leadB = donchian(p.spanB);
+    var shift = p.displacement - 1; // Pine: offset = displacement - 1
     var times = bars.map(function (b) { return b.time; });
     var allTimes = bars.length ? times.concat(futureTimes(times[times.length - 1], shift, tf)) : [];
     function points(values, offset) {
@@ -611,60 +604,351 @@
     });
   };
 
-  // ---------- 预设指标库 ----------
-  // scale: price = 跟价格同单位；own = 震荡类 (自己的数值范围)；volume = 跟成交量同单位
-  // paneGroup 相同的指标放进同一个副图 (例如 MACD 线和信号线)
-  var INDICATOR_PRESETS = [
-    { id: 'sma20', category: 'trend', name: 'SMA20', formula: 'sma(close,20)', color: '#3d8ce8', scale: 'price' },
-    { id: 'sma50', category: 'trend', name: 'SMA50', formula: 'sma(close,50)', color: '#1f5fa8', scale: 'price' },
-    { id: 'ema50', category: 'trend', name: 'EMA50', formula: 'ema(close,50)', color: '#8a5ce8', scale: 'price' },
-    { id: 'sar', category: 'trend', name: 'SAR', builtin: 'psar', color: '#e8a33d', scale: 'price' },
-    { id: 'boll_upper', category: 'trend', name: '布林带上轨(20,2)', formula: 'sma(close,20)+2*stdev(close,20)', color: '#e86e6e', scale: 'price' },
-    { id: 'boll_mid', category: 'trend', name: '布林带中轨(20)', formula: 'sma(close,20)', color: '#c3c2b7', scale: 'price' },
-    { id: 'boll_lower', category: 'trend', name: '布林带下轨(20,2)', formula: 'sma(close,20)-2*stdev(close,20)', color: '#6ee89b', scale: 'price' },
-    { id: 'ichimoku', category: 'trend', name: '一目均衡表(9,26,52)', builtin: 'ichimoku', color: '#2962FF', scale: 'price' },
+  // ---------- Supertrend，按 TradingView 内置脚本 (ta.supertrend) 的算法 ----------
+  var ST_UP = '#4CAF50';     // Pine color.green
+  var ST_DOWN = '#FF5252';   // Pine color.red
 
-    { id: 'rsi14', category: 'momentum', name: 'RSI(14)', formula: 'rsi(close,14)', color: '#e8a33d', scale: 'own' },
-    { id: 'macd_line', category: 'momentum', name: 'MACD线(12,26)', formula: 'ema(close,12)-ema(close,26)', color: '#3d8ce8', scale: 'own', paneGroup: 'macd' },
-    { id: 'macd_signal', category: 'momentum', name: 'MACD信号线(9)', formula: 'ema(ema(close,12)-ema(close,26),9)', color: '#e86e6e', scale: 'own', paneGroup: 'macd' },
-    { id: 'stoch_k', category: 'momentum', name: 'Stochastic %K(14)', formula: '(close-lowest(low,14))/(highest(high,14)-lowest(low,14))*100', color: '#8a5ce8', scale: 'own' },
-    { id: 'cci20', category: 'momentum', name: 'CCI(20)', formula: '((high+low+close)/3-sma((high+low+close)/3,20))/(0.015*stdev((high+low+close)/3,20))', color: '#3dbf8e', scale: 'own' },
-    { id: 'wr14', category: 'momentum', name: 'Williams %R(14)', formula: '(highest(high,14)-close)/(highest(high,14)-lowest(low,14))*-100', color: '#e86ec2', scale: 'own' },
-
-    { id: 'atr14', category: 'volatility', name: 'ATR(14)', formula: 'atr(14)', color: '#e8a33d', scale: 'own' },
-    { id: 'boll_width', category: 'volatility', name: '布林带带宽(20,2)', formula: '(sma(close,20)+2*stdev(close,20)-(sma(close,20)-2*stdev(close,20)))/sma(close,20)', color: '#3d8ce8', scale: 'own' },
-
-    { id: 'obv', category: 'volume', name: 'OBV', formula: 'obv()', color: '#8a5ce8', scale: 'own' },
-    { id: 'vol_sma20', category: 'volume', name: '成交量均线(20)', formula: 'sma(volume,20)', color: '#e8a33d', scale: 'volume' },
-    { id: 'vwap20', category: 'volume', name: '滚动VWAP(20)', formula: 'sum((high+low+close)/3*volume,20)/sum(volume,20)', color: '#3dbf8e', scale: 'price' }
-  ];
-  function autoPane(scale) { return scale === 'own' ? 'sub' : 'main'; }
-
-  // 兼容以前存下来的指标 (旧版本字段: dataKey / composite / scaleGroup，没有 pane)
-  function normalizeIndicator(ind) {
-    if (!ind.scale) ind.scale = 'price';
-    if (ind.dataKey === 'psar') { ind.builtin = 'psar'; delete ind.dataKey; }
-    if (ind.composite === 'ichimoku') { ind.builtin = 'ichimoku'; delete ind.composite; }
-    if (ind.scaleGroup && !ind.paneGroup) ind.paneGroup = ind.scaleGroup;
-    delete ind.scaleGroup;
-    if (ind.pane !== 'main' && ind.pane !== 'sub') ind.pane = autoPane(ind.scale);
-    return ind;
+  // 逐行照 Pine 的 ta.supertrend 写：ATR 用 Wilder 平滑 (ta.atr)，中线 hl2，
+  // 上下轨只能往有利方向收紧；direction -1 = 多头 (线在K线下方)，1 = 空头
+  function seriesSupertrend(bars, factor, atrPeriod) {
+    var n = bars.length;
+    var ctx = { series: {
+      high: bars.map(function (b) { return b.high; }),
+      low: bars.map(function (b) { return b.low; }),
+      close: bars.map(function (b) { return b.close; })
+    } };
+    var atr = seriesATR(ctx, atrPeriod);
+    var value = new Array(n).fill(null), direction = new Array(n).fill(null);
+    var prevUpper = null, prevLower = null, prevST = null;
+    for (var i = 0; i < n; i++) {
+      if (atr[i] === null) continue;
+      var src = (bars[i].high + bars[i].low) / 2;
+      var upper = src + factor * atr[i], lower = src - factor * atr[i];
+      var pu = prevUpper === null ? 0 : prevUpper, pl = prevLower === null ? 0 : prevLower; // Pine: nz(band[1])
+      var prevClose = i > 0 ? bars[i - 1].close : null;
+      lower = lower > pl || (prevClose !== null && prevClose < pl) ? lower : pl;
+      upper = upper < pu || (prevClose !== null && prevClose > pu) ? upper : pu;
+      var dir;
+      if (i === 0 || atr[i - 1] === null) dir = 1;
+      else if (prevST === prevUpper) dir = bars[i].close > upper ? -1 : 1;
+      else dir = bars[i].close < lower ? 1 : -1;
+      value[i] = dir === -1 ? lower : upper;
+      direction[i] = dir;
+      prevUpper = upper;
+      prevLower = lower;
+      prevST = value[i];
+    }
+    return { value: value, direction: direction };
   }
 
-  // ---------- 指标模板 (筛选器名称 + 一组指标)，每次改动立刻存进浏览器 ----------
-  var TPL_STORAGE_KEY = 'bursa_templates_v1';
+  // Supertrend 的线和填色都自己画：图表库的折线遇到空白点不会断开 (实测 v5 会直接连过去)，
+  // 做不出 Pine plot.style_linebr 那种"方向一变线就断"的效果。
+  // 线只连同方向的相邻两根K线；填色在K线实体中点 (open+close)/2 和线之间，方向一变就断开 (fillgaps=false)
+  function SupertrendPrimitive(points) {
+    this._points = points; // [{time, mid, value, line, fill}]
+    this._chart = null;
+    this._series = null;
+    var self = this;
+    function view(zOrder, draw) {
+      return { zOrder: function () { return zOrder; }, renderer: function () { return { draw: function (t) { self._draw(t, draw); } }; } };
+    }
+    this._views = [
+      view('bottom', function (ctx, p, q) { // 填色画在K线下面
+        ctx.fillStyle = p.fill;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.ym);
+        ctx.lineTo(q.x, q.ym);
+        ctx.lineTo(q.x, q.yv);
+        ctx.lineTo(p.x, p.yv);
+        ctx.closePath();
+        ctx.fill();
+      }),
+      view('normal', function (ctx, p, q) { // 线画在K线上面 (跟 TradingView 一样)
+        ctx.strokeStyle = p.line;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.yv);
+        ctx.lineTo(q.x, q.yv);
+        ctx.stroke();
+      })
+    ];
+  }
+  SupertrendPrimitive.prototype.attached = function (param) { this._chart = param.chart; this._series = param.series; };
+  SupertrendPrimitive.prototype.detached = function () { this._chart = null; this._series = null; };
+  SupertrendPrimitive.prototype.updateAllViews = function () {};
+  SupertrendPrimitive.prototype.paneViews = function () { return this._views; };
+  SupertrendPrimitive.prototype._draw = function (target, drawSegment) {
+    if (!this._chart) return;
+    var timeScale = this._chart.timeScale(), series = this._series;
+    var pts = this._points.map(function (p) {
+      return { x: timeScale.timeToCoordinate(p.time), ym: series.priceToCoordinate(p.mid), yv: series.priceToCoordinate(p.value), line: p.line, fill: p.fill };
+    });
+    target.useMediaCoordinateSpace(function (scope) {
+      for (var i = 0; i + 1 < pts.length; i++) {
+        var p = pts[i], q = pts[i + 1];
+        if (p.line !== q.line || p.x === null || q.x === null || p.ym === null || p.yv === null || q.ym === null || q.yv === null) continue;
+        drawSegment(scope.context, p, q);
+      }
+    });
+  };
+
+  // ---------- 通用填色 primitive: 在每根K线的 a、b 两个价位之间填色，相邻两根颜色一样才连起来 ----------
+  // 用在布林带 (上下轨之间) 和 HLC 区域图 (高-收、收-低)
+  function BandPrimitive(points) {
+    this._points = points; // [{time, a, b, color}]
+    this._chart = null;
+    this._series = null;
+    var self = this;
+    this._paneView = {
+      zOrder: function () { return 'bottom'; },
+      renderer: function () { return { draw: function (target) { self._draw(target); } }; }
+    };
+  }
+  BandPrimitive.prototype.attached = function (param) { this._chart = param.chart; this._series = param.series; };
+  BandPrimitive.prototype.detached = function () { this._chart = null; this._series = null; };
+  BandPrimitive.prototype.updateAllViews = function () {};
+  BandPrimitive.prototype.paneViews = function () { return [this._paneView]; };
+  BandPrimitive.prototype._draw = function (target) {
+    if (!this._chart) return;
+    var timeScale = this._chart.timeScale(), series = this._series;
+    var pts = this._points.map(function (p) {
+      return { x: timeScale.timeToCoordinate(p.time), ya: series.priceToCoordinate(p.a), yb: series.priceToCoordinate(p.b), color: p.color };
+    });
+    target.useMediaCoordinateSpace(function (scope) {
+      var ctx = scope.context;
+      for (var i = 0; i + 1 < pts.length; i++) {
+        var p = pts[i], q = pts[i + 1];
+        if (p.color !== q.color || p.x === null || q.x === null || p.ya === null || p.yb === null || q.ya === null || q.yb === null) continue;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.ya);
+        ctx.lineTo(q.x, q.ya);
+        ctx.lineTo(q.x, q.yb);
+        ctx.lineTo(p.x, p.yb);
+        ctx.closePath();
+        ctx.fill();
+      }
+    });
+  };
+
+  // #rrggbb → rgba(r,g,b,a)
+  function withAlpha(hex, alpha) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+    if (!m) return hex;
+    var n = parseInt(m[1], 16);
+    return 'rgba(' + (n >> 16 & 255) + ', ' + (n >> 8 & 255) + ', ' + (n & 255) + ', ' + alpha + ')';
+  }
+  function fillTemplate(tpl, p) { return tpl.replace(/\{(\w+)\}/g, function (_, k) { return String(p[k]); }); }
+  function toPoints(bars, values) {
+    var out = [];
+    values.forEach(function (v, i) { if (isNum(v)) out.push({ time: bars[i].time, value: v }); });
+    return out;
+  }
+  function lastValue(points) {
+    for (var i = points.length - 1; i >= 0; i--) if (isNum(points[i].value)) return points[i].value;
+    return null;
+  }
+
+  // ---------- 指标库: 每个指标的参数 (输入)、画哪几条线 (样式)、怎么算 ----------
+  // scale: price = 跟价格同单位；own = 震荡类 (自己的数值范围)；volume = 跟成交量同单位
+  // formulas 里的 {length} 这类占位符会换成用户设定的参数，再交给上面的公式引擎计算
+  var CATEGORIES = [
+    { id: 'trend', name: '趋势' },
+    { id: 'momentum', name: '动量' },
+    { id: 'volatility', name: '波动性' },
+    { id: 'volume', name: '成交量' }
+  ];
+  function lengthInput(def) { return { key: 'length', label: '长度', def: def, min: 1, max: 500, step: 1 }; }
+  var INDICATOR_DEFS = [
+    { id: 'sma', category: 'trend', name: '移动平均线 SMA', desc: '最近 N 根K线收盘价的简单平均。', scale: 'price',
+      inputs: [lengthInput(20)], plots: [{ key: 'ma', label: 'SMA', color: '#3d8ce8' }],
+      formulas: { ma: 'sma(close,{length})' }, short: function (p) { return 'SMA ' + p.length; } },
+    { id: 'ema', category: 'trend', name: '指数移动平均 EMA', desc: '越近的K线权重越大的平均线。', scale: 'price',
+      inputs: [lengthInput(50)], plots: [{ key: 'ma', label: 'EMA', color: '#8a5ce8' }],
+      formulas: { ma: 'ema(close,{length})' }, short: function (p) { return 'EMA ' + p.length; } },
+    { id: 'psar', category: 'trend', name: '抛物线转向 SAR', desc: 'Parabolic SAR；逐行照 pandas_ta 移植，跟策略判断"SAR多头"用的是同一种算法。', scale: 'price',
+      inputs: [{ key: 'start', label: '加速因子', def: 0.02, min: 0.001, max: 1, step: 0.001 }, { key: 'max', label: '最大值', def: 0.2, min: 0.01, max: 1, step: 0.01 }],
+      plots: [{ key: 'sar', label: 'SAR', color: '#e8a33d', type: 'dots' }], short: function (p) { return 'SAR ' + p.start + ' ' + p.max; } },
+    { id: 'bb', category: 'trend', name: '布林带 Bollinger Bands', desc: '中轨 = N 日均线，上下轨 = 中轨 ± 倍数 × 标准差，上下轨之间填色。', scale: 'price',
+      inputs: [lengthInput(20), { key: 'mult', label: '标准差倍数', def: 2, min: 0.1, max: 10, step: 0.1 }],
+      plots: [{ key: 'basis', label: '中轨', color: '#FF6D00' }, { key: 'upper', label: '上轨', color: '#2962FF' }, { key: 'lower', label: '下轨', color: '#2962FF' }],
+      formulas: { basis: 'sma(close,{length})', upper: 'sma(close,{length})+{mult}*stdev(close,{length})', lower: 'sma(close,{length})-{mult}*stdev(close,{length})' },
+      band: { a: 'upper', b: 'lower', alpha: 0.08 }, short: function (p) { return 'BB ' + p.length + ' ' + p.mult; } },
+    { id: 'ichimoku', category: 'trend', name: '一目均衡表 Ichimoku Cloud', desc: '按 TradingView 内置 Pine 脚本的算法；先行带往未来多画 (位移 − 1) 根，A 在 B 上方云是绿色。', scale: 'price', width: 1,
+      inputs: [{ key: 'conversion', label: '转换线长度', def: 9, min: 1, max: 200, step: 1 }, { key: 'base', label: '基准线长度', def: 26, min: 1, max: 200, step: 1 },
+        { key: 'spanB', label: '先行带B长度', def: 52, min: 1, max: 300, step: 1 }, { key: 'displacement', label: '位移', def: 26, min: 1, max: 100, step: 1 }],
+      plots: [{ key: 'conversion', label: '转换线', color: '#2962FF' }, { key: 'base', label: '基准线', color: '#B71C1C' }, { key: 'lagging', label: '延迟线', color: '#43A047' },
+        { key: 'leadA', label: '先行带A', color: '#A5D6A7' }, { key: 'leadB', label: '先行带B', color: '#EF9A9A' }],
+      short: function (p) { return '一目 ' + p.conversion + ' ' + p.base + ' ' + p.spanB + ' ' + p.displacement; } },
+    { id: 'supertrend', category: 'trend', name: 'Supertrend 超级趋势', desc: '按 TradingView 内置脚本 (ta.supertrend)；多头绿线在K线下方，空头红线在上方。', scale: 'price',
+      inputs: [{ key: 'atr', label: 'ATR 长度', def: 10, min: 1, max: 200, step: 1 }, { key: 'factor', label: '倍数', def: 3, min: 0.1, max: 20, step: 0.01 }],
+      plots: [{ key: 'up', label: '多头', color: ST_UP }, { key: 'down', label: '空头', color: ST_DOWN }],
+      short: function (p) { return 'Supertrend ' + p.atr + ' ' + p.factor; } },
+
+    { id: 'rsi', category: 'momentum', name: '相对强弱指数 RSI', desc: 'Wilder 平滑，跟后台策略用的 RSI 一致；虚线是 70 / 30。', scale: 'own',
+      inputs: [lengthInput(14)], plots: [{ key: 'rsi', label: 'RSI', color: '#7E57C2' }],
+      formulas: { rsi: 'rsi(close,{length})' }, levels: [70, 30], short: function (p) { return 'RSI ' + p.length; } },
+    { id: 'macd', category: 'momentum', name: 'MACD', desc: 'MACD 线 = 快 EMA − 慢 EMA；信号线 = MACD 线的 EMA；柱 = 两者之差。', scale: 'own',
+      inputs: [{ key: 'fast', label: '快线长度', def: 12, min: 1, max: 200, step: 1 }, { key: 'slow', label: '慢线长度', def: 26, min: 1, max: 300, step: 1 }, { key: 'signal', label: '信号线长度', def: 9, min: 1, max: 100, step: 1 }],
+      plots: [{ key: 'hist', label: '柱 (正)', color: '#26A69A', type: 'hist', negLabel: '柱 (负)', negColor: '#FF5252' }, { key: 'macd', label: 'MACD', color: '#2962FF' }, { key: 'signal', label: '信号线', color: '#FF6D00' }],
+      formulas: { macd: 'ema(close,{fast})-ema(close,{slow})', signal: 'ema(ema(close,{fast})-ema(close,{slow}),{signal})',
+        hist: 'ema(close,{fast})-ema(close,{slow})-ema(ema(close,{fast})-ema(close,{slow}),{signal})' },
+      short: function (p) { return 'MACD ' + p.fast + ' ' + p.slow + ' ' + p.signal; } },
+    { id: 'stoch', category: 'momentum', name: '随机指标 Stochastic', desc: '%K = N 日内收盘价的相对位置 (平滑后)，%D = %K 的均线；虚线是 80 / 20。', scale: 'own',
+      inputs: [{ key: 'k', label: '%K 长度', def: 14, min: 1, max: 200, step: 1 }, { key: 'smoothK', label: '%K 平滑', def: 1, min: 1, max: 50, step: 1 }, { key: 'd', label: '%D 平滑', def: 3, min: 1, max: 50, step: 1 }],
+      plots: [{ key: 'k', label: '%K', color: '#2962FF' }, { key: 'd', label: '%D', color: '#FF6D00' }],
+      formulas: { k: 'sma((close-lowest(low,{k}))/(highest(high,{k})-lowest(low,{k}))*100,{smoothK})',
+        d: 'sma(sma((close-lowest(low,{k}))/(highest(high,{k})-lowest(low,{k}))*100,{smoothK}),{d})' },
+      levels: [80, 20], short: function (p) { return 'Stoch ' + p.k + ' ' + p.smoothK + ' ' + p.d; } },
+    { id: 'cci', category: 'momentum', name: '顺势指标 CCI', desc: '价格偏离均价的程度；虚线是 +100 / −100。', scale: 'own',
+      inputs: [lengthInput(20)], plots: [{ key: 'cci', label: 'CCI', color: '#3dbf8e' }],
+      formulas: { cci: '((high+low+close)/3-sma((high+low+close)/3,{length}))/(0.015*stdev((high+low+close)/3,{length}))' },
+      levels: [100, -100], short: function (p) { return 'CCI ' + p.length; } },
+    { id: 'wr', category: 'momentum', name: '威廉指标 Williams %R', desc: '收盘价在 N 日高低区间里的位置 (0 到 −100)；虚线是 −20 / −80。', scale: 'own',
+      inputs: [lengthInput(14)], plots: [{ key: 'wr', label: '%R', color: '#e86ec2' }],
+      formulas: { wr: '(highest(high,{length})-close)/(highest(high,{length})-lowest(low,{length}))*-100' },
+      levels: [-20, -80], short: function (p) { return '%R ' + p.length; } },
+
+    { id: 'atr', category: 'volatility', name: '平均真实波幅 ATR', desc: '真实波幅的 Wilder 平滑，衡量波动大小。', scale: 'own',
+      inputs: [lengthInput(14)], plots: [{ key: 'atr', label: 'ATR', color: '#e8a33d' }],
+      formulas: { atr: 'atr({length})' }, short: function (p) { return 'ATR ' + p.length; } },
+    { id: 'bbw', category: 'volatility', name: '布林带带宽', desc: '(上轨 − 下轨) ÷ 中轨，数值越小代表越收敛。', scale: 'own',
+      inputs: [lengthInput(20), { key: 'mult', label: '标准差倍数', def: 2, min: 0.1, max: 10, step: 0.1 }],
+      plots: [{ key: 'bbw', label: '带宽', color: '#3d8ce8' }],
+      formulas: { bbw: '(2*{mult}*stdev(close,{length}))/sma(close,{length})' }, short: function (p) { return 'BBW ' + p.length + ' ' + p.mult; } },
+
+    { id: 'volsma', category: 'volume', name: '成交量均线', desc: 'N 日成交量平均，跟成交量柱共用坐标轴。', scale: 'volume',
+      inputs: [lengthInput(20)], plots: [{ key: 'ma', label: '量均线', color: '#e8a33d' }],
+      formulas: { ma: 'sma(volume,{length})' }, short: function (p) { return 'Vol MA ' + p.length; } },
+    { id: 'obv', category: 'volume', name: '能量潮 OBV', desc: '上涨日加成交量、下跌日减成交量的累计值。', scale: 'own',
+      inputs: [], plots: [{ key: 'obv', label: 'OBV', color: '#8a5ce8' }],
+      formulas: { obv: 'obv()' }, short: function () { return 'OBV'; } },
+    { id: 'vwap', category: 'volume', name: '滚动 VWAP', desc: '最近 N 根K线的成交量加权平均价。', scale: 'price',
+      inputs: [lengthInput(20)], plots: [{ key: 'vwap', label: 'VWAP', color: '#3dbf8e' }],
+      formulas: { vwap: 'sum((high+low+close)/3*volume,{length})/sum(volume,{length})' }, short: function (p) { return 'VWAP ' + p.length; } }
+  ];
+  // 自定义公式 ("我的脚本") 共用这个定义，名称/公式/坐标轴存在指标实例上
+  var CUSTOM_DEF = { id: 'custom', category: 'custom', name: '自定义公式', scale: 'price', inputs: [], plots: [{ key: 'value', label: '线', color: '#e8a33d' }] };
+  var DEF_BY_ID = {};
+  INDICATOR_DEFS.forEach(function (d) { DEF_BY_ID[d.id] = d; });
+  DEF_BY_ID.custom = CUSTOM_DEF;
+  function defOf(ind) { return DEF_BY_ID[ind.def] || CUSTOM_DEF; }
+  function catName(id) {
+    for (var i = 0; i < CATEGORIES.length; i++) if (CATEGORIES[i].id === id) return CATEGORIES[i].name;
+    return id === 'custom' ? '我的脚本' : '';
+  }
+  function autoPane(scale) { return scale === 'own' ? 'sub' : 'main'; }
+  function defaultParams(def) {
+    var p = {};
+    def.inputs.forEach(function (i) { p[i.key] = i.def; });
+    return p;
+  }
+  function indLabel(ind) {
+    var def = defOf(ind);
+    if (def === CUSTOM_DEF) return ind.name || '自定义公式';
+    return def.short ? def.short(ind.params) : def.name;
+  }
+  function indScale(ind) { return defOf(ind) === CUSTOM_DEF ? (ind.scale || 'price') : defOf(ind).scale; }
+  function makeIndicator(defId, pane) {
+    var def = DEF_BY_ID[defId];
+    return { id: newId('ind'), def: defId, params: defaultParams(def), colors: {}, width: def.width || 2, pane: pane || autoPane(def.scale), hidden: false };
+  }
+  // 参数清洗: 数字、范围、整数
+  function cleanParams(def, raw) {
+    var p = {};
+    def.inputs.forEach(function (i) {
+      var v = parseFloat(raw && raw[i.key]);
+      if (!isNum(v)) v = i.def;
+      v = Math.min(i.max, Math.max(i.min, v));
+      if (i.step >= 1) v = Math.round(v);
+      p[i.key] = +v.toFixed(6);
+    });
+    return p;
+  }
+
+  // ---------- 内置模板 ----------
+  var BUILTIN_TEMPLATES = [
+    { id: 'b-trend', name: '趋势跟随', desc: 'SMA 50 + Supertrend + SAR', items: [['sma', { length: 50 }], ['supertrend'], ['psar']] },
+    { id: 'b-ichimoku', name: '一目均衡表', desc: '一目均衡表 (9, 26, 52, 26)', items: [['ichimoku']] },
+    { id: 'b-momentum', name: '动量组合', desc: 'RSI 14 + MACD 12 26 9 (两个副图)', items: [['rsi'], ['macd']] },
+    { id: 'b-volatility', name: '波动率', desc: '布林带 20 2 + ATR 14', items: [['bb'], ['atr']] },
+    { id: 'b-volume', name: '量价', desc: '成交量均线 20 + 滚动 VWAP 20 + OBV', items: [['volsma'], ['vwap'], ['obv']] }
+  ];
+  function instantiateItems(items) {
+    return items.map(function (it) {
+      var ind = makeIndicator(it[0]);
+      if (it[1]) ind.params = cleanParams(DEF_BY_ID[it[0]], Object.assign({}, ind.params, it[1]));
+      return ind;
+    });
+  }
+
+  // ---------- 指标模板存储 (v2) + 旧版本迁移 ----------
+  var TPL_KEY = 'bursa_templates_v2';
+  var TPL_KEY_V1 = 'bursa_templates_v1';
   var LEGACY_IND_KEY = 'bursa_custom_indicators_v1';
+  var FAV_KEY = 'bursa_ind_favorites_v1';
+  var SCRIPTS_KEY = 'bursa_my_scripts_v1';
   var DEFAULT_TPL_NAME = '我的筛选器';
 
-  var templates = loadJSON(TPL_STORAGE_KEY, null);
+  // 旧版的预设 id → 新版指标 + 参数 (布林带三条线、MACD 两条线以前是分开的，现在各合成一个指标)
+  var LEGACY_PRESETS = {
+    sma20: ['sma', { length: 20 }], sma50: ['sma', { length: 50 }], ema50: ['ema', { length: 50 }], sar: ['psar'],
+    boll_upper: ['bb'], boll_mid: ['bb'], boll_lower: ['bb'], ichimoku: ['ichimoku'], supertrend: ['supertrend'],
+    rsi14: ['rsi'], macd_line: ['macd'], macd_signal: ['macd'], stoch_k: ['stoch'], cci20: ['cci'], wr14: ['wr'],
+    atr14: ['atr'], boll_width: ['bbw'], obv: ['obv'], vol_sma20: ['volsma'], vwap20: ['vwap']
+  };
+  function migrateIndicators(list) {
+    var out = [], seen = {};
+    (Array.isArray(list) ? list : []).forEach(function (old) {
+      if (!old) return;
+      var key = old.presetId || (old.builtin === 'psar' || old.dataKey === 'psar' ? 'sar' : old.builtin || old.composite);
+      var map = LEGACY_PRESETS[key];
+      if (map) {
+        if (seen[map[0]] && (map[0] === 'bb' || map[0] === 'macd')) return;
+        seen[map[0]] = true;
+        var ind = makeIndicator(map[0], old.pane === 'main' || old.pane === 'sub' ? old.pane : undefined);
+        if (map[1]) ind.params = cleanParams(DEF_BY_ID[map[0]], Object.assign({}, ind.params, map[1]));
+        if (old.color && DEF_BY_ID[map[0]].plots.length === 1) ind.colors[DEF_BY_ID[map[0]].plots[0].key] = old.color;
+        out.push(ind);
+      } else if (old.formula) {
+        var scale = old.scale || 'price';
+        out.push({ id: old.id || newId('ind'), def: 'custom', name: old.name || '自定义公式', formula: old.formula, scale: scale,
+          params: {}, colors: { value: old.color || '#e8a33d' }, width: 2, pane: old.pane === 'main' || old.pane === 'sub' ? old.pane : autoPane(scale), hidden: false });
+      }
+    });
+    return out;
+  }
+  function validIndicator(ind) {
+    if (!ind || !ind.id || !DEF_BY_ID[ind.def]) return false;
+    if (ind.def === 'custom') return typeof ind.formula === 'string' && ind.formula.length > 0;
+    ind.params = cleanParams(DEF_BY_ID[ind.def], ind.params);
+    if (!ind.colors || typeof ind.colors !== 'object') ind.colors = {};
+    if (ind.pane !== 'main' && ind.pane !== 'sub') ind.pane = autoPane(indScale(ind));
+    return true;
+  }
+  var templates = loadJSON(TPL_KEY, null);
   if (!templates || !Array.isArray(templates.list) || !templates.list.length) {
-    // 第一次用新版: 把旧版存的指标搬进第一个模板
-    var legacy = loadJSON(LEGACY_IND_KEY, []);
-    templates = { active: 'tpl-1', list: [{ id: 'tpl-1', name: DEFAULT_TPL_NAME, indicators: Array.isArray(legacy) ? legacy : [] }] };
+    var v1 = loadJSON(TPL_KEY_V1, null);
+    if (v1 && Array.isArray(v1.list) && v1.list.length) {
+      templates = { active: v1.active, list: v1.list.map(function (t) { return { id: t.id || newId('tpl'), name: t.name || DEFAULT_TPL_NAME, indicators: migrateIndicators(t.indicators) }; }) };
+    } else {
+      templates = { active: 'tpl-1', list: [{ id: 'tpl-1', name: DEFAULT_TPL_NAME, indicators: migrateIndicators(loadJSON(LEGACY_IND_KEY, [])) }] };
+    }
+    templates.migrated = true; // 下面清洗完马上存成 v2，之后每次打开都读同一份 (旧的 v1 保留不删)
   }
   templates.list.forEach(function (t) {
-    t.indicators = (Array.isArray(t.indicators) ? t.indicators : []).filter(function (i) { return i && i.id; }).map(normalizeIndicator);
+    if (!t.id) t.id = newId('tpl');
+    t.indicators = (Array.isArray(t.indicators) ? t.indicators : []).filter(validIndicator);
   });
+  if (templates.migrated) {
+    delete templates.migrated;
+    saveJSON(TPL_KEY, templates);
+  }
+  var favorites = loadJSON(FAV_KEY, []);
+  if (!Array.isArray(favorites)) favorites = [];
+  var scripts = loadJSON(SCRIPTS_KEY, []);
+  if (!Array.isArray(scripts)) scripts = [];
 
   function activeTemplate() {
     for (var i = 0; i < templates.list.length; i++) if (templates.list[i].id === templates.active) return templates.list[i];
@@ -672,10 +956,15 @@
     return templates.list[0];
   }
   function indicators() { return activeTemplate().indicators; }
+  function findIndicator(id) {
+    var list = indicators();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
 
   var statusTimer = null;
   function persist() {
-    var ok = saveJSON(TPL_STORAGE_KEY, templates);
+    var ok = saveJSON(TPL_KEY, templates);
     var el = document.getElementById('tpl-status');
     if (!el) return;
     el.textContent = ok ? '✓ 已自动保存' : '浏览器不允许保存 (可能是隐私模式)';
@@ -683,12 +972,28 @@
     clearTimeout(statusTimer);
     statusTimer = setTimeout(function () { el.classList.remove('show'); }, ok ? 1500 : 4000);
   }
-  // 指标或模板有任何变动: 保存 + 重画所有图 + 刷新设置面板
+  var toastTimer = null;
+  function toast(msg) {
+    var el = document.getElementById('bb-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'bb-toast';
+      el.className = 'bb-toast';
+      el.setAttribute('role', 'status');
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove('show'); }, 1600);
+  }
+  // 指标或模板有任何变动: 保存 + 重画所有图 + 刷新模板名称 / 打开着的对话框
+  var onIndicatorsChanged = [];
   function indicatorsChanged() {
     persist();
     Object.keys(charts).forEach(function (id) { rebuildIndicators(charts[id]); });
-    renderIndicatorList();
-    renderPresetGrid();
+    renderTemplateName();
+    onIndicatorsChanged.forEach(function (fn) { fn(); });
   }
   function removeIndicator(id) {
     var list = indicators();
@@ -713,165 +1018,310 @@
     list.splice(j, 0, item);
     indicatorsChanged();
   }
-  function togglePane(id) {
-    indicators().forEach(function (ind) { if (ind.id === id) ind.pane = ind.pane === 'main' ? 'sub' : 'main'; });
+  function toggleHidden(id) {
+    var ind = findIndicator(id);
+    if (!ind) return;
+    ind.hidden = !ind.hidden;
     indicatorsChanged();
   }
 
+  // ---------- 图表类型 (照 TradingView 的分组) ----------
+  var CHART_TYPE_KEY = 'bursa_chart_type_v1';
+  function icon(path, extra) {
+    return '<svg class="ico" viewBox="0 0 18 18" aria-hidden="true"' + (extra || '') + '>' + path + '</svg>';
+  }
+  var ICONS = {
+    bars: icon('<path d="M5 3v12M3 6h2M5 11h2M12 2v13M10 5h2M12 12h2"/>'),
+    candles: icon('<path d="M5 2v14M12 2v14"/><rect x="3" y="5" width="4" height="7" class="f"/><rect x="10" y="4" width="4" height="6" class="f"/>'),
+    hollow: icon('<path d="M5 2v3M5 12v4M12 2v2M12 10v6"/><rect x="3" y="5" width="4" height="7"/><rect x="10" y="4" width="4" height="6" class="f"/>'),
+    volcandles: icon('<path d="M5 2v14M13 3v12"/><rect x="2.5" y="5" width="5" height="7"/><rect x="11.5" y="6" width="3" height="5"/>'),
+    line: icon('<path d="M2 13l4-5 4 3 6-7"/>'),
+    linemarkers: icon('<path d="M2 13l4-5 4 3 6-7"/><circle cx="6" cy="8" r="1.4" class="f"/><circle cx="10" cy="11" r="1.4" class="f"/>'),
+    step: icon('<path d="M2 14h4V9h4v3h3V4h3"/>'),
+    area: icon('<path d="M2 13l4-5 4 3 6-7v12H2z" class="f2"/><path d="M2 13l4-5 4 3 6-7"/>'),
+    hlc: icon('<path d="M2 7l4-3 4 2 6-3M2 14l4-3 4 2 6-3" /><path d="M2 11l4-4 4 3 6-4" class="thick"/>'),
+    baseline: icon('<path d="M1 9h16" stroke-dasharray="2 2"/><path d="M2 12l4-6 4 5 6-8"/>'),
+    columns: icon('<path d="M3 16V9M7 16V5M11 16V8M15 16V3" class="thick"/>'),
+    highlow: icon('<rect x="3" y="4" width="3" height="9"/><rect x="11" y="3" width="3" height="7"/>'),
+    heikin: icon('<path d="M5 2v14M12 2v14"/><rect x="3" y="4" width="4" height="8"/><rect x="10" y="6" width="4" height="7" class="f"/>'),
+    other: icon('<path d="M3 3h4v4H3zM11 3h4v4h-4zM3 11h4v4H3zM11 11h4v4h-4z"/>')
+  };
+  var NOT_SUPPORTED = '暂不支持 (要非时间轴的图表)';
+  var CHART_TYPE_GROUPS = [
+    [{ id: 'bars', name: '美国线' }, { id: 'candles', name: 'K线图' }, { id: 'hollow', name: '空心K线图' }, { id: 'volcandles', name: '成交量蜡烛', off: '暂不支持 (蜡烛宽度要随成交量变化)' }],
+    [{ id: 'line', name: '线形图' }, { id: 'linemarkers', name: '带标记线' }, { id: 'step', name: '阶梯线' }],
+    [{ id: 'area', name: '面积图' }, { id: 'hlc', name: 'HLC区域' }, { id: 'baseline', name: '基准线' }],
+    [{ id: 'columns', name: '柱状图' }, { id: 'highlow', name: '高-低' }],
+    [{ id: 'vp1', name: '成交量轨迹', off: '暂不支持 (要逐笔成交数据)' }, { id: 'vp2', name: '时间价格机会', off: '暂不支持 (要逐笔成交数据)' }, { id: 'vp3', name: '交易时段成交量分布图', off: '暂不支持 (要逐笔成交数据)' }],
+    [{ id: 'heikin', name: '平均K线图' }, { id: 'renko', name: '砖形图', off: NOT_SUPPORTED }, { id: 'linebreak', name: '新价线', off: NOT_SUPPORTED },
+      { id: 'kagi', name: '卡吉图', off: NOT_SUPPORTED }, { id: 'pnf', name: '点数图', off: NOT_SUPPORTED }, { id: 'range', name: '范围图', off: NOT_SUPPORTED }]
+  ];
+  function chartTypeById(id) {
+    for (var g = 0; g < CHART_TYPE_GROUPS.length; g++) {
+      for (var i = 0; i < CHART_TYPE_GROUPS[g].length; i++) if (CHART_TYPE_GROUPS[g][i].id === id) return CHART_TYPE_GROUPS[g][i];
+    }
+    return null;
+  }
+  var chartType = loadJSON(CHART_TYPE_KEY, 'hollow');
+  if (!chartTypeById(chartType) || chartTypeById(chartType).off) chartType = 'hollow';
+
+  // 平均K线 (Heikin Ashi): 收 = 四价平均，开 = 上一根的 (开+收)/2
+  function heikinAshi(bars) {
+    var out = [];
+    bars.forEach(function (b, i) {
+      var close = (b.open + b.high + b.low + b.close) / 4;
+      var open = i === 0 ? (b.open + b.close) / 2 : (out[i - 1].open + out[i - 1].close) / 2;
+      out.push({ time: b.time, open: open, high: Math.max(b.high, open, close), low: Math.min(b.low, open, close), close: close });
+    });
+    return out;
+  }
+
   // ---------- K 线图 ----------
-  var MAIN_PANE_HEIGHT = 300;
-  var SUB_PANE_HEIGHT = 120;
+  function isPhone() { return window.innerWidth < 640; }
+  function mainPaneHeight() { return isPhone() ? 300 : 440; }
+  function subPaneHeight() { return isPhone() ? 110 : 140; }
 
   function volumeData(bars) {
     return bars.map(function (b) {
-      return { time: b.time, value: b.volume, color: b.close >= b.open ? colors.up : colors.down };
+      return { time: b.time, value: b.volume, color: withAlpha(b.close >= b.open ? colors.up : colors.down, 0.55) };
     });
   }
-  function toPoints(bars, values) {
-    var out = [];
-    values.forEach(function (v, i) { if (isNum(v)) out.push({ time: bars[i].time, value: v }); });
-    return out;
+  // 主图 (价格) 系列: 按图表类型建立，返回 {main, extras}
+  function createMainSeries(st) {
+    var chart = st.chart, up = colors.up, down = colors.down, extras = [], main;
+    var base = { priceLineVisible: true, lastValueVisible: true };
+    switch (chartType) {
+      case 'bars':
+        main = chart.addSeries(LWC.BarSeries, Object.assign({ upColor: up, downColor: down, openVisible: true, thinBars: false }, base));
+        break;
+      case 'candles':
+        main = chart.addSeries(LWC.CandlestickSeries, Object.assign({ upColor: up, downColor: down, borderUpColor: up, borderDownColor: down, wickUpColor: up, wickDownColor: down }, base));
+        break;
+      case 'heikin':
+        main = chart.addSeries(LWC.CandlestickSeries, Object.assign({ upColor: up, downColor: down, borderUpColor: up, borderDownColor: down, wickUpColor: up, wickDownColor: down }, base));
+        break;
+      case 'highlow':
+        main = chart.addSeries(LWC.CandlestickSeries, Object.assign({ upColor: withAlpha(colors.ema, 0.75), downColor: withAlpha(colors.ema, 0.75), borderVisible: false, wickVisible: false }, base));
+        break;
+      case 'line':
+      case 'linemarkers':
+      case 'step':
+        main = chart.addSeries(LWC.LineSeries, Object.assign({ color: colors.ema, lineWidth: 2, lineType: chartType === 'step' ? LWC.LineType.WithSteps : LWC.LineType.Simple,
+          pointMarkersVisible: chartType === 'linemarkers', pointMarkersRadius: 2 }, base));
+        break;
+      case 'area':
+        main = chart.addSeries(LWC.AreaSeries, Object.assign({ lineColor: colors.ema, topColor: withAlpha(colors.ema, 0.35), bottomColor: withAlpha(colors.ema, 0.02), lineWidth: 2 }, base));
+        break;
+      case 'baseline':
+        main = chart.addSeries(LWC.BaselineSeries, Object.assign({ topLineColor: up, topFillColor1: withAlpha(up, 0.28), topFillColor2: withAlpha(up, 0.04),
+          bottomLineColor: down, bottomFillColor1: withAlpha(down, 0.04), bottomFillColor2: withAlpha(down, 0.28), lineWidth: 2 }, base));
+        break;
+      case 'columns':
+        main = chart.addSeries(LWC.HistogramSeries, Object.assign({ base: 0 }, base));
+        break;
+      case 'hlc':
+        main = chart.addSeries(LWC.LineSeries, Object.assign({ color: colors.text, lineWidth: 2 }, base));
+        extras.push(chart.addSeries(LWC.LineSeries, { color: withAlpha(up, 0.9), lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }));
+        extras.push(chart.addSeries(LWC.LineSeries, { color: withAlpha(down, 0.9), lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }));
+        break;
+      default: // hollow 空心K线: 上涨只描边，下跌实心
+        main = chart.addSeries(LWC.CandlestickSeries, Object.assign({ upColor: 'rgba(0, 0, 0, 0)', downColor: down, borderUpColor: up, borderDownColor: down, wickUpColor: up, wickDownColor: down, borderVisible: true }, base));
+    }
+    st.main = main;
+    st.extras = extras;
   }
-  function lastValue(points) { return points.length ? points[points.length - 1].value : null; }
-
-  function applyBaseColors(st) {
-    st.candle.applyOptions({
-      upColor: 'rgba(0, 0, 0, 0)', // 空心阳线: 上涨只描边
-      downColor: colors.down,
-      borderUpColor: colors.up,
-      borderDownColor: colors.down,
-      wickUpColor: colors.up,
-      wickDownColor: colors.down
-    });
-    st.ema.applyOptions({ color: colors.ema });
-    st.chart.applyOptions({
-      layout: { textColor: colors.text, panes: { separatorColor: colors.grid, separatorHoverColor: colors.grid } },
-      grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
-      rightPriceScale: { borderColor: colors.grid },
-      timeScale: { borderColor: colors.grid }
-    });
+  function setMainData(st) {
+    var bars = st.bars;
+    // 换周期会重新 setData；上一次挂上去的填色要先拆掉，不然会越叠越多
+    (st.mainPrims || []).forEach(function (x) { x.series.detachPrimitive(x.prim); });
+    st.mainPrims = [];
+    switch (chartType) {
+      case 'line': case 'linemarkers': case 'step': case 'area':
+        st.main.setData(bars.map(function (b) { return { time: b.time, value: b.close }; }));
+        break;
+      case 'baseline':
+        var sorted = bars.map(function (b) { return b.close; }).sort(function (a, b) { return a - b; });
+        st.main.applyOptions({ baseValue: { type: 'price', price: sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0 } }); // 基准 = 收盘价中位数
+        st.main.setData(bars.map(function (b) { return { time: b.time, value: b.close }; }));
+        break;
+      case 'columns':
+        st.main.setData(bars.map(function (b, i) {
+          var up = i === 0 ? b.close >= b.open : b.close >= bars[i - 1].close;
+          return { time: b.time, value: b.close, color: up ? colors.up : colors.down };
+        }));
+        break;
+      case 'highlow':
+        st.main.setData(bars.map(function (b) { return { time: b.time, open: b.high, high: b.high, low: b.low, close: b.low }; }));
+        break;
+      case 'heikin':
+        st.main.setData(heikinAshi(bars));
+        break;
+      case 'hlc':
+        st.main.setData(bars.map(function (b) { return { time: b.time, value: b.close }; }));
+        st.extras[0].setData(bars.map(function (b) { return { time: b.time, value: b.high }; }));
+        st.extras[1].setData(bars.map(function (b) { return { time: b.time, value: b.low }; }));
+        var hi = bars.map(function (b) { return { time: b.time, a: b.high, b: b.close, color: withAlpha(colors.up, 0.18) }; });
+        var lo = bars.map(function (b) { return { time: b.time, a: b.close, b: b.low, color: withAlpha(colors.down, 0.18) }; });
+        st.mainPrims = [{ series: st.main, prim: new BandPrimitive(hi) }, { series: st.extras[0], prim: new BandPrimitive(lo) }];
+        st.mainPrims.forEach(function (x) { x.series.attachPrimitive(x.prim); });
+        break;
+      default:
+        st.main.setData(bars);
+    }
   }
   function setBaseData(st) {
-    st.candle.setData(st.bars);
+    setMainData(st);
     st.volume.setData(volumeData(st.bars));
     var emaPoints = toPoints(st.bars, seriesEMA(st.bars.map(function (b) { return b.close; }), 20));
     st.ema.setData(emaPoints);
     st.emaLast = lastValue(emaPoints);
   }
 
-  function lineOptions(ind, paneIndex) {
-    var opts = {
-      color: ind.color,
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: paneIndex > 0, // 副图右边显示最新值；主图上指标一多标签会挤成一团，就不显示
-      crosshairMarkerVisible: false
-    };
-    if (paneIndex === 0) {
-      if (ind.scale === 'volume') opts.priceScaleId = '';
-      else if (ind.scale === 'own') opts.priceScaleId = 'ind-' + (ind.paneGroup || ind.id);
-    }
-    return opts;
+  function scaleOptions(ind, paneIndex) {
+    if (paneIndex !== 0) return {};
+    var scale = indScale(ind);
+    if (scale === 'volume') return { priceScaleId: '' };
+    if (scale === 'own') return { priceScaleId: 'ind-' + ind.id };
+    return {};
   }
-  // 返回 [{series, color, last}]，一目均衡表这类组合指标会有好几条
+  function computePlots(ind, bars, tf) {
+    var def = defOf(ind), p = ind.params;
+    if (def === CUSTOM_DEF) return { value: toPoints(bars, formulaValues(bars, ind.formula)) };
+    if (def.id === 'ichimoku') return ichimokuSeries(bars, tf, p);
+    if (def.id === 'psar') {
+      return { sar: toPoints(bars, seriesPSAR(bars.map(function (b) { return b.high; }), bars.map(function (b) { return b.low; }), bars.map(function (b) { return b.close; }), p.start, p.max)) };
+    }
+    var out = {};
+    Object.keys(def.formulas).forEach(function (k) { out[k] = toPoints(bars, formulaValues(bars, fillTemplate(def.formulas[k], p))); });
+    return out;
+  }
+  function plotColor(ind, plot) { return (ind.colors && ind.colors[plot.key]) || plot.color; }
+  function plotNegColor(ind, plot) { return (ind.colors && ind.colors[plot.key + '_neg']) || plot.negColor; }
+
+  // 返回 [{series, color, last, optional}]
   function addIndicatorSeries(st, ind, paneIndex) {
-    var chart = st.chart, bars = st.bars;
-    if (ind.builtin === 'ichimoku') {
-      var ich = ichimokuSeries(bars, st.tf);
-      var parts = ICHIMOKU_LINES.map(function (line) {
-        var opts = lineOptions({ color: line.color, scale: 'price' }, paneIndex);
-        opts.lineWidth = 1;
-        opts.lastValueVisible = false;
-        var series = chart.addSeries(LWC.LineSeries, opts, paneIndex);
-        series.setData(ich[line.key]);
-        return { series: series, color: line.color, last: lastValue(ich[line.key]) };
+    var chart = st.chart, bars = st.bars, def = defOf(ind), p = ind.params;
+    function lineSeries(color, extra) {
+      var opts = Object.assign({ color: color, lineWidth: ind.width || 2, priceLineVisible: false, lastValueVisible: paneIndex > 0, crosshairMarkerVisible: false },
+        scaleOptions(ind, paneIndex), extra || {});
+      return chart.addSeries(LWC.LineSeries, opts, paneIndex);
+    }
+    if (def.id === 'supertrend') {
+      var up = plotColor(ind, def.plots[0]), down = plotColor(ind, def.plots[1]);
+      var stv = seriesSupertrend(bars, p.factor, p.atr);
+      // 两条"隐形"的线: 线由 SupertrendPrimitive 画 (图表库的折线遇到空白点不会断开)，
+      // 这两条只用来撑价格坐标轴范围、给图例取数值
+      var sides = [{ dir: -1, color: up }, { dir: 1, color: down }].map(function (side) {
+        var series = lineSeries(side.color, { lineVisible: false, lastValueVisible: false });
+        series.setData(bars.map(function (b, i) { return stv.direction[i] === side.dir ? { time: b.time, value: stv.value[i] } : { time: b.time }; }));
+        var n = bars.length;
+        return { series: series, color: side.color, last: n && stv.direction[n - 1] === side.dir ? stv.value[n - 1] : null, optional: true };
       });
-      parts[3].series.attachPrimitive(new CloudPrimitive(ich.leadA, ich.leadB));
-      return parts;
+      var drawn = [];
+      bars.forEach(function (b, i) {
+        if (stv.direction[i] === null) return;
+        var isUp = stv.direction[i] === -1;
+        drawn.push({ time: b.time, mid: (b.open + b.close) / 2, value: stv.value[i], line: isUp ? up : down, fill: withAlpha(isUp ? up : down, 0.1) });
+      });
+      sides[0].series.attachPrimitive(new SupertrendPrimitive(drawn));
+      return sides;
     }
-    var opts = lineOptions(ind, paneIndex);
-    var points;
-    if (ind.builtin === 'psar') {
-      opts.lineVisible = false;       // SAR 画成一颗颗的点，跟 TradingView 一样
-      opts.pointMarkersVisible = true;
-      opts.pointMarkersRadius = 1.5;
-      points = toPoints(bars, seriesPSAR(
-        bars.map(function (b) { return b.high; }), bars.map(function (b) { return b.low; }), bars.map(function (b) { return b.close; })));
-    } else {
-      points = toPoints(bars, formulaValues(bars, ind.formula));
+    var plots = computePlots(ind, bars, st.tf);
+    var parts = def.plots.map(function (plot) {
+      var color = plotColor(ind, plot), data = plots[plot.key] || [], series;
+      if (plot.type === 'hist') {
+        var neg = plotNegColor(ind, plot);
+        series = chart.addSeries(LWC.HistogramSeries, Object.assign({ priceLineVisible: false, lastValueVisible: false }, scaleOptions(ind, paneIndex)), paneIndex);
+        series.setData(data.map(function (pt) { return { time: pt.time, value: pt.value, color: pt.value >= 0 ? color : neg }; }));
+      } else {
+        series = lineSeries(color, plot.type === 'dots' ? { lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: 1.5 } : null);
+        series.setData(data);
+      }
+      return { series: series, color: color, last: lastValue(data) };
+    });
+    if (def.levels && parts.length) {
+      def.levels.forEach(function (lv) {
+        parts[parts.length - 1].series.createPriceLine({ price: lv, color: withAlpha(colors.text, 0.5), lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: false });
+      });
     }
-    var s = chart.addSeries(LWC.LineSeries, opts, paneIndex);
-    s.setData(points);
-    if (paneIndex === 0 && ind.scale === 'own') s.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.25 } });
-    return [{ series: s, color: ind.color, last: lastValue(points) }];
+    if (def.band) {
+      var bByTime = {};
+      (plots[def.band.b] || []).forEach(function (pt) { bByTime[pt.time] = pt.value; });
+      var fill = withAlpha(plotColor(ind, def.plots[1]), def.band.alpha);
+      var band = (plots[def.band.a] || []).filter(function (pt) { return pt.time in bByTime; })
+        .map(function (pt) { return { time: pt.time, a: pt.value, b: bByTime[pt.time], color: fill }; });
+      parts[0].series.attachPrimitive(new BandPrimitive(band));
+    }
+    if (def.id === 'ichimoku') parts[3].series.attachPrimitive(new CloudPrimitive(plots.leadA, plots.leadB));
+    if (paneIndex === 0 && indScale(ind) === 'own') parts[0].series.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.25 } });
+    return parts;
   }
 
   function rebuildIndicators(st) {
     var chart = st.chart;
-    st.entries.forEach(function (entry) {
-      entry.parts.forEach(function (p) { chart.removeSeries(p.series); });
-    });
+    st.entries.forEach(function (entry) { entry.parts.forEach(function (p) { chart.removeSeries(p.series); }); });
     st.entries = [];
     while (chart.panes().length > 1) chart.removePane(chart.panes().length - 1);
 
-    var paneOfGroup = {};
     indicators().forEach(function (ind) {
-      var key = ind.paneGroup || ind.id;
-      var paneIndex = ind.pane === 'sub' ? (key in paneOfGroup ? paneOfGroup[key] : chart.panes().length) : 0;
-      var entry = { ind: ind, parts: [], pane: paneIndex, error: null };
-      try {
-        entry.parts = addIndicatorSeries(st, ind, paneIndex);
-        if (ind.pane === 'sub') paneOfGroup[key] = paneIndex;
-      } catch (e) {
-        entry.error = e.message;
-        entry.pane = ind.pane === 'sub' ? -1 : 0; // 算不出来的副图指标不开窗格，图例放主图里提示
+      var entry = { ind: ind, parts: [], pane: 0, error: null };
+      if (ind.hidden) {
+        entry.pane = ind.pane === 'sub' ? -1 : 0; // 隐藏的副图指标不开窗格，图例放主图里 (灰色)
+      } else {
+        var paneIndex = ind.pane === 'sub' ? chart.panes().length : 0;
+        try {
+          entry.parts = addIndicatorSeries(st, ind, paneIndex);
+          entry.pane = paneIndex;
+        } catch (e) {
+          entry.error = e.message;
+          entry.pane = ind.pane === 'sub' ? -1 : 0;
+        }
       }
       st.entries.push(entry);
     });
 
-    // 主图 + 每个副图的高度，整张图跟着变高
     var panes = chart.panes();
-    var height = MAIN_PANE_HEIGHT + SUB_PANE_HEIGHT * (panes.length - 1);
-    panes.forEach(function (pane, i) { pane.setStretchFactor(i === 0 ? MAIN_PANE_HEIGHT : SUB_PANE_HEIGHT); });
+    var mainH = mainPaneHeight(), subH = subPaneHeight();
+    var height = mainH + subH * (panes.length - 1);
+    panes.forEach(function (pane, i) { pane.setStretchFactor(i === 0 ? mainH : subH); });
     st.el.style.height = height + 'px';
     chart.resize(st.el.clientWidth, height);
     requestAnimationFrame(function () { renderLegends(st); });
   }
 
+  var VISIBLE_BARS_PHONE = 80;
   function showRecentBars(st) {
-    var n = st.bars.length;
-    var extra = 0; // 一目均衡表往未来多画了 25 根，也要露出来
-    st.entries.forEach(function (e) { if (e.ind.builtin === 'ichimoku' && !e.error) extra = ICHIMOKU.displacement - 1; });
-    st.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - VISIBLE_BARS), to: n + extra + 2 });
+    var n = st.bars.length, extra = 0; // 一目均衡表往未来多画了 (位移 − 1) 根，也要露出来
+    st.entries.forEach(function (e) { if (defOf(e.ind).id === 'ichimoku' && !e.error && !e.ind.hidden) extra = Math.max(extra, e.ind.params.displacement - 1); });
+    var visible = isPhone() ? VISIBLE_BARS_PHONE : VISIBLE_BARS;
+    st.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - visible), to: n + extra + 2 });
   }
 
   function setTimeframe(st, tf) {
-    var bars = barsFor(st.id, tf);
+    var use = hasTf(st.id, tf) ? tf : tfById('D');
+    var bars = barsFor(st.id, use);
     if (!bars || !bars.length) return;
-    st.tf = tf;
+    st.tf = use;
     st.bars = bars;
     st.index = {};
     bars.forEach(function (b, i) { st.index[b.time] = i; });
-    st.chart.applyOptions({ timeScale: { timeVisible: isIntraday(tf), secondsVisible: false } });
+    st.chart.applyOptions({ timeScale: { timeVisible: isIntraday(use), secondsVisible: false } });
     setBaseData(st);
     rebuildIndicators(st);
     showRecentBars(st);
     updateQuoteLive(st, null);
-    var tfBar = document.getElementById(st.id + '-tf');
-    if (tfBar) {
-      tfBar.querySelectorAll('.tf-btn').forEach(function (b) {
-        var on = b.dataset.tf === tf.id;
-        b.setAttribute('aria-selected', on ? 'true' : 'false');
-        b.tabIndex = on ? 0 : -1;
-        if (on) {
-          var list = b.parentNode; // 只横向滚导航条，不用 scrollIntoView (会连整页一起滚)
-          list.scrollLeft = b.offsetLeft - list.offsetLeft - (list.clientWidth - b.offsetWidth) / 2;
-        }
-      });
+    var note = document.getElementById(st.id + '-tfnote');
+    if (note) {
+      note.hidden = use === tf;
+      note.textContent = use === tf ? '' : '这支股票这次没拿到「' + tf.label + '」的数据，显示的是日线';
     }
   }
 
-  // ---------- 图表左上角图例: 每个窗格一块，名称 + 当前值 + ↑ ↓ × ----------
+  // ---------- 图表左上角图例: 名称 (点一下改参数) + 当前值 + 👁 ⚙ ↑ ↓ × ----------
+  var ICON_EYE = icon('<path d="M1.5 9s2.8-5 7.5-5 7.5 5 7.5 5-2.8 5-7.5 5-7.5-5-7.5-5z"/><circle cx="9" cy="9" r="2.2"/>');
+  var ICON_EYE_OFF = icon('<path d="M1.5 9s2.8-5 7.5-5 7.5 5 7.5 5-2.8 5-7.5 5-7.5-5-7.5-5z"/><path d="M3 15L15 3"/>');
+  var ICON_GEAR = icon('<circle cx="9" cy="9" r="2.4"/><path d="M9 1.8v2.1M9 14.1v2.1M1.8 9h2.1M14.1 9h2.1M3.9 3.9l1.5 1.5M12.6 12.6l1.5 1.5M3.9 14.1l1.5-1.5M12.6 5.4l1.5-1.5"/>');
+  var ICON_TRASH = icon('<path d="M3 5h12M7 5V3h4v2M5 5l1 10h6l1-10"/>');
   function paneTop(st, paneIndex) {
     var panes = st.chart.panes();
     var pane = panes[paneIndex];
@@ -896,20 +1346,25 @@
       var rows = '';
       if (p === 0) {
         rows += '<div class="lg-row lg-base" data-base="ema"><span class="lg-swatch" style="background:' + colors.ema + '"></span>' +
-          '<span class="lg-name">EMA20</span><span class="lg-val"></span></div>';
+          '<span class="lg-name lg-static">EMA 20</span><span class="lg-val"></span></div>';
       }
       (byPane[p] || []).forEach(function (e) {
         var idx = list.indexOf(e.ind);
+        var name = escapeHtml(indLabel(e.ind));
         var canUp = neighborIndex(list, idx, -1) !== -1, canDown = neighborIndex(list, idx, 1) !== -1;
-        rows += '<div class="lg-row' + (e.error ? ' lg-error' : '') + '" data-ind="' + escapeHtml(e.ind.id) + '"' +
+        var linePlots = defOf(e.ind).plots.filter(function (pl) { return pl.type !== 'hist'; });
+        var swatch = plotColor(e.ind, linePlots[0] || defOf(e.ind).plots[0]);
+        rows += '<div class="lg-row' + (e.error ? ' lg-error' : '') + (e.ind.hidden ? ' lg-hidden' : '') + '" data-ind="' + escapeHtml(e.ind.id) + '"' +
           (e.error ? ' title="' + escapeHtml(e.error) + '"' : '') + '>' +
-          '<span class="lg-swatch" style="background:' + escapeHtml(e.ind.color) + '"></span>' +
-          '<span class="lg-name">' + escapeHtml(e.ind.name) + (e.error ? ' ⚠' : '') + '</span>' +
+          '<span class="lg-swatch" style="background:' + escapeHtml(swatch) + '"></span>' +
+          '<button type="button" class="lg-name" data-act="gear" title="点一下修改参数">' + name + (e.error ? ' ⚠' : '') + '</button>' +
           '<span class="lg-val"></span>' +
           '<span class="lg-ctrl">' +
-          '<button type="button" data-act="up" title="上移" aria-label="上移 ' + escapeHtml(e.ind.name) + '"' + (canUp ? '' : ' disabled') + '>↑</button>' +
-          '<button type="button" data-act="down" title="下移" aria-label="下移 ' + escapeHtml(e.ind.name) + '"' + (canDown ? '' : ' disabled') + '>↓</button>' +
-          '<button type="button" data-act="del" title="删除" aria-label="删除 ' + escapeHtml(e.ind.name) + '">×</button>' +
+          '<button type="button" data-act="eye" title="' + (e.ind.hidden ? '显示' : '隐藏') + '" aria-label="' + (e.ind.hidden ? '显示 ' : '隐藏 ') + name + '">' + (e.ind.hidden ? ICON_EYE_OFF : ICON_EYE) + '</button>' +
+          '<button type="button" data-act="gear" title="设置" aria-label="设置 ' + name + '">' + ICON_GEAR + '</button>' +
+          '<button type="button" data-act="up" title="上移" aria-label="上移 ' + name + '"' + (canUp ? '' : ' disabled') + '>↑</button>' +
+          '<button type="button" data-act="down" title="下移" aria-label="下移 ' + name + '"' + (canDown ? '' : ' disabled') + '>↓</button>' +
+          '<button type="button" data-act="del" title="删除" aria-label="删除 ' + name + '">' + ICON_TRASH + '</button>' +
           '</span></div>';
       });
       html += '<div class="lg-pane" data-pane="' + p + '" style="top:' + (paneTop(st, p) + 4) + 'px">' + rows + '</div>';
@@ -931,7 +1386,9 @@
       var el = box.querySelector('[data-ind="' + (window.CSS && CSS.escape ? CSS.escape(e.ind.id) : e.ind.id) + '"] .lg-val');
       if (!el) return;
       el.innerHTML = e.parts.map(function (p) {
-        return '<span style="color:' + p.color + '">' + fmtValue(valueOf(p.series, p.last)) + '</span>';
+        var v = valueOf(p.series, p.last);
+        if (p.optional && !isNum(v)) return '';
+        return '<span style="color:' + p.color + '">' + fmtValue(v) + '</span>';
       }).join('');
     });
   }
@@ -946,7 +1403,7 @@
     function item(label, value, cls) {
       return '<span>' + label + ' <b' + (cls ? ' class="' + cls + '"' : '') + '>' + value + '</b></span>';
     }
-    var html = '<span class="ql-time">' + fmtTime(b.time, st.tf) + '</span>' +
+    var html = '<span class="ql-time">' + fmtTime(b.time, st.tf) + ' · ' + st.tf.label + '</span>' +
       item('开', fmtPrice(b.open)) + item('高', fmtPrice(b.high)) + item('低', fmtPrice(b.low)) + item('收', fmtPrice(b.close));
     if (prev && prev.close) {
       var chg = b.close - prev.close, pct = chg / prev.close * 100;
@@ -957,22 +1414,167 @@
     html += item('量', fmtVolume(b.volume));
     el.innerHTML = html;
   }
-
   function onCrosshair(st, param) {
-    var hovering = param && param.time !== undefined && param.seriesData && param.seriesData.get(st.candle);
-    updateQuoteLive(st, hovering ? st.bars[st.index[param.time]] : null);
+    var i = param && param.time !== undefined ? st.index[param.time] : undefined;
+    var hovering = i !== undefined && param.seriesData;
+    updateQuoteLive(st, hovering ? st.bars[i] : null);
     updateLegendValues(st, hovering ? param.seriesData : null);
   }
 
-  // ---------- 周期导航条 ----------
-  function buildTimeframeBar(st) {
-    var bar = document.getElementById(st.id + '-tf');
+  // ---------- 建图 / 拆图 ----------
+  var currentTf = tfById(loadJSON(TF_STORAGE_KEY, 'D')) || tfById('D');
+  function renderChart(chartId) {
+    var el = document.getElementById(chartId);
+    if (!el || !LWC || charts[chartId] || !data[chartId]) return;
+    var chart = LWC.createChart(el, {
+      width: el.clientWidth,
+      height: mainPaneHeight(),
+      layout: { background: { color: 'transparent' }, textColor: colors.text, attributionLogo: false, // 署名放在页脚
+        panes: { separatorColor: colors.grid, separatorHoverColor: colors.grid } },
+      grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
+      rightPriceScale: { borderColor: colors.grid },
+      timeScale: { borderColor: colors.grid, rightOffset: 2 },
+      crosshair: { mode: LWC.CrosshairMode.Normal },
+      localization: { locale: 'zh-CN', dateFormat: 'yyyy-MM-dd' }
+    });
+    var st = { id: chartId, el: el, chart: chart, legendsEl: document.getElementById(chartId + '-legends'),
+      tf: null, bars: [], index: {}, entries: [], emaLast: null, main: null, extras: [] };
+    st.volume = chart.addSeries(LWC.HistogramSeries, { priceScaleId: '', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
+    st.volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    createMainSeries(st);
+    st.ema = chart.addSeries(LWC.LineSeries, { color: colors.ema, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+    charts[chartId] = st;
+    setTimeframe(st, currentTf);
+
+    chart.subscribeCrosshairMove(function (param) { onCrosshair(st, param); });
+    if (st.legendsEl && !st.legendsEl.dataset.bound) {
+      st.legendsEl.dataset.bound = '1';
+      st.legendsEl.addEventListener('click', function (e) {
+        var btn = e.target.closest('button[data-act]');
+        if (!btn) {
+          // 手机上点图例这一行 (不是按钮) = 展开 / 收起这一行的按钮
+          var tapped = e.target.closest('.lg-row[data-ind]');
+          if (!tapped) return;
+          var wasOpen = tapped.classList.contains('open');
+          st.legendsEl.querySelectorAll('.lg-row.open').forEach(function (r) { r.classList.remove('open'); });
+          if (!wasOpen) tapped.classList.add('open');
+          return;
+        }
+        var row = btn.closest('[data-ind]');
+        if (!row) return;
+        var id = row.getAttribute('data-ind'), act = btn.dataset.act;
+        if (act === 'del') removeIndicator(id);
+        else if (act === 'eye') toggleHidden(id);
+        else if (act === 'gear') openIndicatorSettings(id);
+        else moveIndicator(id, act === 'up' ? -1 : 1);
+      });
+    }
+    // 拖动副图之间的分隔线会改变窗格高度，放开后重新对齐图例
+    st.onPointerUp = function () { requestAnimationFrame(function () { renderLegends(st); }); };
+    el.addEventListener('pointerup', st.onPointerUp);
+    st.ro = new ResizeObserver(function (entries) {
+      var w = entries[0].contentRect.width;
+      if (!w || w === st.lastWidth) return;
+      st.lastWidth = w;
+      chart.resize(w, el.clientHeight);
+      requestAnimationFrame(function () { renderLegends(st); });
+    });
+    st.ro.observe(el);
+  }
+  function destroyChart(chartId) {
+    var st = charts[chartId];
+    if (!st) return;
+    st.ro.disconnect();
+    st.el.removeEventListener('pointerup', st.onPointerUp);
+    st.chart.remove();
+    if (st.legendsEl) st.legendsEl.innerHTML = '';
+    delete charts[chartId];
+  }
+  // 换图表类型 / 换颜色: 已经画好的图全部重建
+  function rerenderAll() {
+    Object.keys(charts).forEach(function (id) { destroyChart(id); renderChart(id); });
+  }
+
+  // ---------- 通用对话框 / 下拉菜单 ----------
+  var openDialogs = [];
+  function openDialog(opts) {
+    var overlay = document.createElement('div');
+    overlay.className = 'dlg-overlay';
+    var titleId = newId('dlg-title');
+    overlay.innerHTML = '<div class="dlg ' + (opts.className || '') + '" role="dialog" aria-modal="true" aria-labelledby="' + titleId + '">' +
+      '<div class="dlg-head"><h3 id="' + titleId + '">' + escapeHtml(opts.title) + '</h3><button type="button" class="dlg-x" aria-label="关闭">×</button></div>' +
+      '<div class="dlg-body"></div>' + (opts.footer ? '<div class="dlg-foot"></div>' : '') + '</div>';
+    var dlg = overlay.firstChild;
+    var body = dlg.querySelector('.dlg-body');
+    if (typeof opts.body === 'string') body.innerHTML = opts.body; else if (opts.body) body.appendChild(opts.body);
+    var previousFocus = document.activeElement;
+    var handle = {
+      el: dlg, body: body, foot: dlg.querySelector('.dlg-foot'),
+      close: function () {
+        if (!overlay.parentNode) return;
+        overlay.parentNode.removeChild(overlay);
+        document.removeEventListener('keydown', onKey, true);
+        openDialogs.splice(openDialogs.indexOf(handle), 1);
+        if (!openDialogs.length) document.documentElement.classList.remove('dlg-open');
+        if (opts.onClose) opts.onClose();
+        if (previousFocus && previousFocus.focus) previousFocus.focus();
+      }
+    };
+    function onKey(e) {
+      if (openDialogs[openDialogs.length - 1] !== handle) return;
+      if (e.key === 'Escape') { e.stopPropagation(); handle.close(); }
+      if (e.key === 'Tab') { // 焦点留在对话框里
+        var f = dlg.querySelectorAll('button:not([disabled]), input:not([disabled]), select, textarea, [tabindex="0"]');
+        if (!f.length) return;
+        if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+        else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+      }
+    }
+    overlay.addEventListener('mousedown', function (e) { if (e.target === overlay) handle.close(); });
+    dlg.querySelector('.dlg-x').addEventListener('click', handle.close);
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(overlay);
+    document.documentElement.classList.add('dlg-open');
+    openDialogs.push(handle);
+    setTimeout(function () {
+      var first = dlg.querySelector(opts.focus || 'input, select, textarea, button:not(.dlg-x)');
+      if (first) first.focus();
+    }, 0);
+    return handle;
+  }
+  var openMenu = null;
+  function closeMenu() {
+    if (!openMenu) return;
+    openMenu.menu.hidden = true;
+    openMenu.button.setAttribute('aria-expanded', 'false');
+    openMenu = null;
+  }
+  document.addEventListener('mousedown', function (e) {
+    if (openMenu && !openMenu.menu.contains(e.target) && !openMenu.button.contains(e.target)) closeMenu();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && openMenu) { var b = openMenu.button; closeMenu(); b.focus(); }
+  });
+
+  // ---------- 全局工具栏: 周期 | 图表类型 ▾ | ƒx 指标 | 模板 | ⚙ ----------
+  function anyChartHas(tf) {
+    return Object.keys(data).some(function (id) { return hasTf(id, tf); });
+  }
+  function buildToolbar() {
+    var bar = document.getElementById('chart-toolbar');
     if (!bar) return;
     bar.innerHTML =
+      '<div class="tb-tf">' +
       '<button type="button" class="tf-arrow" data-dir="-1" aria-label="向左滚动">‹</button>' +
       '<div class="tf-list" role="tablist" aria-label="K线周期"></div>' +
-      '<button type="button" class="tf-arrow" data-dir="1" aria-label="向右滚动">›</button>' +
-      '<button type="button" class="tf-ind" title="添加指标">ƒx 指标</button>';
+      '<button type="button" class="tf-arrow" data-dir="1" aria-label="向右滚动">›</button></div>' +
+      '<div class="tb-tools">' +
+      '<div class="tb-menu-wrap"><button type="button" class="tb-btn" id="tb-type" aria-haspopup="menu" aria-expanded="false" title="图表类型"></button>' +
+      '<div class="tb-menu" id="tb-type-menu" role="menu" hidden></div></div>' +
+      '<button type="button" class="tb-btn" id="tb-ind" title="指标"><span class="fx">ƒx</span><span class="tb-label">指标</span></button>' +
+      '<button type="button" class="tb-btn" id="tb-tpl" title="指标模板">' + icon('<path d="M3 3h5v5H3zM10 3h5v5h-5zM3 10h5v5H3zM10 10h5v5h-5z"/>') + '<span class="tb-label">模板</span></button>' +
+      '<button type="button" class="tb-btn" id="tb-settings" title="图表设置" aria-label="图表设置">' + ICON_GEAR + '</button>' +
+      '</div>';
     var list = bar.querySelector('.tf-list');
     TIMEFRAMES.forEach(function (tf) {
       var b = document.createElement('button');
@@ -981,15 +1583,8 @@
       b.dataset.tf = tf.id;
       b.textContent = tf.label;
       b.setAttribute('role', 'tab');
-      b.setAttribute('aria-selected', 'false');
-      if (!hasTf(st.id, tf)) {
-        b.disabled = true;
-        b.title = '这次没拿到' + tf.label + '的数据';
-      }
-      b.addEventListener('click', function () {
-        setTimeframe(st, tf);
-        saveJSON(TF_STORAGE_KEY, tf.id);
-      });
+      if (!anyChartHas(tf)) { b.disabled = true; b.title = '这次没拿到' + tf.label + '的数据'; }
+      b.addEventListener('click', function () { applyTimeframe(tf); });
       list.appendChild(b);
     });
     var arrows = bar.querySelectorAll('.tf-arrow');
@@ -997,346 +1592,564 @@
       arrows[0].disabled = list.scrollLeft <= 1;
       arrows[1].disabled = list.scrollLeft + list.clientWidth >= list.scrollWidth - 1;
     }
-    arrows.forEach(function (a) {
-      a.addEventListener('click', function () { list.scrollBy({ left: +a.dataset.dir * list.clientWidth * 0.7 }); });
-    });
+    arrows.forEach(function (a) { a.addEventListener('click', function () { list.scrollBy({ left: +a.dataset.dir * list.clientWidth * 0.7, behavior: 'smooth' }); }); });
     list.addEventListener('scroll', updateArrows, { passive: true });
     new ResizeObserver(updateArrows).observe(list);
-    // 键盘 ← → 在周期之间切换
     list.addEventListener('keydown', function (e) {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
       var btns = Array.prototype.filter.call(list.querySelectorAll('.tf-btn'), function (b) { return !b.disabled; });
-      var cur = btns.indexOf(document.activeElement);
-      var next = btns[cur + (e.key === 'ArrowRight' ? 1 : -1)];
+      var next = btns[btns.indexOf(document.activeElement) + (e.key === 'ArrowRight' ? 1 : -1)];
       if (next) { e.preventDefault(); next.click(); next.focus(); }
     });
-    bar.querySelector('.tf-ind').addEventListener('click', openSettingsPanel);
+
+    var typeBtn = bar.querySelector('#tb-type'), typeMenu = bar.querySelector('#tb-type-menu');
+    typeBtn.addEventListener('click', function () {
+      if (openMenu && openMenu.menu === typeMenu) { closeMenu(); return; }
+      closeMenu();
+      renderTypeMenu();
+      typeMenu.hidden = false;
+      typeBtn.setAttribute('aria-expanded', 'true');
+      openMenu = { menu: typeMenu, button: typeBtn };
+      var cur = typeMenu.querySelector('[aria-checked="true"]');
+      if (cur) cur.focus();
+    });
+    typeMenu.addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      var items = Array.prototype.slice.call(typeMenu.querySelectorAll('[role="menuitemradio"]:not([aria-disabled="true"])'));
+      var i = items.indexOf(document.activeElement);
+      var next = items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+      if (next) { e.preventDefault(); next.focus(); }
+    });
+    bar.querySelector('#tb-ind').addEventListener('click', function () { openIndicatorsDialog('all'); });
+    bar.querySelector('#tb-tpl').addEventListener('click', function () { openIndicatorsDialog('mytpl'); });
+    bar.querySelector('#tb-settings').addEventListener('click', openSettingsDialog);
+    updateToolbar();
   }
-  function initialTimeframe(chartId) {
-    var saved = tfById(loadJSON(TF_STORAGE_KEY, 'D'));
-    if (saved && hasTf(chartId, saved)) return saved;
-    var daily = tfById('D');
-    if (hasTf(chartId, daily)) return daily;
-    for (var i = 0; i < TIMEFRAMES.length; i++) if (hasTf(chartId, TIMEFRAMES[i])) return TIMEFRAMES[i];
-    return null;
-  }
-
-  function renderChart(chartId) {
-    var el = document.getElementById(chartId);
-    if (!el || !LWC || charts[chartId]) return;
-    var tf = initialTimeframe(chartId);
-    if (!tf) return;
-
-    var chart = LWC.createChart(el, {
-      width: el.clientWidth,
-      height: MAIN_PANE_HEIGHT,
-      layout: { background: { color: 'transparent' }, textColor: colors.text, attributionLogo: false }, // 署名放在页脚
-      crosshair: { mode: LWC.CrosshairMode.Normal },
-      timeScale: { rightOffset: 2 },
-      localization: { locale: 'zh-CN', dateFormat: 'yyyy-MM-dd' }
-    });
-    var candle = chart.addSeries(LWC.CandlestickSeries, { borderVisible: true });
-    var volume = chart.addSeries(LWC.HistogramSeries, {
-      priceScaleId: '', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false
-    });
-    volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-    var ema = chart.addSeries(LWC.LineSeries, {
-      lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
-    });
-
-    var st = {
-      id: chartId, el: el, chart: chart, candle: candle, volume: volume, ema: ema,
-      legendsEl: document.getElementById(chartId + '-legends'),
-      tf: null, bars: [], index: {}, entries: [], emaLast: null
-    };
-    charts[chartId] = st;
-    applyBaseColors(st);
-    buildTimeframeBar(st);
-    setTimeframe(st, tf);
-
-    chart.subscribeCrosshairMove(function (param) { onCrosshair(st, param); });
-    if (st.legendsEl) {
-      st.legendsEl.addEventListener('click', function (e) {
-        var btn = e.target.closest('button[data-act]');
-        var row = btn && btn.closest('[data-ind]');
-        if (!row) return;
-        var id = row.getAttribute('data-ind');
-        if (btn.dataset.act === 'del') removeIndicator(id);
-        else moveIndicator(id, btn.dataset.act === 'up' ? -1 : 1);
+  function renderTypeMenu() {
+    var menu = document.getElementById('tb-type-menu');
+    menu.innerHTML = CHART_TYPE_GROUPS.map(function (group) {
+      return '<div class="tb-menu-group">' + group.map(function (t) {
+        var on = t.id === chartType;
+        return '<button type="button" role="menuitemradio" class="tb-menu-item' + (on ? ' on' : '') + '" data-type="' + t.id + '" aria-checked="' + on + '"' +
+          (t.off ? ' aria-disabled="true" title="' + escapeHtml(t.off) + '"' : '') + ' tabindex="-1">' +
+          (ICONS[t.id] || ICONS.other) + '<span>' + t.name + '</span>' + (t.off ? '<small>暂不支持</small>' : '') + '</button>';
+      }).join('') + '</div>';
+    }).join('');
+    menu.querySelectorAll('[data-type]').forEach(function (item) {
+      item.addEventListener('click', function () {
+        var t = chartTypeById(item.dataset.type);
+        if (t.off) { toast(t.name + '：' + t.off); return; }
+        chartType = t.id;
+        saveJSON(CHART_TYPE_KEY, chartType);
+        closeMenu();
+        updateToolbar();
+        rerenderAll();
+        document.getElementById('tb-type').focus();
       });
-    }
-    // 拖动副图之间的分隔线会改变窗格高度，放开后重新对齐图例
-    el.addEventListener('pointerup', function () { requestAnimationFrame(function () { renderLegends(st); }); });
-    new ResizeObserver(function (entries) {
-      chart.resize(entries[0].contentRect.width, el.clientHeight);
-      requestAnimationFrame(function () { renderLegends(st); });
-    }).observe(el);
-  }
-
-  function updateAllChartColors() {
-    Object.keys(charts).forEach(function (id) {
-      var st = charts[id];
-      applyBaseColors(st);
-      st.volume.setData(volumeData(st.bars));
-      renderLegends(st);
     });
   }
-
-  // 懒加载: 图表快滚进可视范围才真正渲染
-  var lazyObserver = 'IntersectionObserver' in window ? new IntersectionObserver(function (entries) {
-    entries.forEach(function (entry) {
-      if (entry.isIntersecting) {
-        renderChart(entry.target.id);
-        lazyObserver.unobserve(entry.target);
+  function updateToolbar() {
+    var bar = document.getElementById('chart-toolbar');
+    if (!bar) return;
+    bar.querySelectorAll('.tf-btn').forEach(function (b) {
+      var on = b.dataset.tf === currentTf.id;
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+      if (on) {
+        var list = b.parentNode; // 只横向滚导航条，不用 scrollIntoView (会连整页一起滚)
+        list.scrollLeft = b.offsetLeft - list.offsetLeft - (list.clientWidth - b.offsetWidth) / 2;
       }
     });
-  }, { rootMargin: '200px 0px' }) : null;
-  Object.keys(data).forEach(function (chartId) {
-    var el = document.getElementById(chartId);
-    if (!el) return;
-    if (lazyObserver) lazyObserver.observe(el);
-    else renderChart(chartId);
-  });
-
-  // ---------- 筛选器模板条 (标题下方那一行小字) ----------
-  function renderTemplateBar() {
-    var nameEl = document.getElementById('tpl-name');
-    var select = document.getElementById('tpl-select');
-    var delBtn = document.getElementById('tpl-del');
-    if (!nameEl || !select) return;
-    var tpl = activeTemplate();
-    if (document.activeElement !== nameEl) nameEl.value = tpl.name;
-    select.innerHTML = templates.list.map(function (t) {
-      return '<option value="' + escapeHtml(t.id) + '"' + (t.id === tpl.id ? ' selected' : '') + '>' +
-        escapeHtml(t.name || '未命名') + ' (' + t.indicators.length + ' 个指标)</option>';
-    }).join('');
-    if (delBtn) delBtn.disabled = false;
+    var t = chartTypeById(chartType);
+    var typeBtn = document.getElementById('tb-type');
+    if (typeBtn) {
+      typeBtn.innerHTML = (ICONS[t.id] || ICONS.other) + '<span class="tb-label">' + t.name + '</span><span class="tb-caret">▾</span>';
+      typeBtn.setAttribute('aria-label', '图表类型：' + t.name);
+    }
   }
-  (function initTemplateBar() {
+  function applyTimeframe(tf) {
+    currentTf = tf;
+    saveJSON(TF_STORAGE_KEY, tf.id);
+    Object.keys(charts).forEach(function (id) { setTimeframe(charts[id], tf); });
+    updateToolbar();
+  }
+
+  // ---------- 指标对话框 (照 TradingView "指标、衡量标准和策略" 的分类) ----------
+  var placement = 'auto'; // 新指标放在哪: 自动 / 主图 / 新副图
+  function paneFor(scale) { return placement === 'auto' ? autoPane(scale) : placement; }
+  var NAV = [
+    { group: '个人', items: [{ id: 'fav', name: '收藏', icon: '★' }, { id: 'scripts', name: '我的脚本', icon: 'ƒ' }] },
+    { group: '模板', items: [{ id: 'mytpl', name: '我的模板', icon: '▦' }, { id: 'builtintpl', name: '内置模板', icon: '▤' }] },
+    { group: '内置', items: [{ id: 'all', name: '技术指标', icon: '∿' }].concat(CATEGORIES.map(function (c) { return { id: c.id, name: c.name, icon: '·', sub: true }; })) }
+  ];
+  function countInTemplate(defId) {
+    return indicators().filter(function (i) { return i.def === defId; }).length;
+  }
+  function addIndicatorFromDef(defId) {
+    var ind = makeIndicator(defId, paneFor(DEF_BY_ID[defId].scale));
+    indicators().push(ind);
+    indicatorsChanged();
+    toast('已添加 ' + indLabel(ind) + (ind.pane === 'sub' ? '（新副图）' : '（主图）'));
+  }
+  function addIndicatorFromScript(sc) {
+    var ind = { id: newId('ind'), def: 'custom', name: sc.name, formula: sc.formula, scale: sc.scale || 'price', params: {},
+      colors: { value: sc.color || '#e8a33d' }, width: 2, pane: paneFor(sc.scale || 'price'), hidden: false };
+    indicators().push(ind);
+    indicatorsChanged();
+    toast('已添加 ' + sc.name);
+  }
+  // 公式用一段假数据试算一次，有错当场提示
+  function testFormula(formula) {
+    formulaValues([1, 2, 3, 4, 5].map(function (v, i) { return { time: i, open: v, high: v + 1, low: v - 1, close: v, volume: 100 }; }), formula);
+  }
+  function openIndicatorsDialog(startView) {
+    var view = startView || 'all';
+    var query = '';
+    var root = document.createElement('div');
+    root.className = 'ind-dlg';
+    root.innerHTML =
+      '<div class="ind-dlg-top">' +
+      '<input type="search" class="ind-search" placeholder="搜索指标、脚本或模板" aria-label="搜索" autocomplete="off">' +
+      '<div class="ind-place" role="radiogroup" aria-label="新指标放在哪里"><span>添加到</span>' +
+      ['auto:自动', 'main:主图', 'sub:新副图'].map(function (x) {
+        var k = x.split(':');
+        return '<button type="button" role="radio" data-place="' + k[0] + '" aria-checked="' + (placement === k[0]) + '">' + k[1] + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="ind-dlg-main"><nav class="ind-nav" aria-label="分类"></nav><div class="ind-pane" tabindex="-1"></div></div>';
+    var nav = root.querySelector('.ind-nav'), pane = root.querySelector('.ind-pane'), search = root.querySelector('.ind-search');
+    nav.innerHTML = NAV.map(function (g) {
+      return '<div class="ind-nav-group"><div class="ind-nav-title">' + g.group + '</div>' + g.items.map(function (it) {
+        return '<button type="button" class="ind-nav-item' + (it.sub ? ' sub' : '') + '" data-view="' + it.id + '"><span class="ind-nav-ico">' + it.icon + '</span>' + it.name + '</button>';
+      }).join('') + '</div>';
+    }).join('');
+    root.querySelectorAll('.ind-place [data-place]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        placement = btn.dataset.place;
+        root.querySelectorAll('.ind-place [data-place]').forEach(function (b) { b.setAttribute('aria-checked', b === btn ? 'true' : 'false'); });
+      });
+    });
+    nav.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-view]');
+      if (!b) return;
+      view = b.dataset.view;
+      search.value = '';
+      query = '';
+      render();
+    });
+    search.addEventListener('input', function () { query = search.value.trim().toLowerCase(); render(); });
+
+    function indRow(def) {
+      var fav = favorites.indexOf(def.id) !== -1, n = countInTemplate(def.id);
+      return '<div class="ind-row" data-def="' + def.id + '">' +
+        '<button type="button" class="ind-star' + (fav ? ' on' : '') + '" data-act="star" aria-label="' + (fav ? '取消收藏' : '收藏') + '" aria-pressed="' + fav + '">' + (fav ? '★' : '☆') + '</button>' +
+        '<button type="button" class="ind-row-main" data-act="add"><span class="ind-row-name">' + escapeHtml(def.name) + '</span>' +
+        (n ? '<span class="ind-badge">已加 ' + n + '</span>' : '') + '</button>' +
+        '<span class="ind-row-cat">' + catName(def.category) + '</span>' +
+        '<span class="ind-row-actions"><button type="button" data-act="info" title="说明" aria-label="说明">{ }</button>' +
+        '<button type="button" data-act="add" title="添加" aria-label="添加 ' + escapeHtml(def.name) + '">＋</button></span>' +
+        '<div class="ind-row-info" hidden>' + escapeHtml(def.desc || '') +
+        (def.inputs.length ? '<br>默认参数：' + def.inputs.map(function (i) { return i.label + ' ' + i.def; }).join('，') : '') +
+        (def.formulas ? '<br><code>' + escapeHtml(Object.keys(def.formulas).map(function (k) { return fillTemplate(def.formulas[k], defaultParams(def)); }).join('  |  ')) + '</code>' : '') +
+        '</div></div>';
+    }
+    function scriptRow(sc, i) {
+      return '<div class="ind-row" data-script="' + i + '">' +
+        '<span class="ind-star static">ƒ</span>' +
+        '<button type="button" class="ind-row-main" data-act="add-script"><span class="ind-row-name">' + escapeHtml(sc.name) + '</span></button>' +
+        '<span class="ind-row-cat"><code>' + escapeHtml(sc.formula) + '</code></span>' +
+        '<span class="ind-row-actions"><button type="button" data-act="add-script" aria-label="添加 ' + escapeHtml(sc.name) + '">＋</button>' +
+        '<button type="button" data-act="del-script" aria-label="从我的脚本删除 ' + escapeHtml(sc.name) + '">' + ICON_TRASH + '</button></span></div>';
+    }
+    function tplRow(t) {
+      var on = t.id === templates.active;
+      return '<div class="ind-row' + (on ? ' active' : '') + '" data-tpl="' + escapeHtml(t.id) + '">' +
+        '<span class="ind-star static">' + (on ? '●' : '○') + '</span>' +
+        '<button type="button" class="ind-row-main" data-act="use-tpl"><span class="ind-row-name">' + escapeHtml(t.name || '未命名') + '</span>' +
+        (on ? '<span class="ind-badge">使用中</span>' : '') + '</button>' +
+        '<span class="ind-row-cat">' + t.indicators.length + ' 个指标：' + escapeHtml(t.indicators.map(indLabel).join('、') || '空') + '</span>' +
+        '<span class="ind-row-actions always">' + (on ? '' : '<button type="button" data-act="use-tpl">使用</button>') +
+        '<button type="button" data-act="del-tpl" aria-label="删除模板 ' + escapeHtml(t.name) + '">' + ICON_TRASH + '</button></span></div>';
+    }
+    function builtinRow(t) {
+      return '<div class="ind-row" data-btpl="' + t.id + '">' +
+        '<span class="ind-star static">▤</span>' +
+        '<button type="button" class="ind-row-main" data-act="use-btpl"><span class="ind-row-name">' + escapeHtml(t.name) + '</span></button>' +
+        '<span class="ind-row-cat">' + escapeHtml(t.desc) + '</span>' +
+        '<span class="ind-row-actions always"><button type="button" data-act="use-btpl">套用</button></span></div>';
+    }
+    function header(title, extra) { return '<div class="ind-pane-head"><h4>' + title + '</h4>' + (extra || '') + '</div>'; }
+    function render() {
+      nav.querySelectorAll('[data-view]').forEach(function (b) { b.classList.toggle('active', !query && b.dataset.view === view); });
+      var html = '';
+      if (query) {
+        var defs = INDICATOR_DEFS.filter(function (d) { return (d.name + ' ' + (d.desc || '') + ' ' + d.id + ' ' + (d.short ? d.short(defaultParams(d)) : '')).toLowerCase().indexOf(query) !== -1; });
+        var scs = scripts.map(function (s, i) { return [s, i]; }).filter(function (x) { return (x[0].name + ' ' + x[0].formula).toLowerCase().indexOf(query) !== -1; });
+        var tps = templates.list.filter(function (t) { return (t.name || '').toLowerCase().indexOf(query) !== -1; });
+        var bts = BUILTIN_TEMPLATES.filter(function (t) { return (t.name + ' ' + t.desc).toLowerCase().indexOf(query) !== -1; });
+        html += header('搜索结果');
+        if (defs.length) html += '<div class="ind-list">' + defs.map(indRow).join('') + '</div>';
+        if (scs.length) html += '<div class="ind-sub-head">我的脚本</div><div class="ind-list">' + scs.map(function (x) { return scriptRow(x[0], x[1]); }).join('') + '</div>';
+        if (tps.length) html += '<div class="ind-sub-head">我的模板</div><div class="ind-list">' + tps.map(tplRow).join('') + '</div>';
+        if (bts.length) html += '<div class="ind-sub-head">内置模板</div><div class="ind-list">' + bts.map(builtinRow).join('') + '</div>';
+        if (!defs.length && !scs.length && !tps.length && !bts.length) html += '<p class="ind-empty">找不到「' + escapeHtml(query) + '」</p>';
+      } else if (view === 'fav') {
+        var favDefs = INDICATOR_DEFS.filter(function (d) { return favorites.indexOf(d.id) !== -1; });
+        html += header('收藏');
+        html += favDefs.length ? '<div class="ind-list">' + favDefs.map(indRow).join('') + '</div>' : '<p class="ind-empty">还没有收藏。在「技术指标」里点指标前面的 ☆ 就会出现在这里。</p>';
+      } else if (view === 'scripts') {
+        html += header('我的脚本');
+        html += '<form class="script-form" novalidate>' +
+          '<label>名称<input type="text" name="name" maxlength="40" placeholder="例如 SMA10" required></label>' +
+          '<label class="grow">公式<input type="text" name="formula" maxlength="300" placeholder="例如 sma(close,10)" spellcheck="false" required></label>' +
+          '<label>颜色<input type="color" name="color" value="#e8a33d"></label>' +
+          '<label>坐标轴<select name="scale"><option value="price">跟价格同轴</option><option value="own">独立 (震荡类)</option><option value="volume">跟成交量同轴</option></select></label>' +
+          '<button type="submit" class="btn-primary">保存并添加</button>' +
+          '<p class="form-error" hidden></p>' +
+          '<p class="hint">变量 <code>close</code> <code>open</code> <code>high</code> <code>low</code> <code>volume</code>；函数 <code>sma</code> <code>ema</code> <code>stdev</code> <code>highest</code> <code>lowest</code> <code>sum</code> <code>rsi</code> <code>atr</code> <code>obv</code> <code>abs</code>；' +
+          '例如 <code>ema(close,12)-ema(close,26)</code></p></form>';
+        html += scripts.length ? '<div class="ind-list">' + scripts.map(scriptRow).join('') + '</div>' : '<p class="ind-empty">还没有保存的脚本。</p>';
+      } else if (view === 'mytpl') {
+        html += header('我的模板', '<div class="head-actions"><button type="button" data-act="save-as">＋ 当前指标另存为新模板</button><button type="button" data-act="new-tpl">＋ 空白模板</button></div>');
+        html += '<p class="hint">筛选器标题下面那行小字就是正在使用的模板名称，点一下可以改名。加、删、调整指标都会自动存进正在使用的模板。</p>';
+        html += '<div class="ind-list">' + templates.list.map(tplRow).join('') + '</div>';
+      } else if (view === 'builtintpl') {
+        html += header('内置模板') + '<p class="hint">套用后会复制成一个新的「我的模板」并切换过去，原来的模板不会被改动。</p>';
+        html += '<div class="ind-list">' + BUILTIN_TEMPLATES.map(builtinRow).join('') + '</div>';
+      } else {
+        var cats = view === 'all' ? CATEGORIES : CATEGORIES.filter(function (c) { return c.id === view; });
+        html += header(view === 'all' ? '技术指标' : catName(view));
+        cats.forEach(function (c) {
+          if (view === 'all') html += '<div class="ind-sub-head">' + c.name + '</div>';
+          html += '<div class="ind-list">' + INDICATOR_DEFS.filter(function (d) { return d.category === c.id; }).map(indRow).join('') + '</div>';
+        });
+      }
+      pane.innerHTML = html;
+      var form = pane.querySelector('.script-form');
+      if (form) form.addEventListener('submit', onScriptSubmit);
+    }
+    function onScriptSubmit(e) {
+      e.preventDefault();
+      var f = e.target, err = f.querySelector('.form-error');
+      var name = f.name.value.trim(), formula = f.formula.value.trim();
+      err.hidden = true;
+      function fail(msg) { err.textContent = msg; err.hidden = false; }
+      if (!name || !formula) return fail('请填写名称和公式');
+      try { testFormula(formula); } catch (ex) { return fail('公式错误：' + ex.message); }
+      var sc = { name: name, formula: formula, color: f.color.value, scale: f.scale.value };
+      scripts.push(sc);
+      saveJSON(SCRIPTS_KEY, scripts);
+      addIndicatorFromScript(sc);
+    }
+    pane.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      var row = btn.closest('.ind-row'), act = btn.dataset.act;
+      if (act === 'add') addIndicatorFromDef(row.dataset.def);
+      else if (act === 'star') {
+        var id = row.dataset.def, k = favorites.indexOf(id);
+        if (k === -1) favorites.push(id); else favorites.splice(k, 1);
+        saveJSON(FAV_KEY, favorites);
+        render();
+      } else if (act === 'info') {
+        var info = row.querySelector('.ind-row-info');
+        info.hidden = !info.hidden;
+      } else if (act === 'add-script') addIndicatorFromScript(scripts[+row.dataset.script]);
+      else if (act === 'del-script') {
+        scripts.splice(+row.dataset.script, 1);
+        saveJSON(SCRIPTS_KEY, scripts);
+        render();
+      } else if (act === 'use-tpl') {
+        templates.active = row.dataset.tpl;
+        indicatorsChanged();
+        toast('已切换到模板「' + activeTemplate().name + '」');
+      } else if (act === 'del-tpl') {
+        var t = null;
+        templates.list.forEach(function (x) { if (x.id === row.dataset.tpl) t = x; });
+        if (!t || !window.confirm('删除模板「' + t.name + '」和里面的 ' + t.indicators.length + ' 个指标？')) return;
+        templates.list = templates.list.filter(function (x) { return x !== t; });
+        if (!templates.list.length) templates.list.push({ id: newId('tpl'), name: DEFAULT_TPL_NAME, indicators: [] });
+        if (!templates.list.some(function (x) { return x.id === templates.active; })) templates.active = templates.list[0].id;
+        indicatorsChanged();
+      } else if (act === 'save-as' || act === 'new-tpl') {
+        var copy = act === 'save-as' ? JSON.parse(JSON.stringify(indicators())).map(function (i) { i.id = newId('ind'); return i; }) : [];
+        var nt = { id: newId('tpl'), name: act === 'save-as' ? activeTemplate().name + ' 副本' : '筛选器 ' + (templates.list.length + 1), indicators: copy };
+        templates.list.push(nt);
+        templates.active = nt.id;
+        indicatorsChanged();
+        toast('已建立模板「' + nt.name + '」，可以在筛选器标题下面改名');
+      } else if (act === 'use-btpl') {
+        var bt = BUILTIN_TEMPLATES.filter(function (x) { return x.id === row.dataset.btpl; })[0];
+        var t2 = { id: newId('tpl'), name: bt.name, indicators: instantiateItems(bt.items) };
+        templates.list.push(t2);
+        templates.active = t2.id;
+        indicatorsChanged();
+        toast('已套用内置模板「' + bt.name + '」');
+      }
+    });
+    onIndicatorsChanged.push(render);
+    render();
+    return openDialog({
+      title: '指标、模板和脚本', body: root, className: 'dlg-ind', focus: '.ind-search',
+      onClose: function () { onIndicatorsChanged.splice(onIndicatorsChanged.indexOf(render), 1); }
+    });
+  }
+
+  // ---------- 单个指标的设置 (点图例上的名称或 ⚙): 输入 / 样式 两页 ----------
+  function openIndicatorSettings(id) {
+    var ind = findIndicator(id);
+    if (!ind) return;
+    var def = defOf(ind), isCustom = def === CUSTOM_DEF;
+    var root = document.createElement('form');
+    root.className = 'ind-set';
+    root.noValidate = true;
+    var inputsHtml = isCustom
+      ? '<label>名称<input type="text" name="name" maxlength="40" value="' + escapeHtml(ind.name || '') + '"></label>' +
+        '<label>公式<textarea name="formula" rows="3" maxlength="300" spellcheck="false">' + escapeHtml(ind.formula || '') + '</textarea></label>' +
+        '<label>坐标轴<select name="scale">' + [['price', '跟价格同轴'], ['own', '独立 (震荡类)'], ['volume', '跟成交量同轴']].map(function (o) {
+          return '<option value="' + o[0] + '"' + (ind.scale === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+        }).join('') + '</select></label>'
+      : def.inputs.length ? def.inputs.map(function (i) {
+        return '<label>' + i.label + '<input type="number" inputmode="decimal" name="p_' + i.key + '" value="' + ind.params[i.key] + '" min="' + i.min + '" max="' + i.max + '" step="' + i.step + '"></label>';
+      }).join('') : '<p class="hint">这个指标没有可以调的参数。</p>';
+    var styleHtml = def.plots.map(function (pl) {
+      var s = '<label class="color-row"><span>' + pl.label + '</span><input type="color" name="c_' + pl.key + '" value="' + plotColor(ind, pl) + '"></label>';
+      if (pl.type === 'hist') s += '<label class="color-row"><span>' + pl.negLabel + '</span><input type="color" name="c_' + pl.key + '_neg" value="' + plotNegColor(ind, pl) + '"></label>';
+      return s;
+    }).join('') +
+      '<label>线宽<select name="width">' + [1, 2, 3, 4].map(function (w) { return '<option value="' + w + '"' + ((ind.width || 2) === w ? ' selected' : '') + '>' + w + ' px</option>'; }).join('') + '</select></label>' +
+      '<div class="seg" role="radiogroup" aria-label="位置"><span>位置</span>' +
+      '<label><input type="radio" name="pane" value="main"' + (ind.pane === 'main' ? ' checked' : '') + '> 主图</label>' +
+      '<label><input type="radio" name="pane" value="sub"' + (ind.pane === 'sub' ? ' checked' : '') + '> 副图</label></div>' +
+      '<label class="check"><input type="checkbox" name="visible"' + (ind.hidden ? '' : ' checked') + '> 在图上显示</label>';
+    root.innerHTML =
+      '<div class="tabs" role="tablist"><button type="button" role="tab" data-tab="in" aria-selected="true">输入</button><button type="button" role="tab" data-tab="st" aria-selected="false">样式</button></div>' +
+      '<div class="tab-page" data-page="in">' + inputsHtml + '</div>' +
+      '<div class="tab-page" data-page="st" hidden>' + styleHtml + '</div>' +
+      '<p class="form-error" hidden></p>' +
+      (def.desc ? '<p class="hint">' + escapeHtml(def.desc) + '</p>' : '');
+    root.querySelectorAll('[data-tab]').forEach(function (t) {
+      t.addEventListener('click', function () {
+        root.querySelectorAll('[data-tab]').forEach(function (x) { x.setAttribute('aria-selected', x === t ? 'true' : 'false'); });
+        root.querySelectorAll('[data-page]').forEach(function (pg) { pg.hidden = pg.dataset.page !== t.dataset.tab; });
+      });
+    });
+    var dlg = openDialog({ title: isCustom ? (ind.name || '自定义公式') : def.name, body: root, footer: true, className: 'dlg-set' });
+    dlg.foot.innerHTML = '<button type="button" data-act="reset">恢复默认</button><span class="grow"></span><button type="button" data-act="cancel">取消</button><button type="button" class="btn-primary" data-act="ok">确定</button>';
+    function err(msg) { var e = root.querySelector('.form-error'); e.textContent = msg; e.hidden = !msg; }
+    dlg.foot.addEventListener('click', function (e) {
+      var act = e.target.dataset && e.target.dataset.act;
+      if (act === 'cancel') dlg.close();
+      else if (act === 'reset') {
+        def.inputs.forEach(function (i) { root.elements['p_' + i.key].value = i.def; });
+        def.plots.forEach(function (pl) {
+          root.elements['c_' + pl.key].value = pl.color;
+          if (pl.type === 'hist') root.elements['c_' + pl.key + '_neg'].value = pl.negColor;
+        });
+        root.elements.width.value = String(def.width || 2);
+      } else if (act === 'ok') save();
+    });
+    root.addEventListener('submit', function (e) { e.preventDefault(); save(); });
+    function save() {
+      var f = root.elements;
+      if (isCustom) {
+        var name = f.name.value.trim(), formula = f.formula.value.trim();
+        if (!name || !formula) return err('请填写名称和公式');
+        try { testFormula(formula); } catch (ex) { return err('公式错误：' + ex.message); }
+        ind.name = name;
+        ind.formula = formula;
+        ind.scale = f.scale.value;
+      } else {
+        var raw = {};
+        def.inputs.forEach(function (i) { raw[i.key] = f['p_' + i.key].value; });
+        ind.params = cleanParams(def, raw);
+      }
+      var cols = {};
+      def.plots.forEach(function (pl) {
+        cols[pl.key] = f['c_' + pl.key].value;
+        if (pl.type === 'hist') cols[pl.key + '_neg'] = f['c_' + pl.key + '_neg'].value;
+      });
+      ind.colors = cols;
+      ind.width = +f.width.value;
+      ind.pane = f.pane.value === 'sub' ? 'sub' : 'main';
+      ind.hidden = !f.visible.checked;
+      dlg.close();
+      indicatorsChanged();
+    }
+  }
+
+  // ---------- 图表设置 (⚙): 颜色 ----------
+  function openSettingsDialog() {
+    var root = document.createElement('div');
+    root.className = 'chart-set';
+    root.innerHTML = '<div class="color-grid">' +
+      [['up', '上涨'], ['down', '下跌'], ['ema', 'EMA 20 / 线形图']].map(function (c) {
+        return '<label class="color-row"><span>' + c[1] + '</span><input type="color" data-key="' + c[0] + '" value="' + colors[c[0]] + '"></label>';
+      }).join('') + '</div>' +
+      '<p class="hint">图表类型、周期、指标和模板在上方工具栏。所有设置只保存在你自己的浏览器里，不影响别人，报告每次更新后也会保留。</p>';
+    var dlg = openDialog({ title: '图表设置', body: root, footer: true, className: 'dlg-set' });
+    dlg.foot.innerHTML = '<button type="button" data-act="reset">恢复默认颜色</button><span class="grow"></span><button type="button" class="btn-primary" data-act="ok">完成</button>';
+    var timer = null;
+    root.querySelectorAll('input[type=color]').forEach(function (input) {
+      input.addEventListener('input', function () {
+        document.documentElement.style.setProperty('--' + input.dataset.key, input.value);
+        colors = computeColors();
+        saveColors();
+        clearTimeout(timer);
+        timer = setTimeout(rerenderAll, 120);
+      });
+    });
+    dlg.foot.addEventListener('click', function (e) {
+      var act = e.target.dataset && e.target.dataset.act;
+      if (act === 'ok') dlg.close();
+      if (act === 'reset') {
+        COLOR_KEYS.forEach(function (k) { document.documentElement.style.removeProperty('--' + k); });
+        try { localStorage.removeItem(COLOR_STORAGE_KEY); } catch (ex) {}
+        colors = computeColors();
+        root.querySelectorAll('input[type=color]').forEach(function (i) { i.value = colors[i.dataset.key]; });
+        rerenderAll();
+      }
+    });
+  }
+
+  // ---------- 筛选器名称 (标题下方那行小字) = 当前模板名称 ----------
+  function renderTemplateName() {
     var nameEl = document.getElementById('tpl-name');
-    var select = document.getElementById('tpl-select');
-    var newBtn = document.getElementById('tpl-new');
-    var delBtn = document.getElementById('tpl-del');
-    if (!nameEl || !select) return;
+    if (nameEl && document.activeElement !== nameEl) nameEl.value = activeTemplate().name;
+  }
+  (function initTemplateName() {
+    var nameEl = document.getElementById('tpl-name');
+    if (!nameEl) return;
     nameEl.addEventListener('input', function () {
       activeTemplate().name = nameEl.value.trim() || DEFAULT_TPL_NAME;
       persist();
-      renderTemplateBar();
     });
     nameEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') nameEl.blur(); });
     nameEl.addEventListener('blur', function () { nameEl.value = activeTemplate().name; });
-    select.addEventListener('change', function () {
-      templates.active = select.value;
-      indicatorsChanged();
-      renderTemplateBar();
-    });
-    newBtn.addEventListener('click', function () {
-      var t = { id: newId('tpl'), name: '筛选器 ' + (templates.list.length + 1), indicators: [] };
-      templates.list.push(t);
-      templates.active = t.id;
-      indicatorsChanged();
-      renderTemplateBar();
-      nameEl.focus();
-      nameEl.select();
-    });
-    delBtn.addEventListener('click', function () {
-      var tpl = activeTemplate();
-      if (!window.confirm('删除模板「' + tpl.name + '」和里面的 ' + tpl.indicators.length + ' 个指标？')) return;
-      templates.list = templates.list.filter(function (t) { return t.id !== tpl.id; });
-      if (!templates.list.length) templates.list.push({ id: newId('tpl'), name: DEFAULT_TPL_NAME, indicators: [] });
-      templates.active = templates.list[0].id;
-      indicatorsChanged();
-      renderTemplateBar();
-    });
-    renderTemplateBar();
+    renderTemplateName();
   })();
 
-  // ---------- 设置面板 ----------
-  var panel = document.getElementById('settings-panel');
-  var toggleBtn = document.getElementById('settings-toggle');
-  function setPanelOpen(open) {
-    if (!panel || !toggleBtn) return;
-    panel.hidden = !open;
-    toggleBtn.setAttribute('aria-expanded', String(open));
-  }
-  function openSettingsPanel() {
-    setPanelOpen(true);
-    if (toggleBtn) toggleBtn.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-  if (toggleBtn) toggleBtn.addEventListener('click', function () { setPanelOpen(panel.hidden); });
-
-  COLOR_KEYS.forEach(function (key) {
-    var input = document.getElementById('color-' + key);
-    if (!input) return;
-    input.value = colors[key];
-    input.addEventListener('input', function () {
-      document.documentElement.style.setProperty('--' + key, input.value);
-      colors = computeColors();
-      updateAllChartColors();
-      saveColors();
-    });
-  });
-  var resetBtn = document.getElementById('color-reset');
-  if (resetBtn) {
-    resetBtn.addEventListener('click', function () {
-      COLOR_KEYS.forEach(function (k) { document.documentElement.style.removeProperty('--' + k); });
-      try { localStorage.removeItem(COLOR_STORAGE_KEY); } catch (e) {}
-      colors = computeColors();
-      COLOR_KEYS.forEach(function (k) {
-        var input = document.getElementById('color-' + k);
-        if (input) input.value = colors[k];
+  // ---------- 卡片轮播: 左右滑 / ‹ › / 股票标签，一次看一支 ----------
+  (function initCarousel() {
+    var track = document.getElementById('car-track');
+    if (!track) return;
+    var cards = Array.prototype.slice.call(track.querySelectorAll('.card'));
+    var chips = Array.prototype.slice.call(document.querySelectorAll('.sym-chip'));
+    var strip = document.querySelector('.sym-list');
+    var prev = document.querySelector('.car-nav.prev'), next = document.querySelector('.car-nav.next');
+    var counter = document.getElementById('car-count');
+    var current = -1;
+    function ensureRendered(i) {
+      [i, i - 1, i + 1].forEach(function (k) {
+        if (cards[k]) renderChart(cards[k].dataset.chart);
       });
-      updateAllChartColors();
-    });
-  }
-
-  // 新指标放在哪: 自动 / 主图 / 新副图
-  var placement = 'auto';
-  var placeBtns = document.querySelectorAll('.ind-place [data-place]');
-  placeBtns.forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      placement = btn.dataset.place;
-      placeBtns.forEach(function (b) { b.setAttribute('aria-checked', b === btn ? 'true' : 'false'); });
-    });
-  });
-  function paneFor(scale) { return placement === 'auto' ? autoPane(scale) : placement; }
-
-  function renderIndicatorList() {
-    var ul = document.getElementById('ind-list');
-    if (!ul) return;
-    var list = indicators();
-    ul.innerHTML = '';
-    if (!list.length) {
-      ul.innerHTML = '<li class="ind-empty">这个模板还没有指标，从上面点一个加进来</li>';
     }
-    list.forEach(function (ind, idx) {
-      var detail = ind.formula || (ind.builtin === 'ichimoku' ? '转换线 / 基准线 / 延迟线 / 先行带A·B + 云' : '内置指标');
-      var li = document.createElement('li');
-      li.innerHTML = '<span class="ind-swatch" style="background:' + escapeHtml(ind.color) + '"></span>' +
-        '<span class="ind-name">' + escapeHtml(ind.name) + '</span>' +
-        '<code class="ind-formula">' + escapeHtml(detail) + '</code>' +
-        '<button type="button" class="ind-pane-toggle" title="切换放在主图还是副图">' + (ind.pane === 'main' ? '主图' : '副图') + '</button>' +
-        '<button type="button" class="ind-move" data-dir="-1" aria-label="上移"' + (neighborIndex(list, idx, -1) === -1 ? ' disabled' : '') + '>↑</button>' +
-        '<button type="button" class="ind-move" data-dir="1" aria-label="下移"' + (neighborIndex(list, idx, 1) === -1 ? ' disabled' : '') + '>↓</button>' +
-        '<button type="button" class="ind-remove" aria-label="删除">×</button>';
-      li.querySelector('.ind-remove').addEventListener('click', function () { removeIndicator(ind.id); });
-      li.querySelector('.ind-pane-toggle').addEventListener('click', function () { togglePane(ind.id); });
-      li.querySelectorAll('.ind-move').forEach(function (b) {
-        b.addEventListener('click', function () { moveIndicator(ind.id, +b.dataset.dir); });
+    function setActive(i) {
+      if (i === current) return;
+      current = i;
+      chips.forEach(function (c, k) {
+        var on = k === i;
+        c.classList.toggle('active', on);
+        c.setAttribute('aria-current', on ? 'true' : 'false');
+        if (on && strip) strip.scrollLeft = c.offsetLeft - strip.offsetLeft - (strip.clientWidth - c.offsetWidth) / 2;
       });
-      ul.appendChild(li);
+      // 看不到的卡片设成 inert: 不能被 Tab 聚焦 (否则焦点跑进去会把轮播横向拖到一半)
+      cards.forEach(function (c, k) { c.inert = k !== i; c.setAttribute('aria-hidden', k === i ? 'false' : 'true'); });
+      if (counter) counter.textContent = (i + 1) + ' / ' + cards.length;
+      if (prev) prev.disabled = i <= 0;
+      if (next) next.disabled = i >= cards.length - 1;
+      ensureRendered(i);
+    }
+    function indexFromScroll() { return Math.max(0, Math.min(cards.length - 1, Math.round(track.scrollLeft / Math.max(1, track.clientWidth)))); }
+    function goTo(i, smooth) {
+      i = Math.max(0, Math.min(cards.length - 1, i));
+      track.scrollTo({ left: i * track.clientWidth, behavior: smooth ? 'smooth' : 'auto' });
+      setActive(i);
+    }
+    var ticking = false;
+    track.addEventListener('scroll', function () {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(function () { ticking = false; setActive(indexFromScroll()); });
+    }, { passive: true });
+    if (prev) prev.addEventListener('click', function () { goTo(current - 1, true); });
+    if (next) next.addEventListener('click', function () { goTo(current + 1, true); });
+    chips.forEach(function (c, k) { c.addEventListener('click', function () { goTo(k, true); }); });
+    document.querySelectorAll('.sym-nav').forEach(function (b) {
+      b.addEventListener('click', function () { if (strip) strip.scrollBy({ left: +b.dataset.dir * strip.clientWidth * 0.7, behavior: 'smooth' }); });
     });
-    renderTemplateBar();
-  }
-
-  var activeCategory = 'trend';
-  function addPresetIndicator(preset) {
-    var ind = {
-      id: newId('ind'),
-      presetId: preset.id,
-      name: preset.name,
-      color: preset.color,
-      scale: preset.scale,
-      pane: paneFor(preset.scale)
-    };
-    if (preset.paneGroup) ind.paneGroup = preset.paneGroup;
-    if (preset.builtin) ind.builtin = preset.builtin;
-    else ind.formula = preset.formula;
-    indicators().push(ind);
-    indicatorsChanged();
-  }
-  function renderPresetGrid() {
-    var wrap = document.getElementById('ind-presets');
-    var customForm = document.getElementById('ind-custom-form');
-    var hint = document.getElementById('ind-formula-hint');
-    if (!wrap || !customForm || !hint) return;
-    var custom = activeCategory === 'custom';
-    wrap.hidden = custom;
-    customForm.hidden = !custom;
-    hint.hidden = !custom;
-    if (custom) return;
-    wrap.innerHTML = '';
-    var added = indicators().map(function (i) { return i.presetId; }).filter(Boolean);
-    INDICATOR_PRESETS.filter(function (p) { return p.category === activeCategory; }).forEach(function (preset) {
-      var isAdded = added.indexOf(preset.id) !== -1;
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'ind-preset-btn' + (isAdded ? ' added' : '');
-      btn.innerHTML = '<span class="ind-swatch" style="background:' + preset.color + '"></span>' + escapeHtml(preset.name) + (isAdded ? ' ✓' : '');
-      if (isAdded) btn.disabled = true;
-      else btn.addEventListener('click', function () { addPresetIndicator(preset); });
-      wrap.appendChild(btn);
+    track.addEventListener('keydown', function (e) {
+      if (e.target !== track) return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(current - 1, true); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); goTo(current + 1, true); }
     });
-  }
-  var indTabs = document.querySelectorAll('.ind-tab');
-  indTabs.forEach(function (tab) {
-    tab.addEventListener('click', function () {
-      activeCategory = tab.dataset.cat;
-      indTabs.forEach(function (t) { t.classList.toggle('active', t === tab); });
-      renderPresetGrid();
-    });
-  });
+    // 窗口大小变了 (手机转横屏等)，停在同一张卡片上
+    var lastW = track.clientWidth;
+    new ResizeObserver(function () {
+      if (track.clientWidth === lastW) return;
+      lastW = track.clientWidth;
+      if (current >= 0) track.scrollLeft = current * track.clientWidth;
+    }).observe(track);
+    if (cards.length) {
+      // 懒加载: 轮播区快滚进屏幕才画第一张图
+      if ('IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+          if (entries.some(function (e) { return e.isIntersecting; })) { setActive(indexFromScroll()); io.disconnect(); }
+        }, { rootMargin: '300px 0px' });
+        io.observe(track);
+      } else {
+        setActive(0);
+      }
+    }
+  })();
 
-  var addBtn = document.getElementById('ind-add');
-  if (addBtn) {
-    addBtn.addEventListener('click', function () {
-      var nameEl = document.getElementById('ind-name');
-      var formulaEl = document.getElementById('ind-formula');
-      var colorEl = document.getElementById('ind-color');
-      var errEl = document.getElementById('ind-error');
-      errEl.hidden = true;
-      function fail(msg) { errEl.textContent = msg; errEl.hidden = false; }
-      var name = nameEl.value.trim(), formula = formulaEl.value.trim();
-      if (!name || !formula) return fail('请填写名称和公式');
-      if (formula.length > 300) return fail('公式太长了');
-      // 先拿一段假数据试算一次，公式有错当场提示，不会存进模板
-      try {
-        formulaValues([1, 2, 3, 4, 5].map(function (v, i) { return { time: i, open: v, high: v + 1, low: v - 1, close: v, volume: 100 }; }), formula);
-      } catch (e) { return fail('公式错误: ' + e.message); }
-      // 自定义公式按"自动"时放主图、跟价格同轴 (大多数人写的是均线类)
-      indicators().push({ id: newId('ind'), name: name, formula: formula, color: colorEl.value, scale: 'price', pane: paneFor('price') });
-      indicatorsChanged();
-      nameEl.value = '';
-      formulaEl.value = '';
-    });
-  }
+  buildToolbar();
 
-  renderIndicatorList();
-  renderPresetGrid();
-
-  // ---------- "其余股票"表格: 点表头排序 + 搜索 ----------
+  // ---------- "其余股票"表格: 点表头排序 + 手机上的排序下拉框 + 搜索 ----------
   var table = document.getElementById('watchlist-table');
   if (table) {
     var tbody = table.querySelector('tbody');
     var ths = Array.prototype.slice.call(table.querySelectorAll('th'));
+    var sortSelect = document.getElementById('table-sort');
+    function sortBy(idx, asc) {
+      var th = ths[idx], type = th.dataset.type;
+      var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+      rows.sort(function (a, b) {
+        var ac = a.children[idx], bc = b.children[idx];
+        var av = ac.dataset.value !== undefined ? ac.dataset.value : ac.textContent;
+        var bv = bc.dataset.value !== undefined ? bc.dataset.value : bc.textContent;
+        if (type === 'num') { av = parseFloat(av); bv = parseFloat(bv); }
+        if (av < bv) return asc ? -1 : 1;
+        if (av > bv) return asc ? 1 : -1;
+        return 0;
+      });
+      // 用 DocumentFragment 一次性批量搬运，比逐行 appendChild 少触发几次重排
+      var frag = document.createDocumentFragment();
+      rows.forEach(function (r) { frag.appendChild(r); });
+      tbody.appendChild(frag);
+      ths.forEach(function (other) {
+        var arrow = other.querySelector('.arrow');
+        if (arrow) arrow.textContent = '';
+        other.removeAttribute('aria-sort');
+      });
+      var currentArrow = th.querySelector('.arrow');
+      if (currentArrow) currentArrow.textContent = asc ? '▲' : '▼';
+      th.setAttribute('aria-sort', asc ? 'ascending' : 'descending');
+      if (sortSelect) sortSelect.value = idx + ':' + (asc ? 'asc' : 'desc');
+    }
     ths.forEach(function (th, idx) {
       if (th.dataset.type === 'none') return; // 序号、走势图这两列不排序
-      var asc = true;
+      var asc = false; // 第一次点 = 升序；默认按成交量降序排着，所以点"成交量"也是先变升序
       th.addEventListener('click', function () {
-        var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
-        var type = th.dataset.type;
-        rows.sort(function (a, b) {
-          var ac = a.children[idx], bc = b.children[idx];
-          var av = ac.dataset.value !== undefined ? ac.dataset.value : ac.textContent;
-          var bv = bc.dataset.value !== undefined ? bc.dataset.value : bc.textContent;
-          if (type === 'num') { av = parseFloat(av); bv = parseFloat(bv); }
-          if (av < bv) return asc ? -1 : 1;
-          if (av > bv) return asc ? 1 : -1;
-          return 0;
-        });
-        // 用 DocumentFragment 一次性批量搬运，比逐行 appendChild 少触发几次重排
-        var frag = document.createDocumentFragment();
-        rows.forEach(function (r) { frag.appendChild(r); });
-        tbody.appendChild(frag);
-        ths.forEach(function (other) {
-          var arrow = other.querySelector('.arrow');
-          if (arrow) arrow.textContent = '';
-        });
-        var currentArrow = th.querySelector('.arrow');
-        if (currentArrow) currentArrow.textContent = asc ? '▲' : '▼';
         asc = !asc;
+        sortBy(idx, asc);
       });
     });
+    if (sortSelect) {
+      sortSelect.addEventListener('change', function () {
+        var v = sortSelect.value.split(':');
+        sortBy(+v[0], v[1] === 'asc');
+      });
+    }
 
     var filterInput = document.getElementById('table-filter');
     var countEl = document.getElementById('table-count');
