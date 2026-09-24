@@ -1080,6 +1080,13 @@
   function isPhone() { return window.innerWidth < 640; }
   function mainPaneHeight() { return isPhone() ? 300 : 440; }
   function subPaneHeight() { return isPhone() ? 110 : 140; }
+  // 完整图表对话框里的主图是正方形 (data-square)：高 = 宽，限制在 260–720px
+  function mainHeightOf(el) {
+    return el && el.dataset.square ? Math.max(260, Math.min(720, Math.round(el.clientWidth))) : mainPaneHeight();
+  }
+  // 手机 (没有鼠标): 在图表上下滑 = 滑动整个页面 (图表只接左右拖动)；右边价格轴不能拖动缩放，
+  // 不然用拇指在右边滑页面时老是误触把价格轴拉歪
+  var TOUCH_ONLY = !!(window.matchMedia && window.matchMedia('(hover: none)').matches);
 
   function volumeData(bars) {
     return bars.map(function (b) {
@@ -1280,12 +1287,15 @@
       st.entries.push(entry);
     });
 
-    var panes = chart.panes();
-    var mainH = mainPaneHeight(), subH = subPaneHeight();
+    layoutPanes(st);
+  }
+  function layoutPanes(st) {
+    var panes = st.chart.panes();
+    var mainH = mainHeightOf(st.el), subH = subPaneHeight();
     var height = mainH + subH * (panes.length - 1);
     panes.forEach(function (pane, i) { pane.setStretchFactor(i === 0 ? mainH : subH); });
     st.el.style.height = height + 'px';
-    chart.resize(st.el.clientWidth, height);
+    st.chart.resize(st.el.clientWidth, height);
     requestAnimationFrame(function () { renderLegends(st); });
   }
 
@@ -1428,13 +1438,15 @@
     if (!el || !LWC || charts[chartId] || !data[chartId]) return;
     var chart = LWC.createChart(el, {
       width: el.clientWidth,
-      height: mainPaneHeight(),
+      height: mainHeightOf(el),
       layout: { background: { color: 'transparent' }, textColor: colors.text, attributionLogo: false, // 署名放在页脚
         panes: { separatorColor: colors.grid, separatorHoverColor: colors.grid } },
       grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
       rightPriceScale: { borderColor: colors.grid },
       timeScale: { borderColor: colors.grid, rightOffset: 2 },
       crosshair: { mode: LWC.CrosshairMode.Normal },
+      handleScroll: { vertTouchDrag: !TOUCH_ONLY },
+      handleScale: { axisPressedMouseMove: { time: true, price: !TOUCH_ONLY } },
       localization: { locale: 'zh-CN', dateFormat: 'yyyy-MM-dd' }
     });
     var st = { id: chartId, el: el, chart: chart, legendsEl: document.getElementById(chartId + '-legends'),
@@ -1476,6 +1488,7 @@
       var w = entries[0].contentRect.width;
       if (!w || w === st.lastWidth) return;
       st.lastWidth = w;
+      if (el.dataset.square) { layoutPanes(st); return; } // 正方形主图: 宽度变了高度也要跟着变
       chart.resize(w, el.clientHeight);
       requestAnimationFrame(function () { renderLegends(st); });
     });
@@ -2190,17 +2203,20 @@
     root.className = 'stock-view';
     root.innerHTML =
       (opts.headHtml ? '<div class="sv-head">' + opts.headHtml + '</div>' : '') +
+      // 电脑: 左边正方形K线图，右边财报，下面新闻；手机: 从上到下排，图表右边留一条滑动页面用的空白
+      '<div class="sv-grid"><section class="sv-chart" aria-label="K线图">' +
       '<div class="sv-toolbar"><div class="tf-list sv-tf" role="tablist" aria-label="K线周期"></div>' +
       '<button type="button" class="tb-btn sv-ind" title="指标"><span class="fx">ƒx</span><span class="tb-label">指标</span></button></div>' +
       '<p class="tf-note" id="' + id + '-tfnote" hidden></p>' +
       '<p class="sv-msg hint">图表载入中…</p>' +
-      '<div class="chart-wrap"><div id="' + id + '" class="chart"></div><div class="chart-legends" id="' + id + '-legends"></div></div>' +
-      '<div class="quote"><div class="quote-live" id="' + id + '-live"></div></div>' +
+      '<div class="chart-wrap"><div id="' + id + '" class="chart" data-square="1"></div><div class="chart-legends" id="' + id + '-legends"></div></div>' +
+      '<div class="quote"><div class="quote-live" id="' + id + '-live"></div></div></section>' +
       '<section class="fin" aria-label="财务报表"><div class="fin-head"><h4>财务报表</h4>' +
       '<div class="tabs fin-tabs" role="tablist"><button type="button" role="tab" data-fin="quarterly" aria-selected="true">近 4 季</button>' +
       '<button type="button" role="tab" data-fin="annual" aria-selected="false">近 2 年 (年报)</button></div></div>' +
       '<div class="fin-body"><p class="hint">财报载入中…</p></div>' +
-      '<p class="hint fin-foot"></p></section>';
+      '<p class="hint fin-foot"></p></section></div>' +
+      '<section class="news" aria-label="最近新闻"><h4>最近新闻</h4><div class="news-body"><p class="hint">新闻载入中…</p></div></section>';
     var dlg = openDialog({
       title: opts.name + '  ' + opts.code, body: root, className: 'dlg-stock', focus: '.dlg-x',
       onClose: function () { destroyChart(id); delete data[id]; }
@@ -2231,6 +2247,7 @@
       root.querySelector('.sv-toolbar').hidden = true;
     });
     showFinancials(opts.code, detail, root.querySelector('.fin'));
+    showNews(opts.code, root.querySelector('.news-body'));
     return dlg;
   }
   function buildModalTimeframes(root, id) {
@@ -2390,6 +2407,38 @@
     });
   }
 
+  // ---------- 个股新闻: docs/news/<代码>.json (后台半天更新一次，只有标题 + 来源 + 原文链接) ----------
+  function timeAgo(ts) {
+    if (!ts) return '';
+    var s = Date.now() / 1000 - ts;
+    if (s < 3600) return Math.max(1, Math.round(s / 60)) + ' 分钟前';
+    if (s < 86400) return Math.round(s / 3600) + ' 小时前';
+    if (s < 86400 * 30) return Math.round(s / 86400) + ' 天前';
+    return new Date(ts * 1000).toISOString().slice(0, 10);
+  }
+  function showNews(code, box) {
+    fetch('news/' + encodeURIComponent(code) + '.json', { cache: 'no-cache' }).then(function (r) {
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (n) {
+      if (!n) { box.innerHTML = '<p class="hint">这支股票的新闻还没抓到，后台每次运行补一批，通常一天内会补齐。</p>'; return; }
+      if (!n.items || !n.items.length) {
+        box.innerHTML = '<p class="hint">最近 90 天没有找到这家公司的新闻 (' + escapeHtml(n.fetched_at.slice(0, 16).replace('T', ' ')) + ' 查过)。</p>';
+        return;
+      }
+      box.innerHTML = '<ul class="news-list">' + n.items.map(function (it) {
+        var when = timeAgo(it.time);
+        return '<li><a href="' + escapeHtml(it.link) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(it.title) + '</a>' +
+          '<span class="news-meta">' + escapeHtml(it.source || '') + (it.source && when ? ' · ' : '') +
+          (it.time ? '<time datetime="' + new Date(it.time * 1000).toISOString() + '">' + when + '</time>' : '') + '</span></li>';
+      }).join('') + '</ul><p class="hint news-foot">新闻标题来自 ' + escapeHtml(n.source || 'Google News') +
+        ' (按公司名称搜索，偶尔会混进同名的其他新闻)，点标题看原文；' + escapeHtml(n.fetched_at.slice(0, 16).replace('T', ' ')) + ' 更新。</p>';
+    }).catch(function (e) {
+      box.innerHTML = '<p class="hint">新闻载入失败：' + escapeHtml(e.message) + '</p>';
+    });
+  }
+
   // 筛选器卡片上加一个"完整图表 · 财报"按钮 (卡片里本来就有多周期K线，这里主要是看财报)
   document.querySelectorAll('.card[data-chart]').forEach(function (card) {
     var tags = card.querySelector('.card-tags');
@@ -2465,7 +2514,13 @@
         (change ? '<span class="' + change.className.replace(/\b(num|col-change)\b/g, '').trim() + '">' + escapeHtml(change.textContent) + '</span>' : '') + '</span>';
       openStockModal({ code: tr.dataset.code, name: tr.dataset.name || tr.dataset.code, headHtml: head });
     }
-    tbody.addEventListener(touchOnly ? 'click' : 'dblclick', function (e) { openRow(e.target.closest('tr')); });
+    // 手机上页面还在惯性滑动时，手指按下去是想停下来，不是想打开 → 滑动停下 400ms 内的点击不算
+    var lastScroll = 0;
+    window.addEventListener('scroll', function () { lastScroll = Date.now(); }, { passive: true });
+    tbody.addEventListener(touchOnly ? 'click' : 'dblclick', function (e) {
+      if (touchOnly && Date.now() - lastScroll < 400) return;
+      openRow(e.target.closest('tr'));
+    });
     tbody.addEventListener('keydown', function (e) { if (e.key === 'Enter') openRow(e.target.closest('tr')); });
 
     var filterInput = document.getElementById('table-filter');
