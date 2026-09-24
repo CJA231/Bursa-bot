@@ -56,7 +56,7 @@ def build_rows(stocks):
             "成交量": int(d["volume"]),
             "相对量": _num(d.get("rel_volume"), 2),
             "RSI": _num(d.get("rsi"), 2),   # 价格 14 天都没动的股票 RSI 是 NaN (0/0)
-            "SAR": "多头" if d["sar_bullish_now"] else "空头",
+            "SAR": "—" if d.get("sar_bullish_now") is None else ("多头" if d["sar_bullish_now"] else "空头"),
             "EMA20": _num(d.get("ema20_latest"), 3),
             "50日均线": _num(d.get("sma50"), 3),
             "信号": s.get("reason") or "",

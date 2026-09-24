@@ -133,8 +133,8 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             # 获取过去 6 个月的数据以计算均线
             df = stock.history(period="6mo")
 
-            if len(df) < 50:
-                print(f"数据不足: {symbol}")
+            if df is None or df.empty:
+                print(f"没有数据: {symbol}")
                 return None
 
             # 成交量门槛放在算指标之前：实测 1070 支里约 3/4 会因为成交量不足被丢掉，
@@ -148,20 +148,32 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                     return {"symbol": symbol, "low_volume": True, "close": round(last_close, 3),
                             "volume": last_volume, "threshold": threshold}
 
-            # 计算技术指标 (RSI、均线、EMA20、Parabolic SAR)
-            df.ta.rsi(length=14, append=True)
-            df.ta.sma(length=50, append=True)
-            df.ta.ema(length=20, append=True)
-            df.ta.psar(append=True)
+            # 新上市的股票历史很短也照样处理 (9/24 用户要求：不足 90 天一样按成交量门槛筛选，以前 < 50 天直接丢掉)。
+            # 天数不够算的指标留空 (None)：RSI 要 15 天、EMA20 要 20 天、50日均线要 50 天、SAR 要 2 天。
+            # 这种股票照样进"其余股票"表格；信号要 EMA20 + T3 形态，至少 26 天左右才可能命中。
+            history_days = len(df)
+            for name, kwargs in (("rsi", {"length": 14}), ("sma", {"length": 50}), ("ema", {"length": 20}), ("psar", {})):
+                try:
+                    getattr(df.ta, name)(append=True, **kwargs)
+                except Exception:
+                    pass  # 天数太少 pandas_ta 可能直接报错，当作算不出来
 
             # PSAR 在多头/空头趋势下分别写入不同的列，合并成单一数值方便比较
-            psar_long_col = next(c for c in df.columns if c.startswith("PSARl"))
-            psar_short_col = next(c for c in df.columns if c.startswith("PSARs"))
-            df["PSAR"] = df[psar_long_col].combine_first(df[psar_short_col])
+            psar_long_col = next((c for c in df.columns if c.startswith("PSARl")), None)
+            psar_short_col = next((c for c in df.columns if c.startswith("PSARs")), None)
+            if psar_long_col and psar_short_col:
+                df["PSAR"] = df[psar_long_col].combine_first(df[psar_short_col])
 
-            #以此获取最新一天的数值
-            latest = df.iloc[-1]
-            prev = df.iloc[-2]
+            def value(col, i=-1, ndigits=3):
+                """某一列第 i 行的值；列不存在、天数不够或 NaN 都返回 None"""
+                if col not in df.columns or len(df) < -i:
+                    return None
+                v = df[col].iloc[i]
+                return None if pd.isna(v) else round(float(v), ndigits)
+
+            close = value("Close")
+            prev_close = value("Close", -2, 6)
+            psar_now, psar_prev = value("PSAR"), value("PSAR", -2)
 
             # 供 K 线图使用的历史数据 (最近 CHART_HISTORY_DAYS 个交易日)
             chart_df = df.tail(CHART_HISTORY_DAYS)
@@ -179,33 +191,36 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             ema20 = [
                 {"time": idx.strftime("%Y-%m-%d"), "value": round(row["EMA_20"], 3)}
                 for idx, row in chart_df.iterrows()
-                if pd.notna(row["EMA_20"])
+                if "EMA_20" in chart_df.columns and pd.notna(row["EMA_20"])
             ]
-            # SAR 整条序列也传给前端，给报告页面里的"SAR"预设指标画图用
-            # (策略判断只用得上最新一天的 sar_bullish_now，但画图需要整条历史)
+            # SAR 整条序列也传给前端 (策略判断只用得上最新一天的 sar_bullish_now，但画图需要整条历史)
             psar_series = [
                 {"time": idx.strftime("%Y-%m-%d"), "value": round(row["PSAR"], 3)}
                 for idx, row in chart_df.iterrows()
-                if pd.notna(row["PSAR"])
+                if "PSAR" in chart_df.columns and pd.notna(row["PSAR"])
             ]
 
             # 相对成交量 = 今天成交量 / 前 20 个交易日平均成交量 (不含今天)，跟 TradingView 的 "相对成交量" 同一个意思
+            # (新股不足 20 天就用现有的那几天平均；上市第一天没有前一天，就没有相对量)
             vol_avg20 = df["Volume"].iloc[-21:-1].mean()
-            rel_volume = round(latest['Volume'] / vol_avg20, 2) if vol_avg20 and pd.notna(vol_avg20) else None
+            last_volume = int(df["Volume"].iloc[-1])
+            rel_volume = round(last_volume / vol_avg20, 2) if vol_avg20 and pd.notna(vol_avg20) else None
 
             return {
                 "symbol": symbol,
-                "close": round(latest['Close'], 3),
-                "rsi": round(latest['RSI_14'], 2),
-                "sma50": round(latest['SMA_50'], 3),
-                "prev_close": prev['Close'],
-                "prev_sma50": prev['SMA_50'],
-                "ema20_latest": round(latest['EMA_20'], 3),
-                "sar_bullish_now": latest['Close'] > latest['PSAR'],
-                "sar_bullish_prev": prev['Close'] > prev['PSAR'],
+                "close": close,
+                "rsi": value("RSI_14", ndigits=2),
+                "sma50": value("SMA_50"),
+                "prev_close": prev_close,
+                "prev_sma50": value("SMA_50", -2),
+                "ema20_latest": value("EMA_20"),
+                # None = 天数不够算 SAR
+                "sar_bullish_now": close > psar_now if psar_now is not None else None,
+                "sar_bullish_prev": prev_close > psar_prev if psar_prev is not None and prev_close is not None else None,
                 "t3_pattern": detect_t3_pattern(df),
-                "volume": int(latest['Volume']),
+                "volume": last_volume,
                 "rel_volume": rel_volume,
+                "history_days": history_days,
                 "candles": candles,
                 "ema20": ema20,
                 "psar": psar_series,
@@ -304,6 +319,22 @@ def build_sparkline(values, baseline=None, width=72, height=24):
             f'preserveAspectRatio="none" aria-hidden="true">{base_line}<polyline points="{points}"/></svg>')
 
 
+def sar_pill_html(bullish):
+    """SAR 多空标签；None = 天数太少算不出来 (新上市第一天)"""
+    if bullish is None:
+        return "—"
+    return '<span class="pill pill-up">多头</span>' if bullish else '<span class="pill pill-down">空头</span>'
+
+
+def history_badge(data):
+    """历史不到 CHART_HISTORY_DAYS (90) 个交易日的股票 (多半是新上市) 标一个"N天"，提醒部分指标算不出来"""
+    days = data.get("history_days")
+    if not days or days >= CHART_HISTORY_DAYS:
+        return ""
+    return (f'<span class="new-badge" title="只有 {days} 个交易日的数据 (多半是新上市)，'
+            f'天数不够的指标显示 —">{days}天</span>')
+
+
 def fmt_num(v, pattern, missing="—"):
     """数字格式化；None / NaN 显示成 "—"。价格 14 天没动的股票 RSI 会是 NaN (0/0)，以前表格里直接显示 "nan"。"""
     if v is None or (isinstance(v, float) and v != v):
@@ -330,7 +361,8 @@ def check_strategy(data):
     在这里修改你的筛选条件
     返回: (是否符合, 原因)
     """
-    if not (data['close'] > data['ema20_latest']):
+    # 新股天数不够时 EMA20 / SAR 是 None，直接不算命中 (照样会进表格)
+    if data['ema20_latest'] is None or not (data['close'] > data['ema20_latest']):
         return False, None
 
     if not data['sar_bullish_now']:
@@ -384,7 +416,7 @@ def ask_deepseek(data, reason):
 基本数据:
 - 现价: RM {data['close']}
 - RSI (14): {data['rsi']}
-- 50日均线: RM {data['sma50']}"""
+- 50日均线: {f"RM {data['sma50']}" if data['sma50'] is not None else "数据不足 (新上市，不到 50 个交易日)"}"""
 
     try:
         response = client.chat.completions.create(
@@ -613,6 +645,10 @@ TABLE_CSS = """
     vertical-align: middle;
   }
   .stock-code { color: var(--muted); font-size: 0.7rem; vertical-align: middle; }
+  .new-badge {
+    display: inline-block; margin-left: 0.35rem; padding: 0 0.3rem; border-radius: 3px; vertical-align: middle;
+    font-size: 0.64rem; font-weight: 600; color: var(--ema); border: 1px solid color-mix(in srgb, var(--ema) 50%, transparent);
+  }
   .unit { color: var(--muted); font-size: 0.65em; margin-left: 2px; }
   .spark-cell { padding-top: 0.15rem; padding-bottom: 0.15rem; width: 18%; }
   .spark { display: block; width: 100%; min-width: 72px; max-width: 220px; height: 28px; }
@@ -1084,20 +1120,26 @@ def build_html_report(stocks, downloads=None):
                 f'<td class="num col-relvol{" relvol-high" if rel_vol >= 2 else ""}" data-label="相对量" data-value="{rel_vol}">{rel_vol:.2f}</td>'
                 if rel_vol is not None else '<td class="num col-relvol" data-label="相对量" data-value="-1">—</td>'
             )
-            sar_pill = '<span class="pill pill-up">多头</span>' if data["sar_bullish_now"] else '<span class="pill pill-down">空头</span>'
-            ema_class = "change-up" if data["close"] > data["ema20_latest"] else "change-down"
+            sar_pill = sar_pill_html(data["sar_bullish_now"])
+            sar_value = -1 if data["sar_bullish_now"] is None else int(data["sar_bullish_now"])
+            ema = data["ema20_latest"]
+            ema_cell = (
+                f'<td class="num col-ema {"change-up" if data["close"] > ema else "change-down"}" data-label="EMA20" data-value="{ema}">{ema:.3f}</td>'
+                if ema is not None else '<td class="num col-ema" data-label="EMA20" data-value="-1">—</td>'
+            )
+            new_badge = history_badge(data)
 
             table_rows.append((data["volume"], f"""<tr data-search="{code} {name.lower()}">
                 <td class="idx-cell"></td>
-                <td class="stock-cell" data-value="{name}"><span class="ticker">{name}</span><span class="stock-code">{code}</span></td>
+                <td class="stock-cell" data-value="{name}"><span class="ticker">{name}</span><span class="stock-code">{code}</span>{new_badge}</td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
                 <td class="num col-price" data-value="{data['close']}">{data['close']:.3f}<span class="unit">MYR</span></td>
                 <td class="num col-change {change_class}" data-value="{change_pct}">{change_sign}{change_pct:.2f}%</td>
                 <td class="num col-vol" data-label="成交量" data-value="{data['volume']}">{fmt_volume(data['volume'])}</td>
                 {rel_vol_cell}
                 <td class="num col-rsi" data-label="RSI" data-value="{fmt_num(data['rsi'], '{}', '-1')}">{fmt_num(data['rsi'], '{:.1f}')}</td>
-                <td class="col-sar" data-label="SAR" data-value="{1 if data['sar_bullish_now'] else 0}">{sar_pill}</td>
-                <td class="num col-ema {ema_class}" data-label="EMA20" data-value="{data['ema20_latest']}">{data['ema20_latest']:.3f}</td>
+                <td class="col-sar" data-label="SAR" data-value="{sar_value}">{sar_pill}</td>
+                {ema_cell}
             </tr>"""))
             continue
 
@@ -1122,7 +1164,7 @@ def build_html_report(stocks, downloads=None):
         # 筛选条件做成一行小标签 (不带表情符号)，例如 "EMA20多头 · SAR多头 · T3形态突破"
         tags = " · ".join(part.strip() for part in s["reason"].replace("🎯", "").split("+") if part.strip())
         rel_vol = data.get("rel_volume")
-        sar_pill = '<span class="pill pill-up">多头</span>' if data["sar_bullish_now"] else '<span class="pill pill-down">空头</span>'
+        sar_pill = sar_pill_html(data["sar_bullish_now"])
         quote_items = [
             ("成交量", fmt_volume(data["volume"])),
             ("相对量", f"{rel_vol:.2f}×" if rel_vol is not None else "—"),
@@ -1138,7 +1180,7 @@ def build_html_report(stocks, downloads=None):
                      f'''<span class="sym-price">{data['close']:.3f}</span><span class="{change_class}">{sign}{change_pct:.2f}%</span></button>''')
         cards.append(f"""<section class="card" data-chart="{chart_id}" aria-roledescription="卡片" aria-label="{html.escape(s['name'])} {code}">
             <div class="card-head">
-                <h2>{html.escape(s['name'])} <span class="code">{code}</span></h2>
+                <h2>{html.escape(s['name'])} <span class="code">{code}</span>{history_badge(data)}</h2>
                 <div class="card-price"><b>{data['close']:.3f}</b> <span class="{change_class}">{sign}{change:.3f} ({sign}{change_pct:.2f}%)</span></div>
             </div>
             <p class="card-tags">{html.escape(tags)}</p>
@@ -1361,12 +1403,14 @@ def prefetch_quotes():
     """
     用 Yahoo screener 几个请求 (每页 250 支) 拿到全马股票的现价 + 当日成交量，
     成交量不够门槛的股票就不用再去下载 6 个月历史了 (实测约 70% 的股票会被门槛挡掉)。
-    返回 {symbol: (price, volume)}；screener 出错就返回空 dict，调用方会退回"逐支下载历史再判断"。
+    返回 (quotes, equities)：quotes = {symbol: (price, volume)}；equities = {symbol: 名称}，只算普通股
+    (跟 scripts/fetch_watchlist.py 同一个规则)，用来找出清单里还没有的新上市股票。
+    screener 出错就返回两个空 dict，调用方会退回"逐支下载历史再判断"。
     """
     try:
         from yfinance import EquityQuery
         query = EquityQuery("eq", ["region", "my"])
-        quotes, offset = {}, 0
+        quotes, equities, offset = {}, {}, 0
         for _ in range(20):  # 安全上限
             result = yf.screen(query, offset=offset, size=SCREENER_PAGE_SIZE, sortField="ticker", sortAsc=True)
             page = result.get("quotes", [])
@@ -1374,13 +1418,35 @@ def prefetch_quotes():
                 symbol, price, volume = q.get("symbol"), q.get("regularMarketPrice"), q.get("regularMarketVolume")
                 if symbol and price is not None and volume is not None:
                     quotes[symbol] = (round(float(price), 3), int(volume))
+                if symbol and q.get("quoteType") == "EQUITY":
+                    equities[symbol] = q.get("shortName") or q.get("longName") or symbol
             offset += SCREENER_PAGE_SIZE
             if not page or offset >= result.get("total", 0):
                 break
-        return quotes
+        return quotes, equities
     except Exception as e:
         print(f"⚠️ screener 预筛选失败 ({e})，改为逐支下载历史数据再判断成交量")
-        return {}
+        return {}, {}
+
+
+def build_scan_list(equities):
+    """
+    扫描范围 = data/watchlist.json 清单 + screener 里有、清单里还没有的普通股 (多半是新上市)。
+    清单只有手动跑 scripts/fetch_watchlist.py 才会更新，以前新股要等有人更新清单才会被扫描到。
+    另外新股刚上市时 Yahoo 还没有名称，清单里名字就是代码 (例如 0468.KL)，这里顺便换成 screener 的新名称。
+    """
+    scan, known = [], set()
+    for item in WATCHLIST:
+        name = item["name"]
+        if name == item["symbol"] and equities.get(item["symbol"], name) != name:
+            name = equities[item["symbol"]]
+        scan.append({"symbol": item["symbol"], "name": name})
+        known.add(item["symbol"])
+    new = [{"symbol": sym, "name": name} for sym, name in sorted(equities.items()) if sym not in known]
+    if new:
+        shown = "、".join(f"{x['name']} ({x['symbol']})" for x in new[:10]) + (" …" if len(new) > 10 else "")
+        print(f"🆕 screener 里有 {len(new)} 支清单里没有的股票 (多半是新上市)，一起扫描: {shown}")
+    return scan + new
 
 
 def fetch_stock(symbol):
@@ -1413,9 +1479,10 @@ def main():
 
     # 第 1 步: screener 几个请求拿全市场现价+成交量，成交量不够的直接判定忽略，不用下载历史
     t_pre = time.perf_counter()
-    quotes = prefetch_quotes()
+    quotes, equities = prefetch_quotes()
+    scan_list = build_scan_list(equities)
     prefiltered = {}
-    for item in WATCHLIST:
+    for item in scan_list:
         q = quotes.get(item["symbol"])
         if q and q[1] < min_volume_for(q[0]):
             prefiltered[item["symbol"]] = {"symbol": item["symbol"], "low_volume": True, "close": q[0],
@@ -1426,11 +1493,11 @@ def main():
     # 第 2 步: 剩下的才并发下载 6 个月历史 + 算指标。screener 里没有的股票也走这一步 (在这里再判断成交量)。
     # 日线和日内走势放在同一个线程里抓：一支股票过了成交量门槛、又没命中信号 (会进表格)，就接着抓日内数据。
     t_fetch = time.perf_counter()
-    symbols = [item["symbol"] for item in WATCHLIST if item["symbol"] not in prefiltered]
+    symbols = [item["symbol"] for item in scan_list if item["symbol"] not in prefiltered]
     print(f"并发抓取 {len(symbols)} 支股票的历史数据 (并发数: {FETCH_WORKERS}) ...")
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
         fetched_map = dict(zip(symbols, executor.map(fetch_stock, symbols)))
-    fetched = [prefiltered.get(item["symbol"]) or fetched_map.get(item["symbol"]) for item in WATCHLIST]
+    fetched = [prefiltered.get(item["symbol"]) or fetched_map.get(item["symbol"]) for item in scan_list]
     fetch_secs = time.perf_counter() - t_fetch
 
     t_filter = time.perf_counter()
@@ -1438,7 +1505,7 @@ def main():
     low_volume_by_tier = {}
     no_data = 0
     deepseek_calls = 0
-    for item, data in zip(WATCHLIST, fetched):
+    for item, data in zip(scan_list, fetched):
         symbol = item["symbol"]
 
         # 流动性门槛 (按价格分级，见 VOLUME_TIERS): 成交量不够的直接忽略，不放进报告
