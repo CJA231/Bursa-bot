@@ -1,10 +1,12 @@
 """
-报告下载文件：每次运行把当天的结果导出成 CSV / Excel / PDF，放在 docs/downloads/<日期>/ 下面，
-GitHub Pages 会直接提供下载；报告页面上的"📥 下载报告"区块列出最近 KEEP_REPORT_DAYS 天的文件。
+报告下载文件：每次运行把当天的结果导出成 CSV / Excel / PDF，放在 <市场目录>/downloads/<日期>/ 下面
+(马股 docs/downloads/，美股 docs/us/downloads/)，GitHub Pages 会直接提供下载；
+报告页面上的"📥 下载报告"区块列出最近 KEEP_REPORT_DAYS 天的文件。
 
 - 同一天跑多次，后面的会覆盖前面的 → 每天保留的是当天最后一次运行的结果
 - 超过 KEEP_REPORT_DAYS 个交易日的文件夹会被自动删掉
 - 另外生成一份"近 N 天合并"的 Excel (每天一个工作表) 和 CSV (多一列日期)
+- 标题、时区、文件名前缀由 main.py 按市场传进来；不传就是原来的马股文案 (bursa-report-*)
 """
 import csv
 import json
@@ -15,7 +17,9 @@ import shutil
 
 DOWNLOADS_DIR = os.path.join("docs", "downloads")
 KEEP_REPORT_DAYS = 7  # 保留最近几个"报告日" (只有交易日才有报告，所以约等于一周半的日历天数)
-COMBINED_BASENAME = "bursa-report-last7"
+DEFAULT_TITLE = "马股自动分析报告"
+DEFAULT_TZ_LABEL = "MYT"
+DEFAULT_FILE_PREFIX = "bursa-report"
 
 COLUMNS = ["类型", "代码", "名称", "价格", "涨跌%", "成交量", "相对量", "RSI", "SAR", "EMA20", "50日均线", "信号", "AI点评"]
 DATE_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -156,7 +160,7 @@ def _fmt(v, pattern):
     return "—" if v is None else pattern.format(v)
 
 
-def write_pdf(path, date, rows, generated_at):
+def write_pdf(path, date, rows, generated_at, title=DEFAULT_TITLE, tz_label=DEFAULT_TZ_LABEL):
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import ParagraphStyle
@@ -182,8 +186,8 @@ def write_pdf(path, date, rows, generated_at):
     up, down, muted = colors.HexColor("#0ca30c"), colors.HexColor("#d03b3b"), colors.HexColor("#898781")
 
     story = [
-        Paragraph(f"马股自动分析报告 {date}", title_style),
-        Paragraph(f"生成时间: {generated_at} (MYT)　|　信号 {len(signals)} 支　|　其余股票 {len(others)} 支", sub_style),
+        Paragraph(f"{escape(title)} {date}", title_style),
+        Paragraph(f"生成时间: {generated_at} ({escape(tz_label)})　|　信号 {len(signals)} 支　|　其余股票 {len(others)} 支", sub_style),
         Spacer(1, 4 * mm),
         Paragraph(f"信号 ({len(signals)})", h_style),
     ]
@@ -239,20 +243,22 @@ def write_pdf(path, date, rows, generated_at):
 
     doc = SimpleDocTemplate(path, pagesize=landscape(A4), leftMargin=12 * mm, rightMargin=12 * mm,
                             topMargin=12 * mm, bottomMargin=14 * mm,
-                            title=f"马股自动分析报告 {date}", author="Bursa Bot")
+                            title=f"{title} {date}", author="Bursa Bot")
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
 
 
 # ---------- 主入口 ----------
 
-def _files_for(date):
-    base = f"bursa-report-{date}"
+def _files_for(date, file_prefix=DEFAULT_FILE_PREFIX):
+    base = f"{file_prefix}-{date}"
     return {"csv": f"{date}/{base}.csv", "xlsx": f"{date}/{base}.xlsx", "pdf": f"{date}/{base}.pdf"}
 
 
-def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR):
+def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR,
+                     title=DEFAULT_TITLE, tz_label=DEFAULT_TZ_LABEL, file_prefix=DEFAULT_FILE_PREFIX):
     """
     导出当天的 CSV/Excel/PDF，删掉超出保留天数的旧文件夹，再生成"近 N 天合并"文件。
+    title / tz_label = PDF 标题和生成时间后面的时区；file_prefix = 文件名前缀 (马股 bursa-report，美股 us-report)。
     返回给网页用的清单: {"days": [{"date", "generated_at", "files", "count", "signals"}...(新→旧)],
                         "combined": {"xlsx", "csv"} 或 None}
     """
@@ -261,13 +267,13 @@ def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR):
 
     day_dir = os.path.join(downloads_dir, date)
     os.makedirs(day_dir, exist_ok=True)
-    files = _files_for(date)
+    files = _files_for(date, file_prefix)
     # data.json 是合并文件的数据来源 (不用再去解析 CSV/Excel)
     with open(os.path.join(day_dir, "data.json"), "w", encoding="utf-8") as f:
         json.dump({"date": date, "generated_at": generated_at, "rows": rows}, f, ensure_ascii=False)
     write_csv(os.path.join(downloads_dir, files["csv"]), rows)
     write_xlsx(os.path.join(downloads_dir, files["xlsx"]), [(date, rows)])
-    write_pdf(os.path.join(downloads_dir, files["pdf"]), date, rows, generated_at)
+    write_pdf(os.path.join(downloads_dir, files["pdf"]), date, rows, generated_at, title, tz_label)
 
     # 只处理名字是日期的文件夹，其他东西不碰
     day_dirs = sorted((d for d in os.listdir(downloads_dir)
@@ -287,7 +293,7 @@ def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR):
         days.append({
             "date": d,
             "generated_at": payload.get("generated_at", ""),
-            "files": _files_for(d),
+            "files": _files_for(d, file_prefix),
             # 给网页上的日期选择条显示"这一天有什么": 共几支、信号是哪几支
             "count": len(payload["rows"]),
             "signals": [r["名称"] for r in payload["rows"] if r["类型"] == "信号"],
@@ -295,7 +301,8 @@ def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR):
 
     combined = None
     if combined_days:
-        combined = {"xlsx": f"{COMBINED_BASENAME}.xlsx", "csv": f"{COMBINED_BASENAME}.csv"}
+        combined_base = f"{file_prefix}-last{KEEP_REPORT_DAYS}"
+        combined = {"xlsx": f"{combined_base}.xlsx", "csv": f"{combined_base}.csv"}
         write_xlsx(os.path.join(downloads_dir, combined["xlsx"]), combined_days)
         write_csv(os.path.join(downloads_dir, combined["csv"]),
                   [dict(r, 日期=d) for d, rs in combined_days for r in rs], with_date=True)

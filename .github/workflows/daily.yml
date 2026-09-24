@@ -2,7 +2,7 @@ name: DeepSeek Stock Bot
 
 on:
   # GitHub 自带的 schedule 对本仓库延迟严重 (实测平均迟到 5.7 小时，密集排程时甚至完全不触发)，
-  # 已改用外部定时器 (cron-job.org) 按马来西亚时间精确调用下面的 workflow_dispatch 触发，
+  # 已改用外部定时器 (cron-job.org) 按当地时间精确调用下面的 workflow_dispatch 触发，
   # 详见 bursa-bot.md 第 5 节。
   workflow_dispatch:       # 允许手动按钮运行 / 外部定时器调用
     inputs:
@@ -10,9 +10,19 @@ on:
         description: '忽略交易日检查，强制用最新可用数据跑一次 (用于测试)'
         type: boolean
         default: false
+      market:
+        description: '市场：MY = 马股 (docs/)，US = 美股 (docs/us/)。cron-job.org 的旧任务不传就是 MY'
+        type: choice
+        options: [MY, US]
+        default: MY
 
 permissions:
   contents: write
+
+# 马股和美股的 run 如果同时触发，排队一个一个跑 (不取消)，不会同时 git push 撞在一起
+concurrency:
+  group: publish-report
+  cancel-in-progress: false
 
 jobs:
   run_analysis:
@@ -52,14 +62,22 @@ jobs:
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           FORCE_RUN: ${{ github.event.inputs.force }}
+          MARKET: ${{ github.event.inputs.market || 'MY' }}
           PYTHONUNBUFFERED: '1'  # 不缓冲输出，Actions 日志里每一行的时间戳才是真实的 (以前全部挤在结束那一秒)
         run: python main.py
 
       - name: Publish report
+        env:
+          MARKET: ${{ github.event.inputs.market || 'MY' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # -A: 连同"超过 7 天被删掉的旧下载文件夹"一起提交；charts = 表格股票双击看的K线，stock = 个股财报 + 长期K线 (一周刷新一次)，news = 个股新闻 (半天刷新一次)；删掉的过期文件也要提交
-          git add -A docs/index.html docs/downloads docs/charts docs/stock docs/news
-          git diff --staged --quiet || git commit -m "Update daily report"
+          # 整个 docs 目录一起提交 (-A 连删掉的文件也算)：报告、下载文件 (超过 7 天的旧文件夹会被删掉)、
+          # charts = 表格股票的K线、stock = 个股财报 + 长期K线、news = 个股新闻；美股的同名目录都在 docs/us/ 下面
+          git add -A docs
+          if [ "$MARKET" = "US" ]; then msg="Update daily report (US)"; else msg="Update daily report"; fi
+          git diff --staged --quiet || git commit -m "$msg"
+          # 排队等上一个 run (例如另一个市场) 的时候，main 可能已经多了它推上去的报告 → 先接上再推。
+          # 两个市场写的是不同目录 (docs/ 和 docs/us/)，不会冲突
+          git pull --rebase origin "${GITHUB_REF_NAME}"
           git push
