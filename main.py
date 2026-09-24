@@ -832,10 +832,11 @@ UI_CSS = """
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
     width: min(440px, 100%);
     max-height: min(86vh, 760px);
+    max-height: min(86dvh, 760px);
     display: flex; flex-direction: column;
     overflow: hidden;
   }
-  .dlg.dlg-ind { width: min(960px, 100%); height: min(86vh, 720px); }
+  .dlg.dlg-ind { width: min(960px, 100%); height: min(86vh, 720px); height: min(86dvh, 720px); }
   .dlg-head { display: flex; align-items: center; justify-content: space-between; padding: 0.9rem 1rem 0.6rem; }
   .dlg-head h3 { margin: 0; font-size: 1.05rem; }
   .dlg-x { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; line-height: 1; cursor: pointer; padding: 0.1rem 0.4rem; border-radius: 6px; }
@@ -954,8 +955,10 @@ UI_CSS = """
 
   @media (max-width: 640px) {
     .dlg-overlay { padding: 0; align-items: flex-end; }
-    .dlg { width: 100%; max-height: 92vh; border-radius: 14px 14px 0 0; }
-    .dlg.dlg-ind { height: 92vh; }
+    /* dvh = 实际看得到的高度。iPhone Safari 的 vh 是按底部网址栏收起来算的，网址栏还在时对话框比屏幕高，
+       顶部 (股票名称、代码、关闭按钮) 会被挤出屏幕外；不支持 dvh 的旧浏览器用前面那个 vh */
+    .dlg { width: 100%; max-height: 92vh; max-height: 92dvh; border-radius: 14px 14px 0 0; }
+    .dlg.dlg-ind { height: 92vh; height: 92dvh; }
     .ind-dlg-main { flex-direction: column; gap: 0.4rem; }
     .ind-nav { flex: 0 0 auto; display: flex; gap: 0.3rem; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); padding: 0 0 0.4rem; scrollbar-width: none; }
     .ind-nav-group { display: contents; }
@@ -1258,7 +1261,12 @@ CARD_CSS = """
   .card-fin:hover { text-decoration: underline; }
 
   /* ---- 完整图表 + 财报 对话框 ---- */
-  .dlg.dlg-stock { width: min(1280px, 100%); height: min(94vh, 1000px); }
+  .dlg.dlg-stock { width: min(1280px, 100%); height: min(94vh, 1000px); height: min(94dvh, 1000px); }
+  .dlg-stock .dlg-head { gap: 0.6rem; border-bottom: 1px solid var(--border); padding-bottom: 0.55rem; margin-bottom: 0.5rem; }
+  .dlg-stock .dlg-head .sv-head { margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .dlg-stock .dlg-head h3 { flex-shrink: 0; }
+  .dlg-stock .dlg-head .card-price { font-size: 0.8rem; }
+  .dlg-stock .dlg-head .card-price b { font-size: 0.98rem; }
   .stock-view { display: flex; flex-direction: column; gap: 0.4rem; }
   .sv-head { font-size: 0.95rem; }
   .sv-toolbar { display: flex; align-items: center; gap: 0.4rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
@@ -1326,7 +1334,7 @@ CARD_CSS = """
     .tf-btn, .tb-btn { padding: 0.28rem 0.42rem; }
     .car-ctrl { top: 0.55rem; right: 0.5rem; }
     .stock-view .chart { height: 300px; }
-    .dlg.dlg-stock { height: 94vh; }
+    .dlg.dlg-stock { height: 92vh; height: 92dvh; }
     .sv-toolbar { align-items: flex-start; }
     .sv-toolbar .tf-list { flex-wrap: wrap; overflow: visible; } /* 手机上周期按钮排两行，不藏在右边 */
     .fc-grid { grid-template-columns: 1fr 1fr; gap: 0.5rem 0.8rem; }
