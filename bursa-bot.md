@@ -178,11 +178,11 @@ def detect_t3_pattern(df):
 
 ### 设置面板 (纯前端，存在浏览器 localStorage，不影响别人、不用重新部署)
 - **颜色**：上涨/下跌/EMA20 三个取色器，即时生效 (localStorage key `bursa_colors_v1`)
-- **技术指标**：横向滑动的分类导航 `趋势 / 动量 / 波动性 / 成交量 / 自定义公式`，19 个预设指标点一下就加到当前模板：
+- **技术指标**：横向滑动的分类导航 `趋势 / 动量 / 波动性 / 成交量 / 自定义公式`，20 个预设指标点一下就加到当前模板：
 
   | 分类 | 预设 |
   |---|---|
-  | 趋势 | SMA20、SMA50、EMA50、SAR、布林带上/中/下轨、一目均衡表 |
+  | 趋势 | SMA20、SMA50、EMA50、SAR、布林带上/中/下轨、一目均衡表、Supertrend |
   | 动量 | RSI(14)、MACD 线、MACD 信号线、Stochastic %K、CCI、Williams %R |
   | 波动性 | ATR(14)、布林带带宽 |
   | 成交量 | OBV、成交量均线(20)、滚动 VWAP(20) |
@@ -215,6 +215,14 @@ def detect_t3_pattern(df):
 - 一开始在后台算 (`compute_ichimoku`)，加了多周期后改到前端 `ichimokuSeries()`，每个周期各算各的；日线用 2 年数据，整张图都有云
 - 云是 **series primitive** (`attachPrimitive`) 直接在画布上画的 (库本身没有"两条线之间填色")；两条线交叉的那一段按交点切成两个三角形，颜色在交叉点准确切换
 - 只有信号卡片的K线图能加，表格里的迷你走势图不受影响
+
+### 📈 Supertrend (9/24 按用户给的 TradingView Pine 脚本加入)
+- 设置面板「趋势」里的「Supertrend(10,3)」：ATR 10、倍数 3；多头时绿线 `#4CAF50` 在K线下方，空头时红线 `#FF5252` 在上方；线和K线实体中点 (open+close)/2 之间有 10% 透明度的填色
+- `seriesSupertrend()` 逐句照 Pine `ta.supertrend` 的参考实现：ATR 用 Wilder 平滑 (跟 `seriesATR` 共用)，中线 hl2，上下轨只能往有利方向收紧 (`nz(band[1])`、`close[1]` 的判断都照搬)
+  - 跟逐句翻译的 Python 版对过：5 组 × 400 根，**0 差异** (含 47 次方向翻转)；跟 pandas_ta 比大部分一致，只有开头热身期几根不同 (pandas_ta 起算方式不一样)，以 Pine 为准
+- ⚠️ 坑：**Lightweight Charts v5 的折线遇到空白点 (whitespace) 不会断开，会直接连过去** (实测)。Pine 的 `plot.style_linebr` 要"方向一变线就断"，所以线和填色都由 `SupertrendPrimitive` 自己画 (填色在K线下面、线在K线上面)；两条 `lineVisible: false` 的隐形折线只用来撑价格坐标轴范围、给图例取数值
+- 图例只显示当前方向那条线的数值 (`optional` 的部分没值就不显示)
+- 按当前周期计算 (Pine 的 `timeframe=""` 就是跟随图表周期)
 
 ### 📥 下载报告 (`exports.py`)
 - 页面上方的 `<details>` 区块 (默认折叠)，最近 `KEEP_REPORT_DAYS = 7` 个**报告日** (只有交易日才有报告，所以约一周半)

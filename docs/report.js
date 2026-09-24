@@ -611,6 +611,98 @@
     });
   };
 
+  // ---------- Supertrend，按 TradingView 内置脚本 (ta.supertrend) 的算法 ----------
+  var SUPERTREND = { atrPeriod: 10, factor: 3 };
+  var ST_UP = '#4CAF50';     // Pine color.green
+  var ST_DOWN = '#FF5252';   // Pine color.red
+  var ST_UP_FILL = 'rgba(76, 175, 80, 0.1)';    // color.new(color.green, 90)
+  var ST_DOWN_FILL = 'rgba(255, 82, 82, 0.1)';  // color.new(color.red, 90)
+
+  // 逐行照 Pine 的 ta.supertrend 写：ATR 用 Wilder 平滑 (ta.atr)，中线 hl2，
+  // 上下轨只能往有利方向收紧；direction -1 = 多头 (线在K线下方)，1 = 空头
+  function seriesSupertrend(bars, factor, atrPeriod) {
+    var n = bars.length;
+    var ctx = { series: {
+      high: bars.map(function (b) { return b.high; }),
+      low: bars.map(function (b) { return b.low; }),
+      close: bars.map(function (b) { return b.close; })
+    } };
+    var atr = seriesATR(ctx, atrPeriod);
+    var value = new Array(n).fill(null), direction = new Array(n).fill(null);
+    var prevUpper = null, prevLower = null, prevST = null;
+    for (var i = 0; i < n; i++) {
+      if (atr[i] === null) continue;
+      var src = (bars[i].high + bars[i].low) / 2;
+      var upper = src + factor * atr[i], lower = src - factor * atr[i];
+      var pu = prevUpper === null ? 0 : prevUpper, pl = prevLower === null ? 0 : prevLower; // Pine: nz(band[1])
+      var prevClose = i > 0 ? bars[i - 1].close : null;
+      lower = lower > pl || (prevClose !== null && prevClose < pl) ? lower : pl;
+      upper = upper < pu || (prevClose !== null && prevClose > pu) ? upper : pu;
+      var dir;
+      if (i === 0 || atr[i - 1] === null) dir = 1;
+      else if (prevST === prevUpper) dir = bars[i].close > upper ? -1 : 1;
+      else dir = bars[i].close < lower ? 1 : -1;
+      value[i] = dir === -1 ? lower : upper;
+      direction[i] = dir;
+      prevUpper = upper;
+      prevLower = lower;
+      prevST = value[i];
+    }
+    return { value: value, direction: direction };
+  }
+
+  // Supertrend 的线和填色都自己画：图表库的折线遇到空白点不会断开 (实测 v5 会直接连过去)，
+  // 做不出 Pine plot.style_linebr 那种"方向一变线就断"的效果。
+  // 线只连同方向的相邻两根K线；填色在K线实体中点 (open+close)/2 和线之间，方向一变就断开 (fillgaps=false)
+  function SupertrendPrimitive(points) {
+    this._points = points; // [{time, mid, value, line, fill}]
+    this._chart = null;
+    this._series = null;
+    var self = this;
+    function view(zOrder, draw) {
+      return { zOrder: function () { return zOrder; }, renderer: function () { return { draw: function (t) { self._draw(t, draw); } }; } };
+    }
+    this._views = [
+      view('bottom', function (ctx, p, q) { // 填色画在K线下面
+        ctx.fillStyle = p.fill;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.ym);
+        ctx.lineTo(q.x, q.ym);
+        ctx.lineTo(q.x, q.yv);
+        ctx.lineTo(p.x, p.yv);
+        ctx.closePath();
+        ctx.fill();
+      }),
+      view('normal', function (ctx, p, q) { // 线画在K线上面 (跟 TradingView 一样)
+        ctx.strokeStyle = p.line;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.yv);
+        ctx.lineTo(q.x, q.yv);
+        ctx.stroke();
+      })
+    ];
+  }
+  SupertrendPrimitive.prototype.attached = function (param) { this._chart = param.chart; this._series = param.series; };
+  SupertrendPrimitive.prototype.detached = function () { this._chart = null; this._series = null; };
+  SupertrendPrimitive.prototype.updateAllViews = function () {};
+  SupertrendPrimitive.prototype.paneViews = function () { return this._views; };
+  SupertrendPrimitive.prototype._draw = function (target, drawSegment) {
+    if (!this._chart) return;
+    var timeScale = this._chart.timeScale(), series = this._series;
+    var pts = this._points.map(function (p) {
+      return { x: timeScale.timeToCoordinate(p.time), ym: series.priceToCoordinate(p.mid), yv: series.priceToCoordinate(p.value), line: p.line, fill: p.fill };
+    });
+    target.useMediaCoordinateSpace(function (scope) {
+      for (var i = 0; i + 1 < pts.length; i++) {
+        var p = pts[i], q = pts[i + 1];
+        if (p.line !== q.line || p.x === null || q.x === null || p.ym === null || p.yv === null || q.ym === null || q.yv === null) continue;
+        drawSegment(scope.context, p, q);
+      }
+    });
+  };
+
   // ---------- 预设指标库 ----------
   // scale: price = 跟价格同单位；own = 震荡类 (自己的数值范围)；volume = 跟成交量同单位
   // paneGroup 相同的指标放进同一个副图 (例如 MACD 线和信号线)
@@ -623,6 +715,7 @@
     { id: 'boll_mid', category: 'trend', name: '布林带中轨(20)', formula: 'sma(close,20)', color: '#c3c2b7', scale: 'price' },
     { id: 'boll_lower', category: 'trend', name: '布林带下轨(20,2)', formula: 'sma(close,20)-2*stdev(close,20)', color: '#6ee89b', scale: 'price' },
     { id: 'ichimoku', category: 'trend', name: '一目均衡表(9,26,52)', builtin: 'ichimoku', color: '#2962FF', scale: 'price' },
+    { id: 'supertrend', category: 'trend', name: 'Supertrend(10,3)', builtin: 'supertrend', color: '#4CAF50', scale: 'price' },
 
     { id: 'rsi14', category: 'momentum', name: 'RSI(14)', formula: 'rsi(close,14)', color: '#e8a33d', scale: 'own' },
     { id: 'macd_line', category: 'momentum', name: 'MACD线(12,26)', formula: 'ema(close,12)-ema(close,26)', color: '#3d8ce8', scale: 'own', paneGroup: 'macd' },
@@ -789,6 +882,32 @@
       parts[3].series.attachPrimitive(new CloudPrimitive(ich.leadA, ich.leadB));
       return parts;
     }
+    if (ind.builtin === 'supertrend') {
+      var stv = seriesSupertrend(bars, SUPERTREND.factor, SUPERTREND.atrPeriod);
+      // 多头、空头各一条"隐形"的线：不画出来 (线由 SupertrendPrimitive 画)，
+      // 只用来让价格坐标轴把它算进范围，以及给图例取十字光标位置的数值
+      var sides = [{ dir: -1, color: ST_UP }, { dir: 1, color: ST_DOWN }].map(function (side) {
+        var opts = lineOptions({ color: side.color, scale: 'price' }, paneIndex);
+        opts.lastValueVisible = false;
+        opts.lineVisible = false;
+        var series = chart.addSeries(LWC.LineSeries, opts, paneIndex);
+        var data = bars.map(function (b, i) {
+          return stv.direction[i] === side.dir ? { time: b.time, value: stv.value[i] } : { time: b.time };
+        });
+        series.setData(data);
+        var last = bars.length && stv.direction[bars.length - 1] === side.dir ? stv.value[bars.length - 1] : null;
+        // optional: 这条线在当前K线没有值时，图例里就不显示它 (两条线同一时间只会有一条有值)
+        return { series: series, color: side.color, last: last, optional: true };
+      });
+      var drawn = [];
+      bars.forEach(function (b, i) {
+        if (stv.direction[i] === null) return;
+        var up = stv.direction[i] === -1;
+        drawn.push({ time: b.time, mid: (b.open + b.close) / 2, value: stv.value[i], line: up ? ST_UP : ST_DOWN, fill: up ? ST_UP_FILL : ST_DOWN_FILL });
+      });
+      sides[0].series.attachPrimitive(new SupertrendPrimitive(drawn));
+      return sides;
+    }
     var opts = lineOptions(ind, paneIndex);
     var points;
     if (ind.builtin === 'psar') {
@@ -931,7 +1050,9 @@
       var el = box.querySelector('[data-ind="' + (window.CSS && CSS.escape ? CSS.escape(e.ind.id) : e.ind.id) + '"] .lg-val');
       if (!el) return;
       el.innerHTML = e.parts.map(function (p) {
-        return '<span style="color:' + p.color + '">' + fmtValue(valueOf(p.series, p.last)) + '</span>';
+        var v = valueOf(p.series, p.last);
+        if (p.optional && !isNum(v)) return '';
+        return '<span style="color:' + p.color + '">' + fmtValue(v) + '</span>';
       }).join('');
     });
   }
@@ -1210,7 +1331,8 @@
       ul.innerHTML = '<li class="ind-empty">这个模板还没有指标，从上面点一个加进来</li>';
     }
     list.forEach(function (ind, idx) {
-      var detail = ind.formula || (ind.builtin === 'ichimoku' ? '转换线 / 基准线 / 延迟线 / 先行带A·B + 云' : '内置指标');
+      var detail = ind.formula || (ind.builtin === 'ichimoku' ? '转换线 / 基准线 / 延迟线 / 先行带A·B + 云'
+        : ind.builtin === 'supertrend' ? 'ATR 10，倍数 3；绿 = 多头，红 = 空头' : '内置指标');
       var li = document.createElement('li');
       li.innerHTML = '<span class="ind-swatch" style="background:' + escapeHtml(ind.color) + '"></span>' +
         '<span class="ind-name">' + escapeHtml(ind.name) + '</span>' +
