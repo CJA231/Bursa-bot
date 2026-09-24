@@ -221,6 +221,7 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 "volume": last_volume,
                 "rel_volume": rel_volume,
                 "history_days": history_days,
+                "daily_bars": compact_bars(df, intraday=False),  # 双击看完整图表用 (只有表格股票会写进 table.json)
                 "candles": candles,
                 "ema20": ema20,
                 "psar": psar_series,
@@ -284,14 +285,217 @@ def get_chart_history(symbol):
         return {key: bars for key, bars in pool.map(fetch, CHART_SOURCES) if bars}
 
 
-def get_intraday_closes(symbol):
-    """当天 (或最近一个交易日) 的 5 分钟收盘价序列，给表格里的迷你走势图用。拿不到就返回 None。"""
+def get_intraday(symbol):
+    """当天 (或最近一个交易日) 的 5 分钟K线。返回 (收盘价序列, 精简K线)：
+    收盘价给表格的迷你走势图，精简K线给"双击看完整图表"的日内周期用。拿不到就返回 (None, None)。"""
     try:
         df = yf.Ticker(symbol).history(period="1d", interval="5m")
-        closes = [round(float(c), 4) for c in df["Close"].dropna()]
-        return closes if len(closes) >= 2 else None
+        df = df.dropna(subset=["Open", "High", "Low", "Close"])
+        closes = [round(float(c), 4) for c in df["Close"]]
+        if len(closes) < 2:
+            return None, None
+        return closes, compact_bars(df, intraday=True)
     except Exception:
+        return None, None
+
+
+def compact_bars(df, intraday):
+    """
+    "其余股票"双击看完整图表用的精简K线 (全部表格股票放在同一个 docs/charts/table.json，打开时才下载)：
+    价格 ×1000 存成整数 (Bursa 最小跳动 0.005，3 位小数足够)；时间只存第一根 + 每根的间隔
+    (日线以天、日内以分钟为单位)。比 bars_payload 那种完整时间戳 + 小数小一半以上。
+    """
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    if df.empty:
         return None
+    if intraday:
+        ts, unit = [int(x.timestamp()) + MYT_OFFSET_SECS for x in df.index], 60
+    else:
+        ts, unit = [calendar.timegm(x.date().timetuple()) for x in df.index], 86400
+    return {
+        "t0": ts[0], "u": unit, "dt": [(b - a) // unit for a, b in zip(ts, ts[1:])],
+        "o": [round(float(x) * 1000) for x in df["Open"]],
+        "h": [round(float(x) * 1000) for x in df["High"]],
+        "l": [round(float(x) * 1000) for x in df["Low"]],
+        "c": [round(float(x) * 1000) for x in df["Close"]],
+        "v": [int(x) if pd.notna(x) else 0 for x in df["Volume"]],
+    }
+
+
+CHARTS_DIR = os.path.join("docs", "charts")
+TABLE_CHARTS_FILE = os.path.join(CHARTS_DIR, "table.json")
+
+
+def write_table_charts(stocks):
+    """把"其余股票"每一支的 6 个月日线 + 当天 5 分钟线写进 docs/charts/table.json。
+    网页里双击某一行才下载这个文件 (整页不会因此变大)；返回文件内容的短哈希，放在网址后面防止浏览器用旧缓存。"""
+    table = {}
+    for s in stocks:
+        d = s["data"]
+        if not d or s["matched"] or not d.get("daily_bars"):
+            continue
+        table[s["symbol"].split(".")[0]] = {"d": d["daily_bars"], "i": s.get("intraday_bars")}
+    os.makedirs(CHARTS_DIR, exist_ok=True)
+    body = json.dumps({"v": 1, "stocks": table}, separators=(",", ":"))
+    with open(TABLE_CHARTS_FILE, "w", encoding="utf-8") as f:
+        f.write(body)
+    return hashlib.sha1(body.encode()).hexdigest()[:10]
+
+
+# ---- 每支股票的详细资料: 近 4 季 + 近 2 年财报、2 年日线 + 10 年月线，存在 docs/stock/<代码>.json ----
+# 双击"其余股票"的一行 (或点卡片上的"完整图表 · 财报") 时才下载。财报一季才变一次，长期K线里
+# 最近 6 个月以外的部分也不会再变 (最近 6 个月每次运行都写在 table.json 里，网页打开时拼在一起)，
+# 所以每支一周抓一次就够。每次运行只补一小批 (DETAIL_PER_RUN 支)，不会拖慢运行：
+# 第一天跑几次就补齐全部表格股票，之后每周轮着刷新。
+DETAIL_DIR = os.path.join("docs", "stock")
+DETAIL_MAX_AGE_DAYS = 7    # 有财报的: 一周刷新一次
+DETAIL_RETRY_DAYS = 2      # Yahoo 没给财报的: 两天后再试 (可能只是那次请求被限流，不想一错就等一周)
+DETAIL_PRUNE_DAYS = 30     # 超过 30 天没更新、这次也不在报告里的 (早就跌出成交量门槛了) 删掉
+DETAIL_PER_RUN = 30
+DETAIL_WORKERS = 8
+DETAIL_HISTORY = (("d", "2y", "1d"), ("m", "10y", "1mo"))  # 跟筛选器卡片一样长
+FIN_QUARTERS = 4
+FIN_YEARS = 2
+# (输出键, 可能的科目名称) —— Yahoo 不同公司用的科目名称略有不同，按顺序找第一个有的
+FIN_ROWS = {
+    "income": [("revenue", ["Total Revenue", "Operating Revenue"]), ("gross_profit", ["Gross Profit"]),
+               ("operating_income", ["Operating Income", "EBIT"]),
+               ("net_income", ["Net Income", "Net Income Common Stockholders", "Net Income Continuous Operations"]),
+               ("eps", ["Diluted EPS", "Basic EPS"])],
+    "balance": [("total_assets", ["Total Assets"]), ("total_liabilities", ["Total Liabilities Net Minority Interest", "Total Liabilities"]),
+                ("equity", ["Stockholders Equity", "Common Stock Equity", "Total Equity Gross Minority Interest"]),
+                ("cash", ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"]),
+                ("total_debt", ["Total Debt"])],
+    "cashflow": [("operating_cf", ["Operating Cash Flow", "Cash Flow From Continuing Operating Activities"]),
+                 ("free_cf", ["Free Cash Flow"]), ("capex", ["Capital Expenditure"])],
+}
+
+
+def statement_values(df, rows):
+    """yfinance 财报 DataFrame (行 = 科目，列 = 报告期) → {报告期日期: {键: 数值}}"""
+    out = {}
+    if df is None or getattr(df, "empty", True):
+        return out
+    for col in df.columns:
+        period = pd.Timestamp(col).strftime("%Y-%m-%d")
+        values = {}
+        for key, names in rows:
+            for name in names:
+                if name in df.index:
+                    v = df.at[name, col]
+                    if pd.notna(v):
+                        values[key] = float(v)
+                    break
+        if values:
+            out[period] = values
+    return out
+
+
+def financial_section(income, balance, cashflow, n):
+    """以利润表的报告期为准，取最近 n 期 (旧 → 新)；资产负债表 / 现金流量表同一天的数字对上去，没有就留空"""
+    periods = sorted(p for p, v in income.items() if "revenue" in v or "net_income" in v)[-n:]
+    keys = [k for group in FIN_ROWS.values() for k, _ in group]
+    merged = {p: {**income.get(p, {}), **balance.get(p, {}), **cashflow.get(p, {})} for p in periods}
+    return {"periods": periods, **{k: [merged[p].get(k) for p in periods] for k in keys}}
+
+
+def fetch_detail(symbol, today):
+    """
+    一支股票的财报 + 长期K线。上市公司一定有K线，日线都拿不到 = 这次请求失败，返回 None
+    (不写文件，下次运行再试；不然会写一个空文件然后一周都不再抓)。
+    财报拿不到就是 fin = None (很多小公司 Yahoo 本来就没有)。
+    """
+    t = yf.Ticker(symbol)
+    bars = {}
+    for key, period, interval in DETAIL_HISTORY:
+        try:
+            bars[key] = compact_bars(t.history(period=period, interval=interval), intraday=False)
+        except Exception as e:
+            print(f"⚠️ {symbol} {interval}×{period} K线获取失败 ({type(e).__name__}: {e})")
+            bars[key] = None
+    if not bars["d"]:
+        return None
+
+    def get(attr):
+        try:
+            return getattr(t, attr)
+        except Exception:
+            return None
+    q = financial_section(statement_values(get("quarterly_income_stmt"), FIN_ROWS["income"]),
+                          statement_values(get("quarterly_balance_sheet"), FIN_ROWS["balance"]),
+                          statement_values(get("quarterly_cashflow"), FIN_ROWS["cashflow"]), FIN_QUARTERS)
+    a = financial_section(statement_values(get("income_stmt"), FIN_ROWS["income"]),
+                          statement_values(get("balance_sheet"), FIN_ROWS["balance"]),
+                          statement_values(get("cashflow"), FIN_ROWS["cashflow"]), FIN_YEARS)
+    fin = None
+    if q["periods"] or a["periods"]:
+        # 财报货币: 马股大多是令吉，少数用美元报告 (拿不到就是 None，网页上写"公司报告货币")
+        info = get("info") or {}
+        fin = {"quarterly": q, "annual": a, "currency": info.get("financialCurrency")}
+    return {"v": 1, "symbol": symbol, "fetched_at": today, "fin": fin, "bars": bars}
+
+
+def read_detail_date(code):
+    """已有文件的 (抓取日期, 有没有财报)；没有文件 / 坏文件返回 (None, False)"""
+    try:
+        with open(os.path.join(DETAIL_DIR, f"{code}.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        return datetime.strptime(d["fetched_at"], "%Y-%m-%d"), bool(d.get("fin"))
+    except Exception:
+        return None, False
+
+
+def detail_is_fresh(code, today):
+    fetched, has_fin = read_detail_date(code)
+    if fetched is None:
+        return False
+    age = (datetime.strptime(today, "%Y-%m-%d") - fetched).days
+    return age < (DETAIL_MAX_AGE_DAYS if has_fin else DETAIL_RETRY_DAYS)
+
+
+def prune_details(keep, today):
+    """删掉超过 DETAIL_PRUNE_DAYS 天没更新、这次也不在报告里的股票文件；读不了的坏文件也删 (下次需要时会重抓)"""
+    if not os.path.isdir(DETAIL_DIR):
+        return 0
+    removed = 0
+    now = datetime.strptime(today, "%Y-%m-%d")
+    for name in os.listdir(DETAIL_DIR):
+        code = name[:-len(".json")]
+        if not name.endswith(".json") or code in keep:
+            continue
+        fetched, _ = read_detail_date(code)
+        if fetched is not None and (now - fetched).days <= DETAIL_PRUNE_DAYS:
+            continue
+        os.remove(os.path.join(DETAIL_DIR, name))
+        removed += 1
+    return removed
+
+
+def refresh_details(stocks, today):
+    """报告里的股票 (信号在前，其余按成交量从高到低)，文件没有或过期的，这次补 DETAIL_PER_RUN 支。
+    返回 (这次抓了几支, 写入几支, 其中几支有财报, 删掉几个过期文件)"""
+    candidates = sorted((s for s in stocks if s["data"]), key=lambda s: (not s["matched"], -s["data"]["volume"]))
+    todo = [s["symbol"] for s in candidates if not detail_is_fresh(s["symbol"].split(".")[0], today)][:DETAIL_PER_RUN]
+    written = with_fin = 0
+    if todo:
+        os.makedirs(DETAIL_DIR, exist_ok=True)
+
+        def safe_fetch(symbol):
+            try:
+                return fetch_detail(symbol, today)
+            except Exception as e:
+                print(f"⚠️ {symbol} 个股资料获取失败 ({type(e).__name__}: {e})")
+                return None
+        with ThreadPoolExecutor(max_workers=DETAIL_WORKERS) as pool:
+            for symbol, detail in zip(todo, pool.map(safe_fetch, todo)):
+                if detail is None:
+                    continue  # 这次没拿到，下次运行再试
+                with open(os.path.join(DETAIL_DIR, f"{symbol.split('.')[0]}.json"), "w", encoding="utf-8") as f:
+                    json.dump(detail, f, ensure_ascii=False, separators=(",", ":"))
+                written += 1
+                with_fin += detail["fin"] is not None
+    pruned = prune_details({s["symbol"].split(".")[0] for s in stocks if s["data"]}, today)
+    return len(todo), written, with_fin, pruned
 
 
 def build_sparkline(values, baseline=None, width=72, height=24):
@@ -596,6 +800,9 @@ TABLE_CSS = """
     color: var(--text-primary);
   }
   .table-count { color: var(--muted); font-size: 0.8rem; margin-left: auto; }
+  .table-hint { margin: -0.2rem 0 0.5rem; font-size: 0.75rem; color: var(--muted); }
+  #watchlist-table tbody tr { cursor: pointer; }
+  #watchlist-table tbody tr:focus-visible { outline: 2px solid var(--ema); outline-offset: -2px; }
   .table-sort { display: none; font: inherit; font-size: 0.8rem; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.4rem; }
   /* 电脑: 表格撑满整个页面宽度 */
   table.data-table { font-size: 0.82rem; width: 100%; }
@@ -861,6 +1068,43 @@ CARD_CSS = """
   .quote-grid dt { color: var(--muted); font-size: 0.7rem; }
   .quote-grid dd { margin: 0; color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
 
+  /* 筛选器卡片上的"完整图表 · 财报" */
+  .card-fin {
+    margin-left: 0.6rem; font: inherit; font-size: 0.75rem; color: var(--ema);
+    background: none; border: none; padding: 0; cursor: pointer; white-space: nowrap;
+  }
+  .card-fin:hover { text-decoration: underline; }
+
+  /* ---- 完整图表 + 财报 对话框 ---- */
+  .dlg.dlg-stock { width: min(1040px, 100%); height: min(94vh, 980px); }
+  .stock-view { display: flex; flex-direction: column; gap: 0.4rem; }
+  .sv-head { font-size: 0.95rem; }
+  .sv-toolbar { display: flex; align-items: center; gap: 0.4rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  .sv-toolbar .tf-list { flex: 1; }
+  .stock-view .chart { height: 400px; }
+  .fin { margin-top: 0.8rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
+  .fin-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .fin-head h4 { margin: 0; font-size: 0.95rem; }
+  .fin-tabs { border-bottom: none; margin: 0; }
+  .fc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.6rem 1rem; margin: 0.7rem 0; }
+  .fc { min-width: 0; }
+  .fc-title { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.4rem; font-size: 0.8rem; color: var(--text-secondary); }
+  .fc-title .change-up, .fc-title .change-down { font-size: 0.72rem; }
+  .fc-svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .fc-base { stroke: var(--gridline); stroke-width: 1; }
+  .fc-hit { fill: transparent; }
+  .fc-bar:hover path { opacity: 0.75; }
+  .fc-val { font-size: 10px; font-weight: 600; fill: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .fc-lbl { font-size: 9px; fill: var(--muted); }
+  .fin-table-wrap { overflow-x: auto; }
+  .fin-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .fin-table th, .fin-table td { padding: 0.32rem 0.55rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .fin-table thead th { color: var(--text-secondary); font-weight: 500; font-size: 0.75rem; }
+  .fin-table thead th small { display: block; color: var(--muted); font-size: 0.65rem; font-weight: 400; }
+  .fin-table tbody th, .fin-table thead th:first-child { text-align: left; font-weight: 500; color: var(--text-secondary); }
+  .fin-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .fin-foot a { color: var(--ema); }
+
   @media (max-width: 640px) {
     .chart { height: 300px; }
     .card { padding: 0.75rem 0.7rem 0.85rem; }
@@ -869,6 +1113,17 @@ CARD_CSS = """
     .tb-tools { gap: 0; padding-left: 0.2rem; }
     .tf-btn, .tb-btn { padding: 0.28rem 0.42rem; }
     .car-ctrl { top: 0.55rem; right: 0.5rem; }
+    .stock-view .chart { height: 300px; }
+    .dlg.dlg-stock { height: 94vh; }
+    .sv-toolbar { align-items: flex-start; }
+    .sv-toolbar .tf-list { flex-wrap: wrap; overflow: visible; } /* 手机上周期按钮排两行，不藏在右边 */
+    .fc-grid { grid-template-columns: 1fr 1fr; gap: 0.5rem 0.8rem; }
+    .fc-lbl { font-size: 13px; } /* 小图缩到约 0.7 倍，字要写大一点，实际显示约 9-10px */
+    .fc-val { font-size: 14px; }
+    .fin-table { font-size: 0.75rem; }
+    .fin-table th, .fin-table td { padding: 0.3rem 0.3rem; }
+    .fin-table thead th small { display: none; } /* 手机上只留 25Q3 / FY2025，四栏才放得下不用横向滑 */
+    .card-fin { display: block; margin: 0.2rem 0 0; }
     .card-head { margin-right: 7rem; }
     .tb-menu { position: fixed; left: 0.5rem; right: 0.5rem; top: auto; bottom: 0.5rem; width: auto; max-height: 70vh; }
   }
@@ -1073,7 +1328,7 @@ def build_downloads_html(downloads):
 
 
 # === 7. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
-def build_html_report(stocks, downloads=None):
+def build_html_report(stocks, downloads=None, table_charts_version=None):
     now = datetime.now(MYT).strftime("%Y-%m-%d %H:%M")
 
     cards = []
@@ -1129,7 +1384,7 @@ def build_html_report(stocks, downloads=None):
             )
             new_badge = history_badge(data)
 
-            table_rows.append((data["volume"], f"""<tr data-search="{code} {name.lower()}">
+            table_rows.append((data["volume"], f"""<tr data-search="{code} {name.lower()}" data-code="{code}" data-name="{name}" tabindex="0">
                 <td class="idx-cell"></td>
                 <td class="stock-cell" data-value="{name}"><span class="ticker">{name}</span><span class="stock-code">{code}</span>{new_badge}</td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
@@ -1309,7 +1564,7 @@ def build_html_report(stocks, downloads=None):
 {DOWNLOADS_CSS}
 </style>
 </head>
-<body>
+<body data-table-charts="{f'charts/table.json?v={table_charts_version}' if table_charts_version else ''}">
 <h1>📢 马股自动分析报告</h1>
 <p class="updated">更新时间: {now} (MYT)</p>
 {build_downloads_html(downloads)}
@@ -1334,6 +1589,7 @@ def build_html_report(stocks, downloads=None):
   </select>
   <span id="table-count" class="table-count"></span>
 </div>
+<p class="table-hint">双击任一行 (手机上点一下) 查看完整K线图和近 4 季、近 2 年财报</p>
 <div class="table-wrap">
 <table class="data-table" id="watchlist-table">
   <thead>
@@ -1450,10 +1706,10 @@ def build_scan_list(equities):
 
 
 def fetch_stock(symbol):
-    """线程池里跑的单支股票任务：日线 + 指标；会进表格的股票顺便抓日内走势 (塞在 data["intraday"])。"""
+    """线程池里跑的单支股票任务：日线 + 指标；会进表格的股票顺便抓日内走势 (塞在 data["intraday"] / ["intraday_bars"])。"""
     data = get_stock_data(symbol)
     if data and not data.get("low_volume") and not check_strategy(data)[0]:
-        data["intraday"] = get_intraday_closes(symbol)
+        data["intraday"], data["intraday_bars"] = get_intraday(symbol)
     return data
 
 
@@ -1516,6 +1772,7 @@ def main():
             no_data += 1
 
         intraday = data.pop("intraday", None) if data else None
+        intraday_bars = data.pop("intraday_bars", None) if data else None
         matched, reason, ai_comment = False, None, None
         if data:
             matched, reason = check_strategy(data)
@@ -1536,6 +1793,7 @@ def main():
             "reason": reason,
             "ai_comment": ai_comment,
             "intraday": intraday,
+            "intraday_bars": intraday_bars,
         })
     filter_secs = time.perf_counter() - t_filter
 
@@ -1558,10 +1816,27 @@ def main():
         print(f"⚠️ 导出下载文件失败 ({type(e).__name__}: {e})，报告照常生成，只是这次没有下载区块")
     export_secs = time.perf_counter() - t_export
 
+    # 双击"其余股票"看完整图表用的K线 + 个股资料 (财报、长期K线，一周刷新一次，每次补一批)。出错都不影响报告本身
+    t_fin = time.perf_counter()
+    table_charts_version = None
+    try:
+        table_charts_version = write_table_charts(stocks)
+    except Exception as e:
+        print(f"⚠️ 写表格股票K线失败 ({type(e).__name__}: {e})，这次双击看不了完整图表")
+    try:
+        tried, written, with_fin, pruned = refresh_details(stocks, today_myt)
+        if tried or pruned:
+            print(f"📊 个股资料 (财报 + 2 年日线 + 10 年月线): 这次抓 {tried} 支，写入 {written} 支，其中 {with_fin} 支 Yahoo 有财报"
+                  + (f"，{tried - written} 支没拿到下次再试" if tried > written else "")
+                  + (f"，删掉 {pruned} 个过期文件" if pruned else ""))
+    except Exception as e:
+        print(f"⚠️ 更新个股资料失败 ({type(e).__name__}: {e})")
+    fin_secs = time.perf_counter() - t_fin
+
     t_report = time.perf_counter()
     os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
     with open(REPORT_PATH, "w", encoding="utf-8") as f:
-        f.write(build_html_report(stocks, downloads))
+        f.write(build_html_report(stocks, downloads, table_charts_version))
     report_secs = time.perf_counter() - t_report
 
     hits = sum(1 for s in stocks if s["matched"])
@@ -1576,7 +1851,7 @@ def main():
 
     # 耗时分解：Action 跑超过 1 分钟时，直接看这一行就知道慢在哪
     print(f"⏱️ 耗时: 导入库 {IMPORT_SECS:.1f}s | screener 预筛选 {pre_secs:.1f}s | 抓取+指标+日内 {fetch_secs:.1f}s | "
-          f"筛选+DeepSeek {filter_secs:.1f}s | 导出下载 {export_secs:.1f}s | 生成报告 {report_secs:.1f}s | 推送 {notify_secs:.1f}s | "
+          f"筛选+DeepSeek {filter_secs:.1f}s | 导出下载 {export_secs:.1f}s | 图表+财报 {fin_secs:.1f}s | 生成报告 {report_secs:.1f}s | 推送 {notify_secs:.1f}s | "
           f"总计 {time.perf_counter() - PROCESS_START:.1f}s")
 
 if __name__ == "__main__":
