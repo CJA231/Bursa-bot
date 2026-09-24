@@ -59,7 +59,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # -A: 连同"超过 7 天被删掉的旧下载文件夹"一起提交；charts = 表格股票双击看的K线，stock = 个股财报 + 长期K线 (一周刷新一次，删掉的过期文件也要提交)
-          git add -A docs/index.html docs/downloads docs/charts docs/stock
+          # -A: 连同"超过 7 天被删掉的旧下载文件夹"一起提交；charts = 表格股票双击看的K线，stock = 个股财报 + 长期K线 (一周刷新一次)，news = 个股新闻 (半天刷新一次)；删掉的过期文件也要提交
+          git add -A docs/index.html docs/downloads docs/charts docs/stock docs/news
           git diff --staged --quiet || git commit -m "Update daily report"
           git push

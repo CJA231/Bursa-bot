@@ -427,12 +427,12 @@ def fetch_detail(symbol, today):
     a = financial_section(statement_values(get("income_stmt"), FIN_ROWS["income"]),
                           statement_values(get("balance_sheet"), FIN_ROWS["balance"]),
                           statement_values(get("cashflow"), FIN_ROWS["cashflow"]), FIN_YEARS)
+    # info: 公司全名 (搜新闻用，简称像 "JAG"、"SDG" 太容易搜到别的东西) + 财报货币 (马股大多是令吉，少数用美元报告)
+    info = get("info") or {}
     fin = None
     if q["periods"] or a["periods"]:
-        # 财报货币: 马股大多是令吉，少数用美元报告 (拿不到就是 None，网页上写"公司报告货币")
-        info = get("info") or {}
         fin = {"quarterly": q, "annual": a, "currency": info.get("financialCurrency")}
-    return {"v": 1, "symbol": symbol, "fetched_at": today, "fin": fin, "bars": bars}
+    return {"v": 1, "symbol": symbol, "fetched_at": today, "long_name": info.get("longName"), "fin": fin, "bars": bars}
 
 
 def read_detail_date(code):
@@ -440,6 +440,8 @@ def read_detail_date(code):
     try:
         with open(os.path.join(DETAIL_DIR, f"{code}.json"), encoding="utf-8") as f:
             d = json.load(f)
+        if "long_name" not in d:  # 9/24 之前的旧格式没有公司全名 (搜新闻要用)，当成过期重抓
+            return None, False
         return datetime.strptime(d["fetched_at"], "%Y-%m-%d"), bool(d.get("fin"))
     except Exception:
         return None, False
@@ -497,6 +499,154 @@ def refresh_details(stocks, today):
     pruned = prune_details({s["symbol"].split(".")[0] for s in stocks if s["data"]}, today)
     return len(todo), written, with_fin, pruned
 
+
+
+# ---- 个股新闻: 最近的新闻标题 + 链接，存在 docs/news/<代码>.json，每支半天更新一次 ----
+# 只存标题、来源、时间和原文链接 (不转载内文)。主要用 Google News RSS 按公司全名搜 (比 Yahoo 的个股新闻准，
+# Yahoo 对马股小公司常常给一堆无关的大盘新闻)；Google 那边拿不到时才退回 Yahoo。
+NEWS_DIR = os.path.join("docs", "news")
+NEWS_MAX_AGE_HOURS = 12
+NEWS_PER_RUN = 40
+NEWS_WORKERS = 8
+NEWS_KEEP = 8
+NEWS_MAX_DAYS = 90
+NEWS_PRUNE_DAYS = 30
+GOOGLE_NEWS_RSS = "https://news.google.com/rss/search"
+COMPANY_SUFFIX_RE = re.compile(r"[\s,.]*\b(berhad|bhd)\.?\s*$", re.I)
+
+
+def news_query(name, long_name):
+    """搜索词: 有全名就用全名 (去掉 Berhad / Bhd 结尾，新闻里两种写法都有)，没有就用简称 + Bursa"""
+    if long_name:
+        base = COMPANY_SUFFIX_RE.sub("", long_name).strip()
+        if len(base) >= 4:
+            return f'"{base}"'
+    return f'"{name}" Bursa'
+
+
+def google_news(query):
+    """Google News RSS → [{title, source, link, time}]；请求失败会抛异常 (调用的地方决定要不要重试)"""
+    import xml.etree.ElementTree as ET
+    from email.utils import parsedate_to_datetime
+    r = requests.get(GOOGLE_NEWS_RSS, params={"q": f"{query} when:{NEWS_MAX_DAYS}d", "hl": "en-MY", "gl": "MY", "ceid": "MY:en"},
+                     headers={"User-Agent": "Mozilla/5.0 (bursa-bot)"}, timeout=10)
+    r.raise_for_status()
+    items = []
+    for it in ET.fromstring(r.content).iter("item"):
+        title, link = (it.findtext("title") or "").strip(), (it.findtext("link") or "").strip()
+        source = (it.findtext("source") or "").strip()
+        if source and title.endswith(" - " + source):  # Google 会在标题后面接 " - 来源"
+            title = title[: -len(" - " + source)]
+        try:
+            ts = int(parsedate_to_datetime(it.findtext("pubDate")).timestamp())
+        except Exception:
+            ts = None
+        if title and link.startswith("http"):
+            items.append({"title": title, "source": source, "link": link, "time": ts})
+    return items
+
+
+def yahoo_news(symbol):
+    """yfinance 的个股新闻 (新旧两种格式都认)"""
+    items = []
+    for n in yf.Ticker(symbol).news or []:
+        c = n.get("content") or n
+        link = ((c.get("canonicalUrl") or {}).get("url") or (c.get("clickThroughUrl") or {}).get("url") or c.get("link") or "")
+        source = (c.get("provider") or {}).get("displayName") or c.get("publisher") or "Yahoo Finance"
+        ts = c.get("providerPublishTime")
+        if not ts and c.get("pubDate"):
+            try:
+                ts = int(pd.Timestamp(c["pubDate"]).timestamp())
+            except Exception:
+                ts = None
+        if c.get("title") and link.startswith("http"):
+            items.append({"title": c["title"], "source": source, "link": link, "time": ts})
+    return items
+
+
+def fetch_news(symbol, name, long_name, now):
+    """返回新闻文件内容；两个来源都出错 = 这次请求失败，返回 None (不写文件，下次运行再试)"""
+    query = news_query(name, long_name)
+    items, source, errors = [], None, 0
+    for label, fn in (("Google News", lambda: google_news(query)), ("Yahoo Finance", lambda: yahoo_news(symbol))):
+        try:
+            items = fn()
+        except Exception:
+            errors += 1
+            continue
+        if items:
+            source = label
+            break
+    if errors == 2:
+        return None
+    oldest = now.timestamp() - NEWS_MAX_DAYS * 86400
+    seen, keep = set(), []
+    for it in sorted(items, key=lambda x: x["time"] or 0, reverse=True):
+        key = it["title"].lower()
+        if key in seen or (it["time"] and it["time"] < oldest):
+            continue
+        seen.add(key)
+        keep.append(it)
+    return {"v": 1, "symbol": symbol, "fetched_at": now.isoformat(timespec="minutes"), "query": query,
+            "source": source, "items": keep[:NEWS_KEEP]}
+
+
+def news_age_hours(code, now):
+    try:
+        with open(os.path.join(NEWS_DIR, f"{code}.json"), encoding="utf-8") as f:
+            fetched = datetime.fromisoformat(json.load(f)["fetched_at"])
+        return (now - fetched).total_seconds() / 3600
+    except Exception:
+        return None
+
+
+def refresh_news(stocks, now):
+    """信号在前、其余按成交量从高到低，新闻超过 NEWS_MAX_AGE_HOURS 小时的这次补 NEWS_PER_RUN 支。
+    返回 (抓了几支, 写入几支, 其中几支有新闻, 删掉几个过期文件)"""
+    candidates = sorted((s for s in stocks if s["data"]), key=lambda s: (not s["matched"], -s["data"]["volume"]))
+    todo = []
+    for s in candidates:
+        age = news_age_hours(s["symbol"].split(".")[0], now)
+        if age is None or age >= NEWS_MAX_AGE_HOURS:
+            todo.append(s)
+        if len(todo) >= NEWS_PER_RUN:
+            break
+    written = with_items = 0
+    if todo:
+        os.makedirs(NEWS_DIR, exist_ok=True)
+
+        def safe_fetch(s):
+            code = s["symbol"].split(".")[0]
+            try:
+                with open(os.path.join(DETAIL_DIR, f"{code}.json"), encoding="utf-8") as f:
+                    long_name = json.load(f).get("long_name")
+            except Exception:
+                long_name = None
+            try:
+                return fetch_news(s["symbol"], s["name"], long_name, now)
+            except Exception as e:
+                print(f"⚠️ {s['symbol']} 新闻获取失败 ({type(e).__name__}: {e})")
+                return None
+        with ThreadPoolExecutor(max_workers=NEWS_WORKERS) as pool:
+            for s, news in zip(todo, pool.map(safe_fetch, todo)):
+                if news is None:
+                    continue
+                with open(os.path.join(NEWS_DIR, f"{s['symbol'].split('.')[0]}.json"), "w", encoding="utf-8") as f:
+                    json.dump(news, f, ensure_ascii=False, separators=(",", ":"))
+                written += 1
+                with_items += bool(news["items"])
+    keep = {s["symbol"].split(".")[0] for s in stocks if s["data"]}
+    pruned = 0
+    if os.path.isdir(NEWS_DIR):
+        for name in os.listdir(NEWS_DIR):
+            code = name[:-len(".json")]
+            if not name.endswith(".json") or code in keep:
+                continue
+            age = news_age_hours(code, now)
+            if age is None or age > NEWS_PRUNE_DAYS * 24:
+                os.remove(os.path.join(NEWS_DIR, name))
+                pruned += 1
+    return len(todo), written, with_items, pruned
 
 def build_sparkline(values, baseline=None, width=72, height=24):
     """
@@ -661,6 +811,8 @@ UI_CSS = """
     border-radius: 3px;
     font-size: 0.92em;
   }
+  .btn-danger { color: var(--down) !important; display: inline-flex; align-items: center; gap: 0.3rem; }
+  .btn-danger .ico { width: 13px; height: 13px; }
   .btn-primary { background: var(--text-primary) !important; color: var(--surface) !important; border-color: var(--text-primary) !important; }
   .form-error { color: var(--down); font-size: 0.8rem; margin: 0.4rem 0; }
 
@@ -769,6 +921,36 @@ UI_CSS = """
     max-width: calc(100vw - 2rem);
   }
   .bb-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* 页面最下方固定的搜索栏 (report.js 生成)；打开对话框时藏起来 */
+  .dock {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    padding: 0.5rem 1rem calc(0.5rem + env(safe-area-inset-bottom));
+    background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+  }
+  html.dlg-open .dock { display: none; }
+  html.has-dock body { padding-bottom: 5.5rem; }
+  html.has-dock .bb-toast { bottom: 5rem; }
+  .dock-inner { position: relative; max-width: 640px; margin: 0 auto; }
+  .dock-inner::before { content: "🔍"; position: absolute; left: 0.85rem; bottom: 0.72rem; font-size: 0.85rem; pointer-events: none; }
+  #dock-input {
+    width: 100%; font: inherit; font-size: 16px; /* 16px: iPhone 点输入框才不会自动放大页面 */
+    padding: 0.6rem 1rem 0.6rem 2.3rem; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--page); color: var(--text-primary);
+  }
+  #dock-input:focus { outline: 2px solid var(--ema); outline-offset: 0; }
+  .dock-list {
+    position: absolute; left: 0; right: 0; bottom: calc(100% + 0.45rem); margin: 0; padding: 0.3rem; list-style: none;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
+    max-height: 50vh; overflow-y: auto;
+  }
+  .dock-list li { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.55rem 0.65rem; border-radius: 8px; cursor: pointer; font-size: 0.88rem; }
+  .dock-list li[aria-selected="true"], .dock-list li[role="option"]:hover { background: var(--page); }
+  .dock-code { color: var(--muted); font-size: 0.78rem; }
+  .dock-sig { font-size: 0.68rem; color: var(--ema); border: 1px solid currentColor; border-radius: 4px; padding: 0 0.25rem; }
+  .dock-price { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .dock-chg { min-width: 4.2em; text-align: right; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+  .dock-list li.dock-empty { color: var(--muted); cursor: default; font-size: 0.82rem; }
 
   @media (max-width: 640px) {
     .dlg-overlay { padding: 0; align-items: flex-end; }
@@ -1076,7 +1258,7 @@ CARD_CSS = """
   .card-fin:hover { text-decoration: underline; }
 
   /* ---- 完整图表 + 财报 对话框 ---- */
-  .dlg.dlg-stock { width: min(1040px, 100%); height: min(94vh, 980px); }
+  .dlg.dlg-stock { width: min(1280px, 100%); height: min(94vh, 1000px); }
   .stock-view { display: flex; flex-direction: column; gap: 0.4rem; }
   .sv-head { font-size: 0.95rem; }
   .sv-toolbar { display: flex; align-items: center; gap: 0.4rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
@@ -1104,6 +1286,36 @@ CARD_CSS = """
   .fin-table tbody th, .fin-table thead th:first-child { text-align: left; font-weight: 500; color: var(--text-secondary); }
   .fin-table .num { text-align: right; font-variant-numeric: tabular-nums; }
   .fin-foot a { color: var(--ema); }
+  .sv-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 1.5rem; }
+  .sv-chart { min-width: 0; }
+  /* 电脑: 左边正方形K线图，右边财报 (鼠标放在右边滚轮 = 滚动对话框，不会被图表吃掉)；下面整排是新闻 */
+  @media (min-width: 900px) {
+    .sv-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; }
+    .sv-grid .fin { margin-top: 0; border-top: none; padding-top: 0.2rem; }
+    .sv-grid .fc-grid { grid-template-columns: 1fr 1fr; }
+  }
+  .news { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
+  .news h4 { margin: 0 0 0.3rem; font-size: 0.95rem; }
+  .news-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); column-gap: 1.5rem; }
+  .news-list li { padding: 0.5rem 0; border-bottom: 1px solid var(--border); min-width: 0; }
+  .news-list a {
+    color: var(--text-primary); text-decoration: none; font-size: 0.86rem; font-weight: 500; line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .news-list a:hover { text-decoration: underline; }
+  .news-meta { display: block; margin-top: 0.15rem; font-size: 0.72rem; color: var(--muted); }
+  .news-foot { margin-top: 0.5rem; }
+  /* 手机 / 平板 (没有鼠标): 图表和表格右边留一条空白给拇指滑页面 (中间那条细线是提示)，
+     不会一滑就点开股票、或者拖到图表的价格轴 */
+  @media (hover: none) {
+    .chart-wrap { margin-right: 26px; }
+    .chart-wrap::after, .table-wrap::after {
+      content: ""; position: absolute; top: 0.6rem; bottom: 0.6rem; right: -15px; width: 3px; border-radius: 2px;
+      background: var(--border); pointer-events: none;
+    }
+    .table-wrap { position: relative; margin-right: 22px; }
+    .table-wrap::after { right: -13px; }
+  }
 
   @media (max-width: 640px) {
     .chart { height: 300px; }
@@ -1589,7 +1801,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None):
   </select>
   <span id="table-count" class="table-count"></span>
 </div>
-<p class="table-hint">双击任一行 (手机上点一下) 查看完整K线图和近 4 季、近 2 年财报</p>
+<p class="table-hint">双击任一行 (手机上点一下) 查看完整K线图、近 4 季 / 近 2 年财报和最近新闻</p>
 <div class="table-wrap">
 <table class="data-table" id="watchlist-table">
   <thead>
@@ -1831,6 +2043,14 @@ def main():
                   + (f"，删掉 {pruned} 个过期文件" if pruned else ""))
     except Exception as e:
         print(f"⚠️ 更新个股资料失败 ({type(e).__name__}: {e})")
+    try:
+        tried, written, with_items, pruned = refresh_news(stocks, datetime.now(MYT))
+        if tried or pruned:
+            print(f"📰 个股新闻: 这次抓 {tried} 支，写入 {written} 支，其中 {with_items} 支有最近 {NEWS_MAX_DAYS} 天的新闻"
+                  + (f"，{tried - written} 支没拿到下次再试" if tried > written else "")
+                  + (f"，删掉 {pruned} 个过期文件" if pruned else ""))
+    except Exception as e:
+        print(f"⚠️ 更新个股新闻失败 ({type(e).__name__}: {e})")
     fin_secs = time.perf_counter() - t_fin
 
     t_report = time.perf_counter()
@@ -1851,7 +2071,7 @@ def main():
 
     # 耗时分解：Action 跑超过 1 分钟时，直接看这一行就知道慢在哪
     print(f"⏱️ 耗时: 导入库 {IMPORT_SECS:.1f}s | screener 预筛选 {pre_secs:.1f}s | 抓取+指标+日内 {fetch_secs:.1f}s | "
-          f"筛选+DeepSeek {filter_secs:.1f}s | 导出下载 {export_secs:.1f}s | 图表+财报 {fin_secs:.1f}s | 生成报告 {report_secs:.1f}s | 推送 {notify_secs:.1f}s | "
+          f"筛选+DeepSeek {filter_secs:.1f}s | 导出下载 {export_secs:.1f}s | 图表+财报+新闻 {fin_secs:.1f}s | 生成报告 {report_secs:.1f}s | 推送 {notify_secs:.1f}s | "
           f"总计 {time.perf_counter() - PROCESS_START:.1f}s")
 
 if __name__ == "__main__":
