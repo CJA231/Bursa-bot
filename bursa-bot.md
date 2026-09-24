@@ -39,6 +39,8 @@ Bursa-bot/
 │   ├── index.html               # 生成的报告，GitHub Pages 从这里发布
 │   ├── report.js                # 报告页脚本 (卡片轮播/工具栏/K线图/指标库/模板/表格)，手写的，不是每次生成
 │   ├── downloads/               # 最近 7 个交易日的下载文件 + 7 天合并文件 (自动生成、自动清理)
+│   ├── charts/table.json        # "其余股票"每支的 6 个月日线 + 当天 5 分钟线 (每次运行重写，双击时才下载)
+│   ├── stock/<代码>.json         # 每支股票的财报 + 2 年日线 + 10 年月线 (一周刷新一次)，见第 4 节"完整图表 + 财报"
 │   └── vendor/
 │       └── lightweight-charts.js  # TradingView 图表库 v5.2.1，Apache 2.0，自托管
 ├── scripts/
@@ -53,7 +55,7 @@ Bursa-bot/
 ### main.py 的结构 (按文件顺序)
 1. 配置区域 (`VOLUME_TIERS`/`min_volume_for`、`FETCH_WORKERS` 等常量)
 2. DeepSeek 客户端
-3. `detect_t3_pattern` / `get_stock_data` / `CHART_SOURCES` + `get_chart_history` (信号股多周期K线) / `get_intraday_closes` / `build_sparkline` / `fmt_volume`
+3. `detect_t3_pattern` / `get_stock_data` / `CHART_SOURCES` + `get_chart_history` (信号股多周期K线) / `get_intraday` (日内收盘价给迷你走势 + 精简K线给完整图表) / `compact_bars` / `write_table_charts` / 个股资料 (`FIN_ROWS`、`fetch_detail`、`refresh_details`、`prune_details`) / `build_sparkline` / `fmt_volume`
 4. `check_strategy` (筛选策略)
 5. `DEEPSEEK_SYSTEM_PROMPT` + `ask_deepseek`
 6. 报告页面的前端代码常量：`SETTINGS_CSS`、`TABLE_CSS`、`SETTINGS_PANEL_HTML`、`CARD_CSS`、`TEMPLATE_BAR_HTML`
@@ -89,6 +91,13 @@ Bursa-bot/
 价格先四舍五入到 3 位再分档 (避免 0.0999999 这种浮点误差把 0.10 分进 5M 档)。
 
 命中时返回文案：`🎯 EMA20多头 + SAR多头 + T3形态突破`
+
+**新上市 / 历史很短的股票** (9/24 用户要求："不足 90 天也不用紧，一样按照设定的成交量筛选")：
+- 以前 `get_stock_data` 里 `len(df) < 50` 就当"数据不足"直接丢掉 (9/23 日志里的 0041、0468–0471、5356 就是这样被丢的)；现在**只要有 1 天数据就照样按成交量门槛筛选**
+- 天数不够算的指标留 `None`，网页和 Excel/PDF 显示 "—"：RSI 要 15 天、EMA20 要 20 天、50日均线要 50 天、SAR 要 2 天；相对量不足 20 天就用现有那几天平均
+- 策略照旧四个条件都要满足：EMA20 是 None 就不算命中，T3 至少要 26 天 → 新股通常先进"其余股票"表格，满 26 天左右才可能出信号
+- 表格和卡片标题旁标 **"N天"** 小标签 (历史 < 90 个交易日时)，鼠标移上去有说明
+- `history_days` = 这次下载到的交易日数 (6 个月上限约 123 天)；停牌很久的股票也可能被标上
 
 ### T3 形态的定义（用户自定义，很重要，别改错）
 
@@ -136,7 +145,7 @@ def detect_t3_pattern(df):
 2. **📥 下载报告** (折叠)
 3. **筛选器** — 标题下面一行小字是当前指标模板名 → 股票标签 → 全局工具栏 → **卡片轮播** (一次一张)
 4. **📋 其余股票** — 仿 TradingView 选股器的表格 (电脑撑满宽度，手机两行式)
-5. 数据不足的股票只报个数量
+5. 完全没数据 / 抓取失败的股票只报个数量 (历史短的新股不算，照样进表格)
 6. 版权页脚 (中英双语 + TradingView 署名 + 数据来源说明)
 
 ### 筛选器 = 卡片轮播 (9/24 改版，参考 TradingView 的顶部工具栏和指标对话框)
@@ -196,7 +205,7 @@ def detect_t3_pattern(df):
 - **电脑**：表格撑满页面宽度 (`width: 100%`)，走势图跟着列宽拉长 (SVG `preserveAspectRatio="none"` + `vector-effect: non-scaling-stroke`)
 - **手机 (≤ 640px)**：不再横向滑动，每行用 CSS grid 排成两层 —— 第一层 `# 股票 走势 价格`，第二层 `量 相对量 RSI SAR EMA20 涨跌%` (每格上面一行小字标签，来自 `data-label`)；表头藏起来，改用搜索框旁边的「排序」下拉框 (`#table-sort`，值是 `列号:asc/desc`)
 - **走势 = 迷你日内图**：服务端直接画成内嵌 SVG (不用 JS)
-  - 数据来自 `get_intraday_closes` (yfinance `period="1d", interval="5m"`)，**只对会进表格的股票抓**，同样并发
+  - 数据来自 `get_intraday` (yfinance `period="1d", interval="5m"`)，**只对会进表格的股票抓**，同样并发；同一份 5 分钟线也存进 `table.json` 给完整图表用
   - 虚线 = 昨收；线的最后一个点补上现价 (Yahoo 5 分钟线会慢一点)；颜色 = 现价相对昨收：涨绿、跌红、没变灰 (`spark-flat`)，跟"涨跌%"一致
   - 拿不到日内数据的退回画近 30 日收盘价 (没有虚线，颜色按 30 日走势，可能跟当天涨跌不一致)；悬停提示会写是哪种
   - 颜色用 CSS 变量 `--up/--down`，⚙ 图表设置里改颜色也会生效
@@ -204,6 +213,32 @@ def detect_t3_pattern(df):
 - 默认按成交量从高到低排；点表头可排序 (走势列不可排序)
 - 顶部搜索框按代码/名称即时过滤
 - 旧表格里的 SMA50 列已去掉 (信号卡片里还有)
+
+### 🔍 完整图表 + 财报 (9/24，PR #23)
+用户要求：搜索其他股票时可以点开看完整走势图，双击表格一行打开，附上近 4 季财报和近 2 年年报的可视化。
+- **怎么打开**：电脑双击"其余股票"的一行、手机点一下 (手机双击会被当成放大页面)、键盘选中行按 Enter；筛选器卡片标题下方也有「完整图表 · 财报 ›」按钮。表格上方有一行提示
+- **对话框** (`openStockModal`，`docs/report.js` 的"完整图表 + 财报"那一段)：周期按钮 + ƒx 指标 + 图表 + 开高低收 + 财报。图表就是卡片那套 `renderChart`，所以图表类型、指标、模板全部通用 (改了指标所有图表一起变)；关掉时 `destroyChart` + 删掉 `data[id]`
+- **K 线从哪来**：
+  - 筛选器卡片：直接用卡片自己的数据 (2 年日线 + 10 年月线 + 1/5/15/60 分钟线)
+  - 表格股票：`docs/charts/table.json` (6 个月日线 `d` + 当天 5 分钟线 `i`，每次运行都重写) **接上** `docs/stock/<代码>.json` 里更早的日线 / 月线 (`basesFromTable`)：
+    - 日线 = 个股资料里早于 table.json 第一天的部分 + table.json 的 6 个月
+    - 月线 = 日线第一个月 (可能不完整) 以及更早的月份用 10 年月线，之后的月份用日线合成
+    - 15 分 / 1 小时由 5 分钟线按 9:00 开市对齐合成；**表格股票没有 1 分钟线** (1分按钮灰色)
+    - 个股资料还没抓到时只有 6 个月日线，对话框里会写"后台还在补"
+  - 精简格式 (`compact_bars`)：价格 ×1000 存整数 (Bursa 最小跳动 0.005)，时间只存第一根 `t0` + 每根间隔 `dt` (单位 `u` 秒)，比卡片用的格式小一半以上
+- **个股资料 `docs/stock/<代码>.json`** (`refresh_details`)：`{"v":1, symbol, fetched_at, fin: {quarterly, annual, currency} | null, bars: {d, m}}`
+  - 每次运行按"信号在前、其余按成交量从高到低"挑**没有文件或过期**的，最多补 `DETAIL_PER_RUN = 30` 支 (8 线程)；250 支表格股票大约 9 次运行 (1 天) 补齐，之后每天只需要刷新 1/7
+  - 有财报的 7 天后刷新；**Yahoo 没给财报的 2 天后再试** (yfinance 抓财报出错时不会报错，只会给空表格，分不出"本来没有"还是"被限流"，所以不想一错就等一周)
+  - **日线都拿不到 = 这次请求失败**，不写文件，下次运行再试 (上市公司不可能没有 K 线)
+  - 超过 30 天没更新、这次也不在报告里的文件自动删除 (`prune_details`)；读不了的坏文件也删
+  - 财报科目 (`FIN_ROWS`)：每个输出键列了几个 Yahoo 可能用的科目名称，按顺序取第一个有的；报告期以利润表为准，资产负债表 / 现金流量表同一天的数字对上去
+  - `currency` 来自 `Ticker.info["financialCurrency"]` (只在有财报时才多这一个请求)；网页上 MYR 写"令吉 (RM)"，其他货币直接写出来并注明"不是令吉"，拿不到写"公司报告货币"
+- **财报图表** (照 dataviz 规范)：营业收入 / 净利润 / 净利率 / 经营现金流**一张图一个指标，不用双坐标轴**；柱子最宽 24px、数据那头 4px 圆角、贴基线那头直角；只标最新一期的数值 (负数标在基线上方，不会压到季度文字)，其余看悬停提示 (SVG `<title>`) 和下面的完整表格；营收用单一颜色 (`--ema`)，盈亏类用 `--up/--down`；标题右边写"较上季 / 较上年"变化，正负号变了直接写"转盈 / 转亏"(现金流"转正 / 转负")，净利率写"个百分点"
+  - ⚠️ 红绿配色对红绿色弱不友好 (验色脚本 deutan ΔE 4.1，不及格)，但正负同时还靠柱子方向 (基线上 / 下) 和数字的负号表达，所以保留跟全站一致的涨跌色
+  - 手机 (≤ 640px)：图表两栏，SVG 会缩到约 0.7 倍，所以手机上 SVG 字号写大 (13/14px，实际显示约 9–10px)；表格藏掉日期小字，四季刚好放得下不用横向滑；周期按钮排两行
+- **完整年报 PDF**：只放了 Bursa 公司资料页链接 `bursamalaysia.com/trade/trading_resources/listing_directory/company-profile?stock_code=<代码>` (沙箱打不开 bursamalaysia.com，但 WebSearch 查到 Bursa 官网自己的页面就是这个网址格式，例如 `?stock_code=1818`、`?stock_code=5014`；年报在页面里的公司公告)
+- **大小**：table.json 约 5KB/支 (250 支约 1.2MB，gzip 后约 0.4MB，第一次双击才下载)；个股资料约 16KB/支 (250 支约 4MB)。每次运行都会提交 table.json，git 用 delta 压缩，实际增长比文件大小小很多，但仓库会慢慢变大 (如果以后改用 Actions 部署 Pages，这两个都可以不进 git)
+- `daily.yml` 的 `git add -A` 加上了 `docs/charts docs/stock`；两个目录里各放了一个空的 `.gitkeep`，因为 `git add` 碰到**不存在的路径会直接报错** (`fatal: pathspec ... did not match any files`)，非交易日 main.py 提前返回、目录还没生成时整个发布步骤就会失败
 
 ### ☁️ 一目均衡表 (Ichimoku Cloud，9/23 按用户给的 TradingView Pine 脚本加入)
 - 指标库「趋势」里的「一目均衡表」，一次加 5 条线 + 云 (4 个参数、5 种颜色都能改)：转换线 `#2962FF`、基准线 `#B71C1C`、延迟线 `#43A047`、先行带A `#A5D6A7`、先行带B `#EF9A9A`；A 在 B 上方云是绿色，下方是红色 (颜色跟 TradingView 一样)
@@ -293,7 +328,8 @@ def detect_t3_pattern(df):
 3. screener 出错会自动退回"全部逐支下载"，结果一样只是慢一点
 
 **日志里的耗时行**：每次运行最后会打印
-`⏱️ 耗时: 导入库 Xs | screener 预筛选 Xs | 抓取+指标+日内 Xs | 筛选+DeepSeek Xs | 生成报告 Xs | 推送 Xs | 总计 Xs`
+`⏱️ 耗时: 导入库 Xs | screener 预筛选 Xs | 抓取+指标+日内 Xs | 筛选+DeepSeek Xs | 导出下载 Xs | 图表+财报 Xs | 生成报告 Xs | 推送 Xs | 总计 Xs`
+("图表+财报" = 写 table.json + 补个股资料；补 30 支大约 9 个请求/支 ÷ 8 线程，估计 10–20 秒，补齐之后每次只剩几支)
 超过 1 分钟时先看这一行。daily.yml 设了 `PYTHONUNBUFFERED=1`，日志每行的时间戳是真实的 (以前 Python 输出被缓冲，所有行都挤在结束那一秒，看不出慢在哪)。
 
 **实测记录**：
@@ -342,6 +378,11 @@ yf.screen(EquityQuery('eq', ['region', 'my']))   # → 筛 quoteType == "EQUITY"
 ```
 （Bursa 官网下载 Excel 要付费 Pro 版，所以走 Yahoo。）
 
+**新上市的股票不用等清单更新** (9/24)：每次运行的预筛选本来就用同一个 screener 拿到全马股票报价，
+`build_scan_list()` 会把 screener 里有、`watchlist.json` 里没有的普通股一起扫描 (日志印 "🆕 screener 里有 N 支清单里没有的股票")；
+清单里名称还是代码的 (刚上市时 Yahoo 还没名字，例如 `0468.KL`) 也顺便换成 screener 的新名称。
+screener 出错时就只扫清单里的股票 (跟以前一样)。清单文件本身不会被自动改写，想更新还是手动跑 `update-watchlist.yml`。
+
 ---
 
 ## 7. 已知的坑 / 历史教训
@@ -374,6 +415,12 @@ yf.screen(EquityQuery('eq', ['region', 'my']))   # → 筛 quoteType == "EQUITY"
   - Playwright 的 `element.screenshot()` 会自己把元素滚进来，轮播里对非当前卡片截图会把轮播拖到一半；截图要截整个 `#screener`
   - 对话框里的通用按钮样式用了一串 `:not(...)`，优先级很高，会盖掉 "选中" 样式，选中态要加 `!important`
   - 手机上图例一行塞不下 名称+数值+5 个按钮，名称会被挤到 0 宽度 → 改成点一下这一行才展开按钮
+- **9/24 完整图表 + 财报踩到的坑**：
+  - `git add -A <路径>` 路径不存在会 fatal → 新目录先放 `.gitkeep` (见第 4 节)
+  - SVG 的字号跟着 viewBox 缩放，同一张图在手机两栏里字会变成 6px → 手机上 CSS 把 SVG 字号写大
+  - 最新一期是最低的负数时，数值标签会压到下面的季度文字 → 负数的标签改标在基线上方
+  - yfinance 抓财报失败不会报错 (内部吞掉，给空表格) → 空财报 2 天后重试；K 线抓不到才算真正失败
+  - 模拟测试时 `history(period=...)` 要按 period 返回不同长度，不然测不到"长期 K 线接 6 个月"的拼接
 
 ### 9/23 – 9/24 对话记录 (按时间顺序，给接手的人快速了解)
 | 用户要求 | 结果 | PR |
@@ -387,6 +434,8 @@ yf.screen(EquityQuery('eq', ['region', 'my']))   # → 筛 quoteType == "EQUITY"
 | 收费化要哪些牌照/成本/宣传/流程，整理成 Word | 已发 Word 给用户 (`Bursa-Bot-收费化评估报告.docx`)，**没放仓库** (仓库公开，内容是商业计划)。结论：卖"信号"要 SC 牌照 (CMSL + CMSRL，数字投资建议缴足资本 RM20 万)；卖"用户自设条件的工具"一般不用但要律师确认，且必须换有商业授权的行情数据 (EODHD 商用约 $399/月起或 Bursa ISLA)；建议先免费 + 律师意见 | — |
 | 加 Supertrend (给了 Pine 脚本) | Supertrend | #22 |
 | 卡片轮播、图表类型分组、指标库/模板照 TradingView 分类、点图例改参数、表格 fit 手机/电脑 | 第 4 节"筛选器 = 卡片轮播" | #22 |
+| 新股不足 90 天也照样按成交量筛选 | 历史短的股票不再丢掉 (指标算不出来显示 —，标 "N天")；screener 里的新上市股票自动加入扫描 | #23 |
+| 搜索其他股票时能看完整走势图 (双击表格一行)，附近 4 季财报 + 近 2 年年报的可视化，开 PR | 第 4 节"完整图表 + 财报"；为了"完整"，表格股票也补上 2 年日线 + 10 年月线 (跟卡片一样长) | #23 |
 
 ### 9/23 运行记录 (PR #19 合并后)
 - **#212** (16:34，合并后第一次)：共 3 分 37 秒。requirements.txt 变了 → 缓存没命中，重装依赖 32 秒；分析 25 秒；报告 16:35:08 就推送了 (触发后 64 秒)；剩下 2.5 分钟是报告推送之后才保存 205MB 的依赖缓存 (这次压缩特别慢，上次同样大小只要 44 秒)。每周第一次运行、或者 requirements.txt 变了才会这样
@@ -412,7 +461,7 @@ yf.screen(EquityQuery('eq', ['region', 'my']))   # → 筛 quoteType == "EQUITY"
 所以**本地跑不了 yfinance**，要验证真实数据只能推到 GitHub Actions 上跑（runner 网络是通的）。
 
 本地可以做的验证：
-- mock 掉 `get_stock_data` / `get_intraday_closes` / `ask_deepseek` 等，跑完整的 `main()`
+- mock 掉 `get_stock_data` / `get_intraday` / `yf.Ticker` (财报用) / `ask_deepseek` 等，跑完整的 `main()`
 - 用 Playwright + `/opt/pw-browsers/chromium-1194/chrome-linux/chrome` 打开生成的报告，测交互、截图 (手机尺寸 390×844)
 - 生成的报告需要 `vendor/lightweight-charts.js` 在同目录，用 `python3 -m http.server` 起一个本地服务
 
@@ -451,7 +500,12 @@ CMSA 2007、SC Guidance Note **SC-GN/1-2020 (R2-2024)**、Digital Investment Man
 - [ ] 确认 12:15 是故意的还是想要 12:25
 - [x] ~~9/23 性能优化合并后看一次真实运行的 ⏱️ 耗时行~~ (#210 起：预筛选跳过约 770 支，分析 30 秒左右，缓存命中时整个 run 约 45–55 秒)
 - [ ] **PR #22 (卡片轮播 + Supertrend) 合并后**看第一次真实运行：卡片翻页、图表类型、指标库在真实数据上正常；用户浏览器里旧模板有没有正确迁移 (`bursa_templates_v1` → `v2`)
-- [ ] (看情况) 信号股很多时页面会变大 (真实数据约 75KB/支，12 支约 1MB)。要优化的话：每支股票的K线数据拆成 `docs/charts/<代码>.json`，翻到那张卡片才下载 (daily.yml 的 `git add` 要加上 `docs/charts`)
+- [ ] **PR #23 合并后**看第一次真实运行：
+  - 日志的 `📊 个股资料` 那行：**几支 Yahoo 有财报** (沙箱里验证不了 Yahoo 对马股财报的覆盖率；如果几乎全是 0，要换数据源或把财报区块藏起来)
+  - `docs/charts/table.json` 实际大小、`图表+财报` 耗时
+  - 双击几支股票：2 年日线有没有接上、月线正常、财报数字跟 Bursa 公告对得上 (单位、季度)
+  - 用真实数据截完整图表 + 财报的图放进 README (现在的 README 截图都是真实数据，不要放模拟数据的图)
+- [ ] (看情况) 信号股很多时页面会变大 (真实数据约 75KB/支，12 支约 1MB)。要优化的话：每支信号股的K线数据也拆成 `docs/charts/<代码>.json`，翻到那张卡片才下载 (`docs/charts` 目录和 `git add` 已经有了)
 - [ ] (用户决定) 下载文件要不要改成 Actions 部署 Pages、不进 git (越早改越好，见第 4 节)
 - [ ] (用户自己改) GitHub 仓库描述还写着 "analyzing TradingView screeners … best opportunities"，跟实际不符、又像推荐买卖，建议改成类似 "Personal technical-analysis screener for Bursa Malaysia (educational use, not investment advice)"
 - [x] ~~README 补真实表格截图~~ (9/23 用 run #209 的真实报告前 8 行截的)

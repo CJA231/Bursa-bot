@@ -2102,6 +2102,307 @@
     }
   })();
 
+  // ---------- 完整图表 + 财报 (双击"其余股票"的一行，或点筛选器卡片上的"完整图表 · 财报") ----------
+  // 表格股票最新的K线在 docs/charts/table.json (6 个月日线 + 当天 5 分钟线，每次运行都更新)，第一次打开时才下载；
+  // 财报 + 2 年日线 + 10 年月线在 docs/stock/<代码>.json (后台一周刷新一次)，打开哪支才下载哪支。
+  var tableChartsUrl = document.body.dataset.tableCharts || '';
+  var tableChartsPromise = null;
+  function loadTableCharts() {
+    if (!tableChartsUrl) return Promise.reject(new Error('这次运行没有生成完整图表数据'));
+    if (!tableChartsPromise) {
+      tableChartsPromise = fetch(tableChartsUrl).then(function (r) {
+        if (!r.ok) throw new Error('下载失败 (HTTP ' + r.status + ')');
+        return r.json();
+      }).catch(function (e) { tableChartsPromise = null; throw e; });
+    }
+    return tableChartsPromise;
+  }
+  // 精简格式 (价格 ×1000 的整数、第一根时间 + 间隔) → 图表用的 {t,o,h,l,c,v}
+  function decodeBars(c) {
+    if (!c || !c.o || !c.o.length) return null;
+    var t = [c.t0];
+    for (var i = 0; i < c.dt.length; i++) t.push(t[i] + c.dt[i] * c.u);
+    function div(a) { return a.map(function (x) { return x / 1000; }); }
+    return { t: t, o: div(c.o), h: div(c.h), l: div(c.l), c: div(c.c), v: c.v };
+  }
+  function rawToObjs(raw) {
+    return raw.t.map(function (t, i) { return { time: t, open: raw.o[i], high: raw.h[i], low: raw.l[i], close: raw.c[i], volume: raw.v[i] }; });
+  }
+  function objsToRaw(list) {
+    return {
+      t: list.map(function (b) { return b.time; }), o: list.map(function (b) { return b.open; }), h: list.map(function (b) { return b.high; }),
+      l: list.map(function (b) { return b.low; }), c: list.map(function (b) { return b.close; }), v: list.map(function (b) { return b.volume; })
+    };
+  }
+  function sessionKey(mins) {
+    return function (t) { return Math.floor(t / DAY) + ':' + Math.floor((Math.floor((t % DAY) / 60) - SESSION_START_MIN) / mins); };
+  }
+  function monthKey(t) { var x = new Date(t * 1000); return x.getUTCFullYear() * 12 + x.getUTCMonth(); }
+  // 个股资料 (财报 + 长期K线)：没有文件 = null；同一页面里重复打开同一支不再下载
+  var detailCache = {};
+  function loadDetail(code) {
+    if (!detailCache[code]) {
+      detailCache[code] = fetch('stock/' + encodeURIComponent(code) + '.json', { cache: 'no-cache' }).then(function (r) {
+        if (r.status === 404) return null;
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+      detailCache[code].catch(function () { delete detailCache[code]; });
+    }
+    return detailCache[code];
+  }
+  // 表格股票: table.json 的 6 个月日线 + 5 分钟线，再接上个股资料里更早的日线 / 月线 (有的话)；
+  // 15 分 / 1 小时 / 月线 在这里合成，其余周期再由 barsFor() 合成
+  function basesFromTable(entry, detail) {
+    var bars = {};
+    var recent = decodeBars(entry.d), m5 = decodeBars(entry.i);
+    var long = detail && detail.bars ? decodeBars(detail.bars.d) : null;
+    var monthly = detail && detail.bars ? decodeBars(detail.bars.m) : null;
+    var daily = recent ? rawToObjs(recent) : [];
+    if (long) {
+      var first = daily.length ? daily[0].time : Infinity;
+      daily = rawToObjs(long).filter(function (b) { return b.time < first; }).concat(daily);
+    }
+    if (daily.length) {
+      bars['1d'] = objsToRaw(daily);
+      // 月线: 日线覆盖的月份用日线合成 (最新)；日线的第一个月可能不完整，它和更早的月份用 10 年月线
+      var cut = monthKey(daily[0].time) + (monthly ? 1 : 0);
+      var older = monthly ? rawToObjs(monthly).filter(function (b) { return monthKey(b.time) < cut; }) : [];
+      var fromDaily = aggregate(daily, monthKey).filter(function (b) { return monthKey(b.time) >= cut; });
+      bars['1mo'] = objsToRaw(older.concat(fromDaily));
+    }
+    if (m5) {
+      bars['5m'] = m5;
+      bars['15m'] = objsToRaw(aggregate(rawToObjs(m5), sessionKey(15)));
+      bars['60m'] = objsToRaw(aggregate(rawToObjs(m5), sessionKey(60)));
+    }
+    return bars;
+  }
+
+  var modalSeq = 0;
+  function openStockModal(opts) {
+    var id = 'm' + (++modalSeq) + '-' + opts.code;
+    var root = document.createElement('div');
+    root.className = 'stock-view';
+    root.innerHTML =
+      (opts.headHtml ? '<div class="sv-head">' + opts.headHtml + '</div>' : '') +
+      '<div class="sv-toolbar"><div class="tf-list sv-tf" role="tablist" aria-label="K线周期"></div>' +
+      '<button type="button" class="tb-btn sv-ind" title="指标"><span class="fx">ƒx</span><span class="tb-label">指标</span></button></div>' +
+      '<p class="tf-note" id="' + id + '-tfnote" hidden></p>' +
+      '<p class="sv-msg hint">图表载入中…</p>' +
+      '<div class="chart-wrap"><div id="' + id + '" class="chart"></div><div class="chart-legends" id="' + id + '-legends"></div></div>' +
+      '<div class="quote"><div class="quote-live" id="' + id + '-live"></div></div>' +
+      '<section class="fin" aria-label="财务报表"><div class="fin-head"><h4>财务报表</h4>' +
+      '<div class="tabs fin-tabs" role="tablist"><button type="button" role="tab" data-fin="quarterly" aria-selected="true">近 4 季</button>' +
+      '<button type="button" role="tab" data-fin="annual" aria-selected="false">近 2 年 (年报)</button></div></div>' +
+      '<div class="fin-body"><p class="hint">财报载入中…</p></div>' +
+      '<p class="hint fin-foot"></p></section>';
+    var dlg = openDialog({
+      title: opts.name + '  ' + opts.code, body: root, className: 'dlg-stock', focus: '.dlg-x',
+      onClose: function () { destroyChart(id); delete data[id]; }
+    });
+    root.querySelector('.sv-ind').addEventListener('click', function () { openIndicatorsDialog('all'); });
+    var msg = root.querySelector('.sv-msg'), wrap = root.querySelector('.chart-wrap');
+    var detail = loadDetail(opts.code);
+    var shortHistory = false;
+    // 筛选器卡片本来就有 2 年日线 + 10 年月线 + 全部日内周期，直接用；表格股票拼 table.json + 个股资料
+    var ready = opts.sourceChartId && data[opts.sourceChartId]
+      ? Promise.resolve(data[opts.sourceChartId].bars)
+      : Promise.all([loadTableCharts(), detail.catch(function () { return null; })]).then(function (res) {
+        var e = res[0].stocks && res[0].stocks[opts.code];
+        if (!e) throw new Error('这次运行没有这支股票的K线');
+        shortHistory = !(res[1] && res[1].bars && res[1].bars.d);
+        return basesFromTable(e, res[1]);
+      });
+    ready.then(function (bars) {
+      if (!root.isConnected) return;
+      data[id] = { bars: bars };
+      msg.hidden = !shortHistory;
+      msg.textContent = shortHistory ? '目前只有最近 6 个月的日线；2 年日线 + 10 年月线后台还在补 (每次运行补一批，通常一天内补齐)' : '';
+      renderChart(id);
+      buildModalTimeframes(root, id);
+    }).catch(function (e) {
+      msg.textContent = '图表载入失败：' + e.message;
+      wrap.hidden = true;
+      root.querySelector('.sv-toolbar').hidden = true;
+    });
+    showFinancials(opts.code, detail, root.querySelector('.fin'));
+    return dlg;
+  }
+  function buildModalTimeframes(root, id) {
+    var list = root.querySelector('.sv-tf');
+    function mark() {
+      var st = charts[id];
+      list.querySelectorAll('.tf-btn').forEach(function (b) { b.setAttribute('aria-selected', st && st.tf && b.dataset.tf === st.tf.id ? 'true' : 'false'); });
+    }
+    TIMEFRAMES.forEach(function (tf) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tf-btn';
+      b.dataset.tf = tf.id;
+      b.textContent = tf.label;
+      b.setAttribute('role', 'tab');
+      if (!hasTf(id, tf)) { b.disabled = true; b.title = '这支股票没有' + tf.label + '的数据'; }
+      b.addEventListener('click', function () { if (charts[id]) { setTimeframe(charts[id], tf); mark(); } });
+      list.appendChild(b);
+    });
+    mark();
+  }
+
+  // ---------- 财报: 4 张小柱状图 (一张一个指标，不用双坐标轴) + 完整数字表格 ----------
+  var FIN_TABLE_ROWS = [
+    { key: 'revenue', label: '营业收入' }, { key: 'gross_profit', label: '毛利' }, { key: 'operating_income', label: '营业利润' },
+    { key: 'net_income', label: '净利润' }, { key: 'net_margin', label: '净利率', pct: true }, { key: 'eps', label: '每股盈利 (EPS)', eps: true },
+    { key: 'total_assets', label: '总资产' }, { key: 'total_liabilities', label: '总负债' }, { key: 'equity', label: '股东权益' },
+    { key: 'cash', label: '现金及等价物' }, { key: 'total_debt', label: '总债务' },
+    { key: 'operating_cf', label: '经营现金流' }, { key: 'free_cf', label: '自由现金流' }
+  ];
+  // accent = 单一颜色 (规模)；sign = 正数绿、负数红 (盈亏)
+  var FIN_CHARTS = [
+    { key: 'revenue', label: '营业收入', color: 'accent' },
+    { key: 'net_income', label: '净利润', color: 'sign', flip: ['转盈', '转亏'] },
+    { key: 'net_margin', label: '净利率', color: 'sign', pct: true },
+    { key: 'operating_cf', label: '经营现金流', color: 'sign', flip: ['转正', '转负'] }
+  ];
+  function fmtMoney(v) {
+    if (!isNum(v)) return '—';
+    var a = Math.abs(v), s = v < 0 ? '-' : '';
+    if (a >= 1e9) return s + (a / 1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return s + (a / 1e6).toFixed(a >= 1e8 ? 0 : 1) + 'M';
+    if (a >= 1e3) return s + (a / 1e3).toFixed(0) + 'K';
+    return s + a.toFixed(0);
+  }
+  function fmtFin(row, v) {
+    if (!isNum(v)) return '—';
+    if (row.pct) return v.toFixed(1) + '%';
+    if (row.eps) return (v < 0 ? '-' : '') + Math.abs(v).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    return fmtMoney(v);
+  }
+  function periodLabel(p, annual) {
+    var y = +p.slice(0, 4), m = +p.slice(5, 7);
+    return annual ? 'FY' + y : String(y).slice(2) + 'Q' + Math.ceil(m / 3);
+  }
+  // 净利率 = 净利润 ÷ 营业收入
+  function withMargin(sec) {
+    var out = Object.assign({}, sec);
+    out.net_margin = (sec.periods || []).map(function (_, i) {
+      var r = sec.revenue && sec.revenue[i], n = sec.net_income && sec.net_income[i];
+      return isNum(r) && isNum(n) && r !== 0 ? n / r * 100 : null;
+    });
+    return out;
+  }
+  function barPath(x, w, y0, y1, r) {
+    var h = Math.abs(y1 - y0);
+    r = Math.min(r, h, w / 2);
+    var up = y1 < y0, e = up ? y1 + r : y1 - r; // 圆角只在数据那一端，贴着基线那一端是直角
+    return 'M' + x + ',' + y0 + 'V' + e + 'Q' + x + ',' + y1 + ' ' + (x + r) + ',' + y1 + 'H' + (x + w - r) +
+      'Q' + (x + w) + ',' + y1 + ' ' + (x + w) + ',' + e + 'V' + y0 + 'Z';
+  }
+  function columnChart(def, sec, annual) {
+    var periods = sec.periods, vals = sec[def.key] || [];
+    var W = 240, H = 132, top = 20, bottom = 22, plotH = H - top - bottom;
+    var nums = vals.filter(isNum);
+    var lo = Math.min(0, Math.min.apply(null, nums.length ? nums : [0])), hi = Math.max(0, Math.max.apply(null, nums.length ? nums : [1]));
+    if (hi === lo) hi = lo + 1;
+    function y(v) { return top + (hi - v) / (hi - lo) * plotH; }
+    var y0 = y(0), n = periods.length, slot = (W - 8) / Math.max(n, 1), bw = Math.min(24, slot * 0.55);
+    var row = { pct: def.pct };
+    var lastIdx = -1;
+    vals.forEach(function (v, i) { if (isNum(v)) lastIdx = i; });
+    var svg = '<svg class="fc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + def.label + '各期数值，详见下方表格">' +
+      '<line class="fc-base" x1="4" x2="' + (W - 4) + '" y1="' + y0.toFixed(1) + '" y2="' + y0.toFixed(1) + '"/>';
+    periods.forEach(function (p, i) {
+      var v = vals[i], x = 4 + slot * i + (slot - bw) / 2;
+      var tip = periodLabel(p, annual) + ' (' + p + ')  ' + def.label + '：' + fmtFin(row, v);
+      svg += '<g class="fc-bar"><title>' + escapeHtml(tip) + '</title>' +
+        '<rect class="fc-hit" x="' + (4 + slot * i).toFixed(1) + '" y="0" width="' + slot.toFixed(1) + '" height="' + H + '"/>';
+      if (isNum(v) && v !== 0) {
+        var color = def.color === 'accent' ? 'var(--ema)' : v >= 0 ? 'var(--up)' : 'var(--down)';
+        svg += '<path d="' + barPath(x, bw, y0, y(v), 4) + '" style="fill:' + color + '"/>';
+      }
+      if (i === lastIdx) { // 只标最新一期的数值，其余看悬停提示和下方表格
+        var ly = (v >= 0 ? y(v) : y0) - 5; // 负数标在基线上方，不会压到底下的季度文字
+        svg += '<text class="fc-val" x="' + (x + bw / 2).toFixed(1) + '" y="' + ly.toFixed(1) + '" text-anchor="middle">' + escapeHtml(fmtFin(row, v)) + '</text>';
+      }
+      svg += '<text class="fc-lbl" x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle">' + periodLabel(p, annual) + '</text></g>';
+    });
+    svg += '</svg>';
+    var change = '';
+    if (lastIdx > 0 && isNum(vals[lastIdx - 1])) {
+      var a = vals[lastIdx - 1], b = vals[lastIdx];
+      var txt = def.pct ? (b - a >= 0 ? '+' : '') + (b - a).toFixed(1) + ' 个百分点'
+        : def.flip && a < 0 && b > 0 ? def.flip[0] : def.flip && a > 0 && b < 0 ? def.flip[1] // 正负号变了，百分比没意义
+          : a !== 0 ? (b - a >= 0 ? '+' : '') + ((b - a) / Math.abs(a) * 100).toFixed(1) + '%' : '';
+      if (txt) change = '<span class="' + (b >= a ? 'change-up' : 'change-down') + '">' + (annual ? '较上年 ' : '较上季 ') + txt + '</span>';
+    }
+    return '<div class="fc"><div class="fc-title"><span>' + def.label + '</span>' + change + '</div>' + svg + '</div>';
+  }
+  function finTable(sec, annual) {
+    var periods = sec.periods;
+    var rows = FIN_TABLE_ROWS.filter(function (r) { return (sec[r.key] || []).some(isNum); });
+    return '<div class="fin-table-wrap"><table class="fin-table"><thead><tr><th scope="col">项目</th>' +
+      periods.map(function (p) { return '<th scope="col" class="num" title="报告期结束：' + p + '">' + periodLabel(p, annual) + '<small>' + p + '</small></th>'; }).join('') +
+      '</tr></thead><tbody>' + rows.map(function (r) {
+        return '<tr><th scope="row">' + r.label + '</th>' + periods.map(function (_, i) {
+          var v = sec[r.key][i];
+          return '<td class="num' + (isNum(v) && v < 0 ? ' change-down' : '') + '">' + fmtFin(r, v) + '</td>';
+        }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  function showFinancials(code, detailPromise, box) {
+    var body = box.querySelector('.fin-body'), foot = box.querySelector('.fin-foot');
+    var bursa = 'https://www.bursamalaysia.com/trade/trading_resources/listing_directory/company-profile?stock_code=' + encodeURIComponent(code);
+    var link = '完整年报 PDF：<a href="' + bursa + '" target="_blank" rel="noopener">Bursa 官网公司资料 ↗</a> (年报在公司公告里)';
+    foot.innerHTML = link;
+    detailPromise.then(function (detail) {
+      var fin = detail && detail.fin;
+      box.querySelector('.fin-tabs').hidden = !fin;
+      if (!detail) {
+        body.innerHTML = '<p class="hint">这支股票的财报还没抓到。后台每次运行补一批 (每支一周更新一次)，通常一天内会补齐。</p>';
+        return;
+      }
+      if (!fin) {
+        body.innerHTML = '<p class="hint">Yahoo Finance 没有这家公司的财报数据 (' + escapeHtml(detail.fetched_at) + ' 查过，过两天会再试)。可以到 Bursa 官网看年报。</p>';
+        return;
+      }
+      var views = { quarterly: withMargin(fin.quarterly || { periods: [] }), annual: withMargin(fin.annual || { periods: [] }) };
+      function show(kind) {
+        var sec = views[kind], annual = kind === 'annual';
+        box.querySelectorAll('[data-fin]').forEach(function (t) { t.setAttribute('aria-selected', t.dataset.fin === kind ? 'true' : 'false'); });
+        if (!sec.periods || !sec.periods.length) {
+          body.innerHTML = '<p class="hint">没有' + (annual ? '年度' : '季度') + '财报数据。</p>';
+          return;
+        }
+        body.innerHTML = '<div class="fc-grid">' + FIN_CHARTS.map(function (d) { return columnChart(d, sec, annual); }).join('') + '</div>' + finTable(sec, annual);
+      }
+      box.querySelectorAll('[data-fin]').forEach(function (t) { t.addEventListener('click', function () { show(t.dataset.fin); }); });
+      show(views.quarterly.periods && views.quarterly.periods.length ? 'quarterly' : 'annual');
+      var cur = fin.currency;
+      var unit = !cur ? '金额单位：公司报告货币 (马股一般是令吉 RM)' : cur === 'MYR' ? '金额单位：令吉 (RM)'
+        : '金额单位：' + escapeHtml(cur) + ' (这家公司用 ' + escapeHtml(cur) + ' 报告，不是令吉)';
+      foot.innerHTML = '数据来源：Yahoo Finance (' + escapeHtml(detail.fetched_at) + ' 更新)，' + unit + '，K = 千、M = 百万、B = 十亿；季度 / 财年按报告期结束的月份 / 年份标示。' + link;
+    }).catch(function (e) {
+      body.innerHTML = '<p class="hint">财报载入失败：' + escapeHtml(e.message) + '</p>';
+    });
+  }
+
+  // 筛选器卡片上加一个"完整图表 · 财报"按钮 (卡片里本来就有多周期K线，这里主要是看财报)
+  document.querySelectorAll('.card[data-chart]').forEach(function (card) {
+    var tags = card.querySelector('.card-tags');
+    var h2 = card.querySelector('h2');
+    if (!tags || !h2) return;
+    var code = card.dataset.chart.replace(/^chart-/, '');
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'card-fin';
+    btn.textContent = '完整图表 · 财报 ›';
+    btn.addEventListener('click', function () {
+      openStockModal({ code: code, name: h2.firstChild.textContent.trim(), sourceChartId: card.dataset.chart,
+        headHtml: card.querySelector('.card-price') ? card.querySelector('.card-price').outerHTML : '' });
+    });
+    tags.appendChild(btn);
+  });
+
   buildToolbar();
 
   // ---------- "其余股票"表格: 点表头排序 + 手机上的排序下拉框 + 搜索 ----------
@@ -2150,6 +2451,18 @@
         sortBy(+v[0], v[1] === 'asc');
       });
     }
+
+    // 双击一行 (手机上点一下，手机双击会被当成放大页面) 或选中后按 Enter = 打开完整图表 + 财报
+    var touchOnly = window.matchMedia && window.matchMedia('(hover: none)').matches;
+    function openRow(tr) {
+      if (!tr || !tr.dataset.code) return;
+      var price = tr.querySelector('.col-price'), change = tr.querySelector('.col-change');
+      var head = '<span class="card-price"><b>' + escapeHtml(price ? price.firstChild.textContent : '') + '</b> ' +
+        (change ? '<span class="' + change.className.replace(/\b(num|col-change)\b/g, '').trim() + '">' + escapeHtml(change.textContent) + '</span>' : '') + '</span>';
+      openStockModal({ code: tr.dataset.code, name: tr.dataset.name || tr.dataset.code, headHtml: head });
+    }
+    tbody.addEventListener(touchOnly ? 'click' : 'dblclick', function (e) { openRow(e.target.closest('tr')); });
+    tbody.addEventListener('keydown', function (e) { if (e.key === 'Enter') openRow(e.target.closest('tr')); });
 
     var filterInput = document.getElementById('table-filter');
     var countEl = document.getElementById('table-count');

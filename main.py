@@ -133,8 +133,8 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             # 获取过去 6 个月的数据以计算均线
             df = stock.history(period="6mo")
 
-            if len(df) < 50:
-                print(f"数据不足: {symbol}")
+            if df is None or df.empty:
+                print(f"没有数据: {symbol}")
                 return None
 
             # 成交量门槛放在算指标之前：实测 1070 支里约 3/4 会因为成交量不足被丢掉，
@@ -148,20 +148,32 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                     return {"symbol": symbol, "low_volume": True, "close": round(last_close, 3),
                             "volume": last_volume, "threshold": threshold}
 
-            # 计算技术指标 (RSI、均线、EMA20、Parabolic SAR)
-            df.ta.rsi(length=14, append=True)
-            df.ta.sma(length=50, append=True)
-            df.ta.ema(length=20, append=True)
-            df.ta.psar(append=True)
+            # 新上市的股票历史很短也照样处理 (9/24 用户要求：不足 90 天一样按成交量门槛筛选，以前 < 50 天直接丢掉)。
+            # 天数不够算的指标留空 (None)：RSI 要 15 天、EMA20 要 20 天、50日均线要 50 天、SAR 要 2 天。
+            # 这种股票照样进"其余股票"表格；信号要 EMA20 + T3 形态，至少 26 天左右才可能命中。
+            history_days = len(df)
+            for name, kwargs in (("rsi", {"length": 14}), ("sma", {"length": 50}), ("ema", {"length": 20}), ("psar", {})):
+                try:
+                    getattr(df.ta, name)(append=True, **kwargs)
+                except Exception:
+                    pass  # 天数太少 pandas_ta 可能直接报错，当作算不出来
 
             # PSAR 在多头/空头趋势下分别写入不同的列，合并成单一数值方便比较
-            psar_long_col = next(c for c in df.columns if c.startswith("PSARl"))
-            psar_short_col = next(c for c in df.columns if c.startswith("PSARs"))
-            df["PSAR"] = df[psar_long_col].combine_first(df[psar_short_col])
+            psar_long_col = next((c for c in df.columns if c.startswith("PSARl")), None)
+            psar_short_col = next((c for c in df.columns if c.startswith("PSARs")), None)
+            if psar_long_col and psar_short_col:
+                df["PSAR"] = df[psar_long_col].combine_first(df[psar_short_col])
 
-            #以此获取最新一天的数值
-            latest = df.iloc[-1]
-            prev = df.iloc[-2]
+            def value(col, i=-1, ndigits=3):
+                """某一列第 i 行的值；列不存在、天数不够或 NaN 都返回 None"""
+                if col not in df.columns or len(df) < -i:
+                    return None
+                v = df[col].iloc[i]
+                return None if pd.isna(v) else round(float(v), ndigits)
+
+            close = value("Close")
+            prev_close = value("Close", -2, 6)
+            psar_now, psar_prev = value("PSAR"), value("PSAR", -2)
 
             # 供 K 线图使用的历史数据 (最近 CHART_HISTORY_DAYS 个交易日)
             chart_df = df.tail(CHART_HISTORY_DAYS)
@@ -179,33 +191,37 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             ema20 = [
                 {"time": idx.strftime("%Y-%m-%d"), "value": round(row["EMA_20"], 3)}
                 for idx, row in chart_df.iterrows()
-                if pd.notna(row["EMA_20"])
+                if "EMA_20" in chart_df.columns and pd.notna(row["EMA_20"])
             ]
-            # SAR 整条序列也传给前端，给报告页面里的"SAR"预设指标画图用
-            # (策略判断只用得上最新一天的 sar_bullish_now，但画图需要整条历史)
+            # SAR 整条序列也传给前端 (策略判断只用得上最新一天的 sar_bullish_now，但画图需要整条历史)
             psar_series = [
                 {"time": idx.strftime("%Y-%m-%d"), "value": round(row["PSAR"], 3)}
                 for idx, row in chart_df.iterrows()
-                if pd.notna(row["PSAR"])
+                if "PSAR" in chart_df.columns and pd.notna(row["PSAR"])
             ]
 
             # 相对成交量 = 今天成交量 / 前 20 个交易日平均成交量 (不含今天)，跟 TradingView 的 "相对成交量" 同一个意思
+            # (新股不足 20 天就用现有的那几天平均；上市第一天没有前一天，就没有相对量)
             vol_avg20 = df["Volume"].iloc[-21:-1].mean()
-            rel_volume = round(latest['Volume'] / vol_avg20, 2) if vol_avg20 and pd.notna(vol_avg20) else None
+            last_volume = int(df["Volume"].iloc[-1])
+            rel_volume = round(last_volume / vol_avg20, 2) if vol_avg20 and pd.notna(vol_avg20) else None
 
             return {
                 "symbol": symbol,
-                "close": round(latest['Close'], 3),
-                "rsi": round(latest['RSI_14'], 2),
-                "sma50": round(latest['SMA_50'], 3),
-                "prev_close": prev['Close'],
-                "prev_sma50": prev['SMA_50'],
-                "ema20_latest": round(latest['EMA_20'], 3),
-                "sar_bullish_now": latest['Close'] > latest['PSAR'],
-                "sar_bullish_prev": prev['Close'] > prev['PSAR'],
+                "close": close,
+                "rsi": value("RSI_14", ndigits=2),
+                "sma50": value("SMA_50"),
+                "prev_close": prev_close,
+                "prev_sma50": value("SMA_50", -2),
+                "ema20_latest": value("EMA_20"),
+                # None = 天数不够算 SAR
+                "sar_bullish_now": close > psar_now if psar_now is not None else None,
+                "sar_bullish_prev": prev_close > psar_prev if psar_prev is not None and prev_close is not None else None,
                 "t3_pattern": detect_t3_pattern(df),
-                "volume": int(latest['Volume']),
+                "volume": last_volume,
                 "rel_volume": rel_volume,
+                "history_days": history_days,
+                "daily_bars": compact_bars(df, intraday=False),  # 双击看完整图表用 (只有表格股票会写进 table.json)
                 "candles": candles,
                 "ema20": ema20,
                 "psar": psar_series,
@@ -269,14 +285,217 @@ def get_chart_history(symbol):
         return {key: bars for key, bars in pool.map(fetch, CHART_SOURCES) if bars}
 
 
-def get_intraday_closes(symbol):
-    """当天 (或最近一个交易日) 的 5 分钟收盘价序列，给表格里的迷你走势图用。拿不到就返回 None。"""
+def get_intraday(symbol):
+    """当天 (或最近一个交易日) 的 5 分钟K线。返回 (收盘价序列, 精简K线)：
+    收盘价给表格的迷你走势图，精简K线给"双击看完整图表"的日内周期用。拿不到就返回 (None, None)。"""
     try:
         df = yf.Ticker(symbol).history(period="1d", interval="5m")
-        closes = [round(float(c), 4) for c in df["Close"].dropna()]
-        return closes if len(closes) >= 2 else None
+        df = df.dropna(subset=["Open", "High", "Low", "Close"])
+        closes = [round(float(c), 4) for c in df["Close"]]
+        if len(closes) < 2:
+            return None, None
+        return closes, compact_bars(df, intraday=True)
     except Exception:
+        return None, None
+
+
+def compact_bars(df, intraday):
+    """
+    "其余股票"双击看完整图表用的精简K线 (全部表格股票放在同一个 docs/charts/table.json，打开时才下载)：
+    价格 ×1000 存成整数 (Bursa 最小跳动 0.005，3 位小数足够)；时间只存第一根 + 每根的间隔
+    (日线以天、日内以分钟为单位)。比 bars_payload 那种完整时间戳 + 小数小一半以上。
+    """
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    if df.empty:
         return None
+    if intraday:
+        ts, unit = [int(x.timestamp()) + MYT_OFFSET_SECS for x in df.index], 60
+    else:
+        ts, unit = [calendar.timegm(x.date().timetuple()) for x in df.index], 86400
+    return {
+        "t0": ts[0], "u": unit, "dt": [(b - a) // unit for a, b in zip(ts, ts[1:])],
+        "o": [round(float(x) * 1000) for x in df["Open"]],
+        "h": [round(float(x) * 1000) for x in df["High"]],
+        "l": [round(float(x) * 1000) for x in df["Low"]],
+        "c": [round(float(x) * 1000) for x in df["Close"]],
+        "v": [int(x) if pd.notna(x) else 0 for x in df["Volume"]],
+    }
+
+
+CHARTS_DIR = os.path.join("docs", "charts")
+TABLE_CHARTS_FILE = os.path.join(CHARTS_DIR, "table.json")
+
+
+def write_table_charts(stocks):
+    """把"其余股票"每一支的 6 个月日线 + 当天 5 分钟线写进 docs/charts/table.json。
+    网页里双击某一行才下载这个文件 (整页不会因此变大)；返回文件内容的短哈希，放在网址后面防止浏览器用旧缓存。"""
+    table = {}
+    for s in stocks:
+        d = s["data"]
+        if not d or s["matched"] or not d.get("daily_bars"):
+            continue
+        table[s["symbol"].split(".")[0]] = {"d": d["daily_bars"], "i": s.get("intraday_bars")}
+    os.makedirs(CHARTS_DIR, exist_ok=True)
+    body = json.dumps({"v": 1, "stocks": table}, separators=(",", ":"))
+    with open(TABLE_CHARTS_FILE, "w", encoding="utf-8") as f:
+        f.write(body)
+    return hashlib.sha1(body.encode()).hexdigest()[:10]
+
+
+# ---- 每支股票的详细资料: 近 4 季 + 近 2 年财报、2 年日线 + 10 年月线，存在 docs/stock/<代码>.json ----
+# 双击"其余股票"的一行 (或点卡片上的"完整图表 · 财报") 时才下载。财报一季才变一次，长期K线里
+# 最近 6 个月以外的部分也不会再变 (最近 6 个月每次运行都写在 table.json 里，网页打开时拼在一起)，
+# 所以每支一周抓一次就够。每次运行只补一小批 (DETAIL_PER_RUN 支)，不会拖慢运行：
+# 第一天跑几次就补齐全部表格股票，之后每周轮着刷新。
+DETAIL_DIR = os.path.join("docs", "stock")
+DETAIL_MAX_AGE_DAYS = 7    # 有财报的: 一周刷新一次
+DETAIL_RETRY_DAYS = 2      # Yahoo 没给财报的: 两天后再试 (可能只是那次请求被限流，不想一错就等一周)
+DETAIL_PRUNE_DAYS = 30     # 超过 30 天没更新、这次也不在报告里的 (早就跌出成交量门槛了) 删掉
+DETAIL_PER_RUN = 30
+DETAIL_WORKERS = 8
+DETAIL_HISTORY = (("d", "2y", "1d"), ("m", "10y", "1mo"))  # 跟筛选器卡片一样长
+FIN_QUARTERS = 4
+FIN_YEARS = 2
+# (输出键, 可能的科目名称) —— Yahoo 不同公司用的科目名称略有不同，按顺序找第一个有的
+FIN_ROWS = {
+    "income": [("revenue", ["Total Revenue", "Operating Revenue"]), ("gross_profit", ["Gross Profit"]),
+               ("operating_income", ["Operating Income", "EBIT"]),
+               ("net_income", ["Net Income", "Net Income Common Stockholders", "Net Income Continuous Operations"]),
+               ("eps", ["Diluted EPS", "Basic EPS"])],
+    "balance": [("total_assets", ["Total Assets"]), ("total_liabilities", ["Total Liabilities Net Minority Interest", "Total Liabilities"]),
+                ("equity", ["Stockholders Equity", "Common Stock Equity", "Total Equity Gross Minority Interest"]),
+                ("cash", ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"]),
+                ("total_debt", ["Total Debt"])],
+    "cashflow": [("operating_cf", ["Operating Cash Flow", "Cash Flow From Continuing Operating Activities"]),
+                 ("free_cf", ["Free Cash Flow"]), ("capex", ["Capital Expenditure"])],
+}
+
+
+def statement_values(df, rows):
+    """yfinance 财报 DataFrame (行 = 科目，列 = 报告期) → {报告期日期: {键: 数值}}"""
+    out = {}
+    if df is None or getattr(df, "empty", True):
+        return out
+    for col in df.columns:
+        period = pd.Timestamp(col).strftime("%Y-%m-%d")
+        values = {}
+        for key, names in rows:
+            for name in names:
+                if name in df.index:
+                    v = df.at[name, col]
+                    if pd.notna(v):
+                        values[key] = float(v)
+                    break
+        if values:
+            out[period] = values
+    return out
+
+
+def financial_section(income, balance, cashflow, n):
+    """以利润表的报告期为准，取最近 n 期 (旧 → 新)；资产负债表 / 现金流量表同一天的数字对上去，没有就留空"""
+    periods = sorted(p for p, v in income.items() if "revenue" in v or "net_income" in v)[-n:]
+    keys = [k for group in FIN_ROWS.values() for k, _ in group]
+    merged = {p: {**income.get(p, {}), **balance.get(p, {}), **cashflow.get(p, {})} for p in periods}
+    return {"periods": periods, **{k: [merged[p].get(k) for p in periods] for k in keys}}
+
+
+def fetch_detail(symbol, today):
+    """
+    一支股票的财报 + 长期K线。上市公司一定有K线，日线都拿不到 = 这次请求失败，返回 None
+    (不写文件，下次运行再试；不然会写一个空文件然后一周都不再抓)。
+    财报拿不到就是 fin = None (很多小公司 Yahoo 本来就没有)。
+    """
+    t = yf.Ticker(symbol)
+    bars = {}
+    for key, period, interval in DETAIL_HISTORY:
+        try:
+            bars[key] = compact_bars(t.history(period=period, interval=interval), intraday=False)
+        except Exception as e:
+            print(f"⚠️ {symbol} {interval}×{period} K线获取失败 ({type(e).__name__}: {e})")
+            bars[key] = None
+    if not bars["d"]:
+        return None
+
+    def get(attr):
+        try:
+            return getattr(t, attr)
+        except Exception:
+            return None
+    q = financial_section(statement_values(get("quarterly_income_stmt"), FIN_ROWS["income"]),
+                          statement_values(get("quarterly_balance_sheet"), FIN_ROWS["balance"]),
+                          statement_values(get("quarterly_cashflow"), FIN_ROWS["cashflow"]), FIN_QUARTERS)
+    a = financial_section(statement_values(get("income_stmt"), FIN_ROWS["income"]),
+                          statement_values(get("balance_sheet"), FIN_ROWS["balance"]),
+                          statement_values(get("cashflow"), FIN_ROWS["cashflow"]), FIN_YEARS)
+    fin = None
+    if q["periods"] or a["periods"]:
+        # 财报货币: 马股大多是令吉，少数用美元报告 (拿不到就是 None，网页上写"公司报告货币")
+        info = get("info") or {}
+        fin = {"quarterly": q, "annual": a, "currency": info.get("financialCurrency")}
+    return {"v": 1, "symbol": symbol, "fetched_at": today, "fin": fin, "bars": bars}
+
+
+def read_detail_date(code):
+    """已有文件的 (抓取日期, 有没有财报)；没有文件 / 坏文件返回 (None, False)"""
+    try:
+        with open(os.path.join(DETAIL_DIR, f"{code}.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        return datetime.strptime(d["fetched_at"], "%Y-%m-%d"), bool(d.get("fin"))
+    except Exception:
+        return None, False
+
+
+def detail_is_fresh(code, today):
+    fetched, has_fin = read_detail_date(code)
+    if fetched is None:
+        return False
+    age = (datetime.strptime(today, "%Y-%m-%d") - fetched).days
+    return age < (DETAIL_MAX_AGE_DAYS if has_fin else DETAIL_RETRY_DAYS)
+
+
+def prune_details(keep, today):
+    """删掉超过 DETAIL_PRUNE_DAYS 天没更新、这次也不在报告里的股票文件；读不了的坏文件也删 (下次需要时会重抓)"""
+    if not os.path.isdir(DETAIL_DIR):
+        return 0
+    removed = 0
+    now = datetime.strptime(today, "%Y-%m-%d")
+    for name in os.listdir(DETAIL_DIR):
+        code = name[:-len(".json")]
+        if not name.endswith(".json") or code in keep:
+            continue
+        fetched, _ = read_detail_date(code)
+        if fetched is not None and (now - fetched).days <= DETAIL_PRUNE_DAYS:
+            continue
+        os.remove(os.path.join(DETAIL_DIR, name))
+        removed += 1
+    return removed
+
+
+def refresh_details(stocks, today):
+    """报告里的股票 (信号在前，其余按成交量从高到低)，文件没有或过期的，这次补 DETAIL_PER_RUN 支。
+    返回 (这次抓了几支, 写入几支, 其中几支有财报, 删掉几个过期文件)"""
+    candidates = sorted((s for s in stocks if s["data"]), key=lambda s: (not s["matched"], -s["data"]["volume"]))
+    todo = [s["symbol"] for s in candidates if not detail_is_fresh(s["symbol"].split(".")[0], today)][:DETAIL_PER_RUN]
+    written = with_fin = 0
+    if todo:
+        os.makedirs(DETAIL_DIR, exist_ok=True)
+
+        def safe_fetch(symbol):
+            try:
+                return fetch_detail(symbol, today)
+            except Exception as e:
+                print(f"⚠️ {symbol} 个股资料获取失败 ({type(e).__name__}: {e})")
+                return None
+        with ThreadPoolExecutor(max_workers=DETAIL_WORKERS) as pool:
+            for symbol, detail in zip(todo, pool.map(safe_fetch, todo)):
+                if detail is None:
+                    continue  # 这次没拿到，下次运行再试
+                with open(os.path.join(DETAIL_DIR, f"{symbol.split('.')[0]}.json"), "w", encoding="utf-8") as f:
+                    json.dump(detail, f, ensure_ascii=False, separators=(",", ":"))
+                written += 1
+                with_fin += detail["fin"] is not None
+    pruned = prune_details({s["symbol"].split(".")[0] for s in stocks if s["data"]}, today)
+    return len(todo), written, with_fin, pruned
 
 
 def build_sparkline(values, baseline=None, width=72, height=24):
@@ -302,6 +521,22 @@ def build_sparkline(values, baseline=None, width=72, height=24):
     base_line = f'<line x1="0" x2="{width}" y1="{y(ref):.1f}" y2="{y(ref):.1f}"/>' if baseline is not None else ""
     return (f'<svg class="spark {trend}" viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
             f'preserveAspectRatio="none" aria-hidden="true">{base_line}<polyline points="{points}"/></svg>')
+
+
+def sar_pill_html(bullish):
+    """SAR 多空标签；None = 天数太少算不出来 (新上市第一天)"""
+    if bullish is None:
+        return "—"
+    return '<span class="pill pill-up">多头</span>' if bullish else '<span class="pill pill-down">空头</span>'
+
+
+def history_badge(data):
+    """历史不到 CHART_HISTORY_DAYS (90) 个交易日的股票 (多半是新上市) 标一个"N天"，提醒部分指标算不出来"""
+    days = data.get("history_days")
+    if not days or days >= CHART_HISTORY_DAYS:
+        return ""
+    return (f'<span class="new-badge" title="只有 {days} 个交易日的数据 (多半是新上市)，'
+            f'天数不够的指标显示 —">{days}天</span>')
 
 
 def fmt_num(v, pattern, missing="—"):
@@ -330,7 +565,8 @@ def check_strategy(data):
     在这里修改你的筛选条件
     返回: (是否符合, 原因)
     """
-    if not (data['close'] > data['ema20_latest']):
+    # 新股天数不够时 EMA20 / SAR 是 None，直接不算命中 (照样会进表格)
+    if data['ema20_latest'] is None or not (data['close'] > data['ema20_latest']):
         return False, None
 
     if not data['sar_bullish_now']:
@@ -384,7 +620,7 @@ def ask_deepseek(data, reason):
 基本数据:
 - 现价: RM {data['close']}
 - RSI (14): {data['rsi']}
-- 50日均线: RM {data['sma50']}"""
+- 50日均线: {f"RM {data['sma50']}" if data['sma50'] is not None else "数据不足 (新上市，不到 50 个交易日)"}"""
 
     try:
         response = client.chat.completions.create(
@@ -564,6 +800,9 @@ TABLE_CSS = """
     color: var(--text-primary);
   }
   .table-count { color: var(--muted); font-size: 0.8rem; margin-left: auto; }
+  .table-hint { margin: -0.2rem 0 0.5rem; font-size: 0.75rem; color: var(--muted); }
+  #watchlist-table tbody tr { cursor: pointer; }
+  #watchlist-table tbody tr:focus-visible { outline: 2px solid var(--ema); outline-offset: -2px; }
   .table-sort { display: none; font: inherit; font-size: 0.8rem; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.4rem; }
   /* 电脑: 表格撑满整个页面宽度 */
   table.data-table { font-size: 0.82rem; width: 100%; }
@@ -613,6 +852,10 @@ TABLE_CSS = """
     vertical-align: middle;
   }
   .stock-code { color: var(--muted); font-size: 0.7rem; vertical-align: middle; }
+  .new-badge {
+    display: inline-block; margin-left: 0.35rem; padding: 0 0.3rem; border-radius: 3px; vertical-align: middle;
+    font-size: 0.64rem; font-weight: 600; color: var(--ema); border: 1px solid color-mix(in srgb, var(--ema) 50%, transparent);
+  }
   .unit { color: var(--muted); font-size: 0.65em; margin-left: 2px; }
   .spark-cell { padding-top: 0.15rem; padding-bottom: 0.15rem; width: 18%; }
   .spark { display: block; width: 100%; min-width: 72px; max-width: 220px; height: 28px; }
@@ -825,6 +1068,43 @@ CARD_CSS = """
   .quote-grid dt { color: var(--muted); font-size: 0.7rem; }
   .quote-grid dd { margin: 0; color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
 
+  /* 筛选器卡片上的"完整图表 · 财报" */
+  .card-fin {
+    margin-left: 0.6rem; font: inherit; font-size: 0.75rem; color: var(--ema);
+    background: none; border: none; padding: 0; cursor: pointer; white-space: nowrap;
+  }
+  .card-fin:hover { text-decoration: underline; }
+
+  /* ---- 完整图表 + 财报 对话框 ---- */
+  .dlg.dlg-stock { width: min(1040px, 100%); height: min(94vh, 980px); }
+  .stock-view { display: flex; flex-direction: column; gap: 0.4rem; }
+  .sv-head { font-size: 0.95rem; }
+  .sv-toolbar { display: flex; align-items: center; gap: 0.4rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  .sv-toolbar .tf-list { flex: 1; }
+  .stock-view .chart { height: 400px; }
+  .fin { margin-top: 0.8rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
+  .fin-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .fin-head h4 { margin: 0; font-size: 0.95rem; }
+  .fin-tabs { border-bottom: none; margin: 0; }
+  .fc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.6rem 1rem; margin: 0.7rem 0; }
+  .fc { min-width: 0; }
+  .fc-title { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.4rem; font-size: 0.8rem; color: var(--text-secondary); }
+  .fc-title .change-up, .fc-title .change-down { font-size: 0.72rem; }
+  .fc-svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .fc-base { stroke: var(--gridline); stroke-width: 1; }
+  .fc-hit { fill: transparent; }
+  .fc-bar:hover path { opacity: 0.75; }
+  .fc-val { font-size: 10px; font-weight: 600; fill: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .fc-lbl { font-size: 9px; fill: var(--muted); }
+  .fin-table-wrap { overflow-x: auto; }
+  .fin-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .fin-table th, .fin-table td { padding: 0.32rem 0.55rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .fin-table thead th { color: var(--text-secondary); font-weight: 500; font-size: 0.75rem; }
+  .fin-table thead th small { display: block; color: var(--muted); font-size: 0.65rem; font-weight: 400; }
+  .fin-table tbody th, .fin-table thead th:first-child { text-align: left; font-weight: 500; color: var(--text-secondary); }
+  .fin-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .fin-foot a { color: var(--ema); }
+
   @media (max-width: 640px) {
     .chart { height: 300px; }
     .card { padding: 0.75rem 0.7rem 0.85rem; }
@@ -833,6 +1113,17 @@ CARD_CSS = """
     .tb-tools { gap: 0; padding-left: 0.2rem; }
     .tf-btn, .tb-btn { padding: 0.28rem 0.42rem; }
     .car-ctrl { top: 0.55rem; right: 0.5rem; }
+    .stock-view .chart { height: 300px; }
+    .dlg.dlg-stock { height: 94vh; }
+    .sv-toolbar { align-items: flex-start; }
+    .sv-toolbar .tf-list { flex-wrap: wrap; overflow: visible; } /* 手机上周期按钮排两行，不藏在右边 */
+    .fc-grid { grid-template-columns: 1fr 1fr; gap: 0.5rem 0.8rem; }
+    .fc-lbl { font-size: 13px; } /* 小图缩到约 0.7 倍，字要写大一点，实际显示约 9-10px */
+    .fc-val { font-size: 14px; }
+    .fin-table { font-size: 0.75rem; }
+    .fin-table th, .fin-table td { padding: 0.3rem 0.3rem; }
+    .fin-table thead th small { display: none; } /* 手机上只留 25Q3 / FY2025，四栏才放得下不用横向滑 */
+    .card-fin { display: block; margin: 0.2rem 0 0; }
     .card-head { margin-right: 7rem; }
     .tb-menu { position: fixed; left: 0.5rem; right: 0.5rem; top: auto; bottom: 0.5rem; width: auto; max-height: 70vh; }
   }
@@ -1037,7 +1328,7 @@ def build_downloads_html(downloads):
 
 
 # === 7. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
-def build_html_report(stocks, downloads=None):
+def build_html_report(stocks, downloads=None, table_charts_version=None):
     now = datetime.now(MYT).strftime("%Y-%m-%d %H:%M")
 
     cards = []
@@ -1084,20 +1375,26 @@ def build_html_report(stocks, downloads=None):
                 f'<td class="num col-relvol{" relvol-high" if rel_vol >= 2 else ""}" data-label="相对量" data-value="{rel_vol}">{rel_vol:.2f}</td>'
                 if rel_vol is not None else '<td class="num col-relvol" data-label="相对量" data-value="-1">—</td>'
             )
-            sar_pill = '<span class="pill pill-up">多头</span>' if data["sar_bullish_now"] else '<span class="pill pill-down">空头</span>'
-            ema_class = "change-up" if data["close"] > data["ema20_latest"] else "change-down"
+            sar_pill = sar_pill_html(data["sar_bullish_now"])
+            sar_value = -1 if data["sar_bullish_now"] is None else int(data["sar_bullish_now"])
+            ema = data["ema20_latest"]
+            ema_cell = (
+                f'<td class="num col-ema {"change-up" if data["close"] > ema else "change-down"}" data-label="EMA20" data-value="{ema}">{ema:.3f}</td>'
+                if ema is not None else '<td class="num col-ema" data-label="EMA20" data-value="-1">—</td>'
+            )
+            new_badge = history_badge(data)
 
-            table_rows.append((data["volume"], f"""<tr data-search="{code} {name.lower()}">
+            table_rows.append((data["volume"], f"""<tr data-search="{code} {name.lower()}" data-code="{code}" data-name="{name}" tabindex="0">
                 <td class="idx-cell"></td>
-                <td class="stock-cell" data-value="{name}"><span class="ticker">{name}</span><span class="stock-code">{code}</span></td>
+                <td class="stock-cell" data-value="{name}"><span class="ticker">{name}</span><span class="stock-code">{code}</span>{new_badge}</td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
                 <td class="num col-price" data-value="{data['close']}">{data['close']:.3f}<span class="unit">MYR</span></td>
                 <td class="num col-change {change_class}" data-value="{change_pct}">{change_sign}{change_pct:.2f}%</td>
                 <td class="num col-vol" data-label="成交量" data-value="{data['volume']}">{fmt_volume(data['volume'])}</td>
                 {rel_vol_cell}
                 <td class="num col-rsi" data-label="RSI" data-value="{fmt_num(data['rsi'], '{}', '-1')}">{fmt_num(data['rsi'], '{:.1f}')}</td>
-                <td class="col-sar" data-label="SAR" data-value="{1 if data['sar_bullish_now'] else 0}">{sar_pill}</td>
-                <td class="num col-ema {ema_class}" data-label="EMA20" data-value="{data['ema20_latest']}">{data['ema20_latest']:.3f}</td>
+                <td class="col-sar" data-label="SAR" data-value="{sar_value}">{sar_pill}</td>
+                {ema_cell}
             </tr>"""))
             continue
 
@@ -1122,7 +1419,7 @@ def build_html_report(stocks, downloads=None):
         # 筛选条件做成一行小标签 (不带表情符号)，例如 "EMA20多头 · SAR多头 · T3形态突破"
         tags = " · ".join(part.strip() for part in s["reason"].replace("🎯", "").split("+") if part.strip())
         rel_vol = data.get("rel_volume")
-        sar_pill = '<span class="pill pill-up">多头</span>' if data["sar_bullish_now"] else '<span class="pill pill-down">空头</span>'
+        sar_pill = sar_pill_html(data["sar_bullish_now"])
         quote_items = [
             ("成交量", fmt_volume(data["volume"])),
             ("相对量", f"{rel_vol:.2f}×" if rel_vol is not None else "—"),
@@ -1138,7 +1435,7 @@ def build_html_report(stocks, downloads=None):
                      f'''<span class="sym-price">{data['close']:.3f}</span><span class="{change_class}">{sign}{change_pct:.2f}%</span></button>''')
         cards.append(f"""<section class="card" data-chart="{chart_id}" aria-roledescription="卡片" aria-label="{html.escape(s['name'])} {code}">
             <div class="card-head">
-                <h2>{html.escape(s['name'])} <span class="code">{code}</span></h2>
+                <h2>{html.escape(s['name'])} <span class="code">{code}</span>{history_badge(data)}</h2>
                 <div class="card-price"><b>{data['close']:.3f}</b> <span class="{change_class}">{sign}{change:.3f} ({sign}{change_pct:.2f}%)</span></div>
             </div>
             <p class="card-tags">{html.escape(tags)}</p>
@@ -1267,7 +1564,7 @@ def build_html_report(stocks, downloads=None):
 {DOWNLOADS_CSS}
 </style>
 </head>
-<body>
+<body data-table-charts="{f'charts/table.json?v={table_charts_version}' if table_charts_version else ''}">
 <h1>📢 马股自动分析报告</h1>
 <p class="updated">更新时间: {now} (MYT)</p>
 {build_downloads_html(downloads)}
@@ -1292,6 +1589,7 @@ def build_html_report(stocks, downloads=None):
   </select>
   <span id="table-count" class="table-count"></span>
 </div>
+<p class="table-hint">双击任一行 (手机上点一下) 查看完整K线图和近 4 季、近 2 年财报</p>
 <div class="table-wrap">
 <table class="data-table" id="watchlist-table">
   <thead>
@@ -1361,12 +1659,14 @@ def prefetch_quotes():
     """
     用 Yahoo screener 几个请求 (每页 250 支) 拿到全马股票的现价 + 当日成交量，
     成交量不够门槛的股票就不用再去下载 6 个月历史了 (实测约 70% 的股票会被门槛挡掉)。
-    返回 {symbol: (price, volume)}；screener 出错就返回空 dict，调用方会退回"逐支下载历史再判断"。
+    返回 (quotes, equities)：quotes = {symbol: (price, volume)}；equities = {symbol: 名称}，只算普通股
+    (跟 scripts/fetch_watchlist.py 同一个规则)，用来找出清单里还没有的新上市股票。
+    screener 出错就返回两个空 dict，调用方会退回"逐支下载历史再判断"。
     """
     try:
         from yfinance import EquityQuery
         query = EquityQuery("eq", ["region", "my"])
-        quotes, offset = {}, 0
+        quotes, equities, offset = {}, {}, 0
         for _ in range(20):  # 安全上限
             result = yf.screen(query, offset=offset, size=SCREENER_PAGE_SIZE, sortField="ticker", sortAsc=True)
             page = result.get("quotes", [])
@@ -1374,20 +1674,42 @@ def prefetch_quotes():
                 symbol, price, volume = q.get("symbol"), q.get("regularMarketPrice"), q.get("regularMarketVolume")
                 if symbol and price is not None and volume is not None:
                     quotes[symbol] = (round(float(price), 3), int(volume))
+                if symbol and q.get("quoteType") == "EQUITY":
+                    equities[symbol] = q.get("shortName") or q.get("longName") or symbol
             offset += SCREENER_PAGE_SIZE
             if not page or offset >= result.get("total", 0):
                 break
-        return quotes
+        return quotes, equities
     except Exception as e:
         print(f"⚠️ screener 预筛选失败 ({e})，改为逐支下载历史数据再判断成交量")
-        return {}
+        return {}, {}
+
+
+def build_scan_list(equities):
+    """
+    扫描范围 = data/watchlist.json 清单 + screener 里有、清单里还没有的普通股 (多半是新上市)。
+    清单只有手动跑 scripts/fetch_watchlist.py 才会更新，以前新股要等有人更新清单才会被扫描到。
+    另外新股刚上市时 Yahoo 还没有名称，清单里名字就是代码 (例如 0468.KL)，这里顺便换成 screener 的新名称。
+    """
+    scan, known = [], set()
+    for item in WATCHLIST:
+        name = item["name"]
+        if name == item["symbol"] and equities.get(item["symbol"], name) != name:
+            name = equities[item["symbol"]]
+        scan.append({"symbol": item["symbol"], "name": name})
+        known.add(item["symbol"])
+    new = [{"symbol": sym, "name": name} for sym, name in sorted(equities.items()) if sym not in known]
+    if new:
+        shown = "、".join(f"{x['name']} ({x['symbol']})" for x in new[:10]) + (" …" if len(new) > 10 else "")
+        print(f"🆕 screener 里有 {len(new)} 支清单里没有的股票 (多半是新上市)，一起扫描: {shown}")
+    return scan + new
 
 
 def fetch_stock(symbol):
-    """线程池里跑的单支股票任务：日线 + 指标；会进表格的股票顺便抓日内走势 (塞在 data["intraday"])。"""
+    """线程池里跑的单支股票任务：日线 + 指标；会进表格的股票顺便抓日内走势 (塞在 data["intraday"] / ["intraday_bars"])。"""
     data = get_stock_data(symbol)
     if data and not data.get("low_volume") and not check_strategy(data)[0]:
-        data["intraday"] = get_intraday_closes(symbol)
+        data["intraday"], data["intraday_bars"] = get_intraday(symbol)
     return data
 
 
@@ -1413,9 +1735,10 @@ def main():
 
     # 第 1 步: screener 几个请求拿全市场现价+成交量，成交量不够的直接判定忽略，不用下载历史
     t_pre = time.perf_counter()
-    quotes = prefetch_quotes()
+    quotes, equities = prefetch_quotes()
+    scan_list = build_scan_list(equities)
     prefiltered = {}
-    for item in WATCHLIST:
+    for item in scan_list:
         q = quotes.get(item["symbol"])
         if q and q[1] < min_volume_for(q[0]):
             prefiltered[item["symbol"]] = {"symbol": item["symbol"], "low_volume": True, "close": q[0],
@@ -1426,11 +1749,11 @@ def main():
     # 第 2 步: 剩下的才并发下载 6 个月历史 + 算指标。screener 里没有的股票也走这一步 (在这里再判断成交量)。
     # 日线和日内走势放在同一个线程里抓：一支股票过了成交量门槛、又没命中信号 (会进表格)，就接着抓日内数据。
     t_fetch = time.perf_counter()
-    symbols = [item["symbol"] for item in WATCHLIST if item["symbol"] not in prefiltered]
+    symbols = [item["symbol"] for item in scan_list if item["symbol"] not in prefiltered]
     print(f"并发抓取 {len(symbols)} 支股票的历史数据 (并发数: {FETCH_WORKERS}) ...")
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
         fetched_map = dict(zip(symbols, executor.map(fetch_stock, symbols)))
-    fetched = [prefiltered.get(item["symbol"]) or fetched_map.get(item["symbol"]) for item in WATCHLIST]
+    fetched = [prefiltered.get(item["symbol"]) or fetched_map.get(item["symbol"]) for item in scan_list]
     fetch_secs = time.perf_counter() - t_fetch
 
     t_filter = time.perf_counter()
@@ -1438,7 +1761,7 @@ def main():
     low_volume_by_tier = {}
     no_data = 0
     deepseek_calls = 0
-    for item, data in zip(WATCHLIST, fetched):
+    for item, data in zip(scan_list, fetched):
         symbol = item["symbol"]
 
         # 流动性门槛 (按价格分级，见 VOLUME_TIERS): 成交量不够的直接忽略，不放进报告
@@ -1449,6 +1772,7 @@ def main():
             no_data += 1
 
         intraday = data.pop("intraday", None) if data else None
+        intraday_bars = data.pop("intraday_bars", None) if data else None
         matched, reason, ai_comment = False, None, None
         if data:
             matched, reason = check_strategy(data)
@@ -1469,6 +1793,7 @@ def main():
             "reason": reason,
             "ai_comment": ai_comment,
             "intraday": intraday,
+            "intraday_bars": intraday_bars,
         })
     filter_secs = time.perf_counter() - t_filter
 
@@ -1491,10 +1816,27 @@ def main():
         print(f"⚠️ 导出下载文件失败 ({type(e).__name__}: {e})，报告照常生成，只是这次没有下载区块")
     export_secs = time.perf_counter() - t_export
 
+    # 双击"其余股票"看完整图表用的K线 + 个股资料 (财报、长期K线，一周刷新一次，每次补一批)。出错都不影响报告本身
+    t_fin = time.perf_counter()
+    table_charts_version = None
+    try:
+        table_charts_version = write_table_charts(stocks)
+    except Exception as e:
+        print(f"⚠️ 写表格股票K线失败 ({type(e).__name__}: {e})，这次双击看不了完整图表")
+    try:
+        tried, written, with_fin, pruned = refresh_details(stocks, today_myt)
+        if tried or pruned:
+            print(f"📊 个股资料 (财报 + 2 年日线 + 10 年月线): 这次抓 {tried} 支，写入 {written} 支，其中 {with_fin} 支 Yahoo 有财报"
+                  + (f"，{tried - written} 支没拿到下次再试" if tried > written else "")
+                  + (f"，删掉 {pruned} 个过期文件" if pruned else ""))
+    except Exception as e:
+        print(f"⚠️ 更新个股资料失败 ({type(e).__name__}: {e})")
+    fin_secs = time.perf_counter() - t_fin
+
     t_report = time.perf_counter()
     os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
     with open(REPORT_PATH, "w", encoding="utf-8") as f:
-        f.write(build_html_report(stocks, downloads))
+        f.write(build_html_report(stocks, downloads, table_charts_version))
     report_secs = time.perf_counter() - t_report
 
     hits = sum(1 for s in stocks if s["matched"])
@@ -1509,7 +1851,7 @@ def main():
 
     # 耗时分解：Action 跑超过 1 分钟时，直接看这一行就知道慢在哪
     print(f"⏱️ 耗时: 导入库 {IMPORT_SECS:.1f}s | screener 预筛选 {pre_secs:.1f}s | 抓取+指标+日内 {fetch_secs:.1f}s | "
-          f"筛选+DeepSeek {filter_secs:.1f}s | 导出下载 {export_secs:.1f}s | 生成报告 {report_secs:.1f}s | 推送 {notify_secs:.1f}s | "
+          f"筛选+DeepSeek {filter_secs:.1f}s | 导出下载 {export_secs:.1f}s | 图表+财报 {fin_secs:.1f}s | 生成报告 {report_secs:.1f}s | 推送 {notify_secs:.1f}s | "
           f"总计 {time.perf_counter() - PROCESS_START:.1f}s")
 
 if __name__ == "__main__":
