@@ -102,8 +102,10 @@ MARKETS = {
         "analyst": "美国股市",
         "file_prefix": "us-report",
         "search_hint": "例如 AAPL / NVDA",
-        # 一天只跑一次、股票又多 (约 700 支)，每次多补一些，一周左右就能轮一遍
-        "detail_per_run": 120,
+        # 一天只跑一次、股票又多 (约 700 支)，每次多补一些。个股资料一支要十来个 Yahoo 请求：
+        # 第一次美股 run (9/24) 补 120 支，后面 58 支被 Yahoo 限流 (Too Many Requests)，所以改成 60；
+        # 新闻走 Google News，120 支全部成功
+        "detail_per_run": 60,
         "news_per_run": 120,
     },
 }
@@ -970,7 +972,7 @@ UI_CSS = """
   .dlg-body { padding: 0 1rem 1rem; overflow: auto; flex: 1; min-height: 0; }
   .dlg-foot { display: flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border-top: 1px solid var(--border); }
   .dlg-foot .grow { flex: 1; }
-  .dlg button:not(.dlg-x):not(.ind-row-main):not(.ind-nav-item):not(.ind-star):not([role="tab"]),
+  .dlg button:not(.dlg-x):not(.ind-row-main):not(.ind-nav-item):not(.ind-star):not([role="tab"]):not(.rl-btn),
   .dlg select, .dlg input[type="text"], .dlg input[type="number"], .dlg input[type="search"], .dlg textarea {
     font: inherit; font-size: 0.85rem; color: var(--text-primary);
     background: var(--page); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.65rem;
@@ -1764,7 +1766,8 @@ STRATEGY_CSS = """
   .sp-btn:hover { border-color: var(--text-secondary); }
   .sp-btn.primary { background: var(--text-primary); color: var(--surface); border-color: var(--text-primary); }
   .sp-empty { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.6; }
-  .sp-rules { list-style: none; margin: 0.55rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .sp-rules { list-style: none; margin: 0.6rem 0 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.35rem; }
+  .sp-join { font-size: 0.7rem; color: var(--muted); padding: 0 0.05rem; }
   .sp-rule {
     font-size: 0.78rem; line-height: 1.4; padding: 0.15rem 0.6rem; border-radius: 999px; max-width: 100%;
     border: 1px solid var(--border); background: var(--page); color: var(--text-secondary);
@@ -1772,9 +1775,9 @@ STRATEGY_CSS = """
   }
   .sp-rule.err { color: var(--down); border-color: color-mix(in srgb, var(--down) 45%, transparent); }
   .sp-err { margin: 0.4rem 0 0; font-size: 0.75rem; color: var(--down); }
-  .sp-stat { margin: 0.65rem 0 0.35rem; font-size: 0.8rem; color: var(--text-secondary); }
-  .sp-stat b { color: var(--text-primary); font-size: 1.05rem; font-variant-numeric: tabular-nums; }
-  .sp-stat small { color: var(--muted); }
+  .sp-stat { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.35rem; margin: 0.8rem 0 0.4rem; font-size: 0.82rem; color: var(--text-secondary); }
+  .sp-stat b { color: var(--text-primary); font-size: 1.35rem; line-height: 1; font-variant-numeric: tabular-nums; }
+  .sp-stat small { margin-left: auto; font-size: 0.72rem; color: var(--muted); }
   .sp-hits { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
   .sp-hit {
     display: grid; grid-template-columns: 1.8rem minmax(0, 1fr) auto 4.6rem 4.4rem; align-items: baseline; gap: 0.5rem;
@@ -1794,27 +1797,132 @@ STRATEGY_CSS = """
   h3.subsection { font-size: 1rem; margin: 1.5rem 0 0.15rem; }
   .sub-note { margin: 0 0 0.8rem; font-size: 0.78rem; color: var(--muted); line-height: 1.5; }
 
-  /* 条件编辑器对话框: 每条条件一行 (左边 比较 右边)，手机上自动换行 */
-  .dlg.dlg-rules { width: min(720px, 100%); }
-  .rules-dlg { display: flex; flex-direction: column; gap: 0.7rem; }
-  .rl-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem 1rem; }
-  .rl-live { margin: 0; font-size: 0.82rem; color: var(--text-secondary); }
-  .rl-live b { color: var(--text-primary); }
-  .rl-list { display: flex; flex-direction: column; gap: 0.5rem; }
-  .rl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; padding: 0.5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--page); }
-  .rl-no { font-size: 0.72rem; color: var(--muted); min-width: 1.1rem; }
-  .dlg .rl-row select, .dlg .rl-row input { background: var(--surface); }
-  .dlg .rl-len { width: 4.6rem; }
-  .dlg .rl-num { width: 6.5rem; }
-  .dlg .rl-formula { flex: 1 1 16rem; min-width: 0; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
-  .dlg .rl-del { margin-left: auto; display: inline-flex; align-items: center; }
-  .rl-del .ico { width: 14px; height: 14px; }
-  .rl-warn, .rl-err { flex-basis: 100%; margin: 0; font-size: 0.75rem; line-height: 1.5; }
+  /* ---- 条件编辑器对话框 (report.js openRulesDialog)：每条条件一张小卡片，用 grid 对齐 ----
+     手机三行:  ① 条件 ········ 🗑   /   [左边 ▾        ][长度]   /   [比较][右边 ▾ ][长度或数字]
+     长度、数字固定在最右一栏，所有下拉框右边对齐；没有长度的地方，下拉框直接占满那一栏 (has-alen / has-blen 控制) */
+  .dlg.dlg-rules { width: min(760px, 100%); }
+  .rules-dlg { display: flex; flex-direction: column; gap: 0.8rem; }
+  .rl-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
+  /* 分段选择 (全部满足 / 任一满足、成立 / 不成立)：真正的 radio 藏起来，外观是一条胶囊 */
+  .rl-seg {
+    display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px;
+    background: color-mix(in srgb, var(--text-primary) 6%, var(--surface)); border: 1px solid var(--border);
+  }
+  .dlg .rl-seg label { display: block; position: relative; margin: 0; font-size: 0.86rem; color: var(--text-secondary); }
+  .rl-seg input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+  .rl-seg span { display: block; padding: 0.38rem 1rem; border-radius: 7px; cursor: pointer; white-space: nowrap; transition: background 0.15s, color 0.15s; }
+  .rl-seg label:hover span { color: var(--text-primary); }
+  .rl-seg input:checked + span {
+    background: var(--surface); color: var(--text-primary); font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14), 0 0 0 1px var(--border);
+  }
+  .rl-seg input:focus-visible + span { outline: 2px solid var(--ema); outline-offset: 1px; }
+  .rl-live { margin: 0; font-size: 0.82rem; color: var(--text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .rl-live b { color: var(--text-primary); font-size: 1.05rem; margin: 0 0.1rem; }
+  .rl-live span { color: var(--muted); }
+  .rl-list { display: flex; flex-direction: column; gap: 0.6rem; }
+  .rl-row {
+    display: grid; align-items: center; gap: 0.5rem;
+    grid-template-columns: 4.6rem minmax(0, 1fr) 6.2rem;
+    grid-template-areas: "no no del" "a a a" "op b b";
+    padding: 0.4rem 0.65rem 0.7rem; border-radius: 12px;
+    background: color-mix(in srgb, var(--text-primary) 4%, var(--surface)); border: 1px solid var(--border);
+  }
+  .rl-row.has-alen { grid-template-areas: "no no del" "a a alen" "op b b"; }
+  .rl-row.has-blen { grid-template-areas: "no no del" "a a a" "op b blen"; }
+  .rl-row.has-alen.has-blen { grid-template-areas: "no no del" "a a alen" "op b blen"; }
+  .rl-row.is-bool { grid-template-areas: "no no del" "a a a" "op op op"; }
+  .rl-row.is-bool.has-alen { grid-template-areas: "no no del" "a a alen" "op op op"; }
+  .rl-row.is-formula { grid-template-areas: "no no del" "f f f"; }
+  .rl-no { grid-area: no; display: flex; align-items: center; gap: 0.45rem; font-size: 0.76rem; color: var(--muted); }
+  .rl-no b {
+    display: inline-grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 50%;
+    font-size: 0.72rem; font-weight: 600; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  .rl-a { grid-area: a; }
+  .rl-alen { grid-area: alen; }
+  .rl-op { grid-area: op; }
+  .rl-b { grid-area: b; }
+  .rl-blen { grid-area: blen; }
+  .rl-formula { grid-area: f; }
+  .rl-row .rl-seg { justify-self: start; }
+  /* 下拉框 / 输入框统一 40px 高、同一个圆角和边框；下拉箭头自己画 (iPhone、安卓、电脑看起来都一样) */
+  .dlg .rl-row .rl-ctl {
+    display: block; width: 100%; min-width: 0; height: 2.5rem; margin: 0;
+    font: inherit; font-size: 0.9rem; color: var(--text-primary);
+    background-color: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 0 0.75rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .dlg .rl-row select.rl-ctl {
+    -webkit-appearance: none; appearance: none; cursor: pointer; padding-right: 2rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23898781' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 0.75rem center; background-size: 0.68rem;
+  }
+  .dlg .rl-row select.rl-op { text-align: center; text-align-last: center; padding: 0 1.6rem 0 0.6rem; background-position: right 0.55rem center; }
+  .dlg .rl-row .rl-ctl:hover { border-color: color-mix(in srgb, var(--text-primary) 28%, transparent); }
+  .dlg .rl-row .rl-ctl:focus { outline: none; border-color: var(--ema); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ema) 25%, transparent); }
+  .dlg .rl-row textarea.rl-ctl {
+    height: auto; min-height: 2.5rem; padding: 0.55rem 0.75rem; line-height: 1.5; resize: vertical;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 0.85rem;
+  }
+  .dlg .rl-num { position: relative; display: block; margin: 0; }
+  .dlg .rl-row .rl-num input { text-align: right; padding-right: 2.1rem; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+  .dlg .rl-row .rl-num.no-suf input { padding-right: 0.75rem; }
+  .rl-num input::-webkit-outer-spin-button, .rl-num input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .rl-suf { position: absolute; right: 0.7rem; top: 50%; transform: translateY(-50%); font-size: 0.74rem; color: var(--muted); pointer-events: none; }
+  .rl-btn { font: inherit; cursor: pointer; }
+  .rl-del {
+    grid-area: del; justify-self: end; width: 2rem; height: 2rem; display: inline-grid; place-items: center;
+    border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--muted); padding: 0;
+  }
+  .rl-del:hover, .rl-del:focus-visible { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); outline: none; }
+  .rl-del .ico { width: 15px; height: 15px; }
+  .rl-warn, .rl-err { grid-column: 1 / -1; margin: 0; font-size: 0.76rem; line-height: 1.5; }
   .rl-warn { color: var(--text-secondary); }
   .rl-warn::before { content: "⚠ "; color: #d08a00; }
   .rl-err { color: var(--down); }
-  .rl-add { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-  .rl-empty { font-size: 0.82rem; color: var(--muted); margin: 0; }
+  .rl-add { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .rl-add .rl-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; height: 2.75rem;
+    font-size: 0.88rem; color: var(--text-primary); background: transparent;
+    border: 1px dashed color-mix(in srgb, var(--text-primary) 30%, transparent); border-radius: 10px;
+  }
+  .rl-add .rl-btn:hover { border-style: solid; background: color-mix(in srgb, var(--text-primary) 5%, transparent); }
+  .rl-add .rl-btn b { font-weight: 500; font-size: 1.05em; color: var(--ema); }
+  .rl-help { border-top: 1px solid var(--border); padding-top: 0.65rem; font-size: 0.8rem; color: var(--text-secondary); }
+  .rl-help summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 500; }
+  .rl-help summary::-webkit-details-marker { display: none; }
+  .rl-help summary::before { content: "›"; display: inline-block; width: 0.8em; text-align: center; font-size: 1.15em; transition: transform 0.15s; }
+  .rl-help[open] summary::before { transform: rotate(90deg); }
+  .rl-help ul { margin: 0.5rem 0 0; padding-left: 1.15rem; line-height: 1.75; }
+  .rl-help li + li { margin-top: 0.2rem; }
+  .rl-help code {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 0.9em;
+    background: color-mix(in srgb, var(--text-primary) 7%, transparent); padding: 0.05rem 0.3rem; border-radius: 4px;
+  }
+  .rl-empty { font-size: 0.84rem; color: var(--muted); margin: 0; padding: 1rem; text-align: center; border: 1px dashed var(--border); border-radius: 12px; }
+  /* 电脑: 一条条件一行排完 */
+  @media (min-width: 641px) {
+    .rl-row {
+      grid-template-columns: 1.5rem minmax(0, 1fr) 5.6rem 4.8rem minmax(0, 1fr) 6.4rem 2.1rem;
+      grid-template-areas: "no a a op b b del";
+      padding: 0.55rem 0.6rem;
+    }
+    .rl-row.has-alen { grid-template-areas: "no a alen op b b del"; }
+    .rl-row.has-blen { grid-template-areas: "no a a op b blen del"; }
+    .rl-row.has-alen.has-blen { grid-template-areas: "no a alen op b blen del"; }
+    .rl-row.is-bool { grid-template-areas: "no a a op op op del"; }
+    .rl-row.is-bool.has-alen { grid-template-areas: "no a alen op op op del"; }
+    .rl-row.is-formula { grid-template-areas: "no f f f f f del"; }
+    .rl-no-t { display: none; }
+    .rl-warn, .rl-err { grid-column: 2 / -1; }
+  }
+  /* 没有鼠标的设备 (手机 / 平板)：字号 16px，iPhone 点进去才不会自动放大整页 */
+  @media (hover: none) {
+    .dlg .rl-row .rl-ctl, .dlg .rl-row textarea.rl-ctl { font-size: 16px; }
+  }
   .rl-foot-note { margin: 0; font-size: 0.75rem; color: var(--muted); }
   .tpl-backup { margin-top: 0.9rem; }
   @media (max-width: 640px) {
@@ -2127,7 +2235,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None):
 <div class="strategy-panel" id="strategy-panel"></div>
 
 <h3 class="subsection" id="sec-signals">后台信号 <span class="section-count">({len(cards)})</span></h3>
-<p class="sub-note">后台每次运行用固定策略 ({' + '.join(BACKEND_STRATEGY_PARTS)}) 筛出来的股票，附多周期K线图。扫描范围：{html.escape(MKT['universe'])}</p>
+<p class="sub-note">后台固定策略 ({' + '.join(BACKEND_STRATEGY_PARTS)}) 筛出来的股票，附多周期 K 线图</p>
 {build_screener_html(cards, chips)}
 
 <h2 class="section" id="sec-table">📋 其余股票 ({len(table_rows)})</h2>

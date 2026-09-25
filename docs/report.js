@@ -1041,28 +1041,32 @@
   // 一条规则 = {id, a, op, b}：a / b 是下面 OPERANDS 里的东西 (+ 可调的长度 n)，b 也可以是固定数字 {k:'num', v}；
   // 或者自己写公式 {id, formula}。规则编译成公式 (ruleFormula) 交给上面的公式引擎，结果是逐根的 1 / 0。
   // unit 用来提示"两边单位不一样" (例如拿收盘价跟 RSI 比)；bool = 形态类，只有"成立 / 不成立"
+  // group = 下拉框里的分组 (手机上会变成选单里的小标题)。
+  // 当前价格 = 最新一根日线的收盘价：盘中就是最新成交价 (跟表格"价格"一栏一样)，收盘后就是当天收盘价
   var OPERANDS = [
-    { k: 'close', label: '收盘价', unit: 'price', f: function () { return 'close'; } },
-    { k: 'open', label: '开盘价', unit: 'price', f: function () { return 'open'; } },
-    { k: 'high', label: '最高价', unit: 'price', f: function () { return 'high'; } },
-    { k: 'low', label: '最低价', unit: 'price', f: function () { return 'low'; } },
-    { k: 'hh', label: '前 N 日最高价', unit: 'price', len: 20, f: function (n) { return 'ref(highest(high,' + n + '),1)'; }, short: function (n) { return '前' + n + '日最高价'; } },
-    { k: 'll', label: '前 N 日最低价', unit: 'price', len: 20, f: function (n) { return 'ref(lowest(low,' + n + '),1)'; }, short: function (n) { return '前' + n + '日最低价'; } },
-    { k: 'sma', label: 'SMA 均线', unit: 'price', len: 20, f: function (n) { return 'sma(close,' + n + ')'; }, short: function (n) { return 'SMA(' + n + ')'; } },
-    { k: 'ema', label: 'EMA 均线', unit: 'price', len: 20, f: function (n) { return 'ema(close,' + n + ')'; }, short: function (n) { return 'EMA(' + n + ')'; } },
-    { k: 'sar', label: 'SAR', unit: 'price', f: function () { return 'psar()'; }, short: function () { return 'SAR'; } },
-    { k: 'st', label: 'Supertrend', unit: 'price', f: function () { return 'supertrend()'; }, short: function () { return 'Supertrend(10,3)'; } },
-    { k: 'rsi', label: 'RSI', unit: 'osc', len: 14, f: function (n) { return 'rsi(close,' + n + ')'; }, short: function (n) { return 'RSI(' + n + ')'; } },
-    { k: 'macd', label: 'MACD 线', unit: 'osc', f: function () { return 'ema(close,12)-ema(close,26)'; }, short: function () { return 'MACD线'; } },
-    { k: 'macds', label: 'MACD 信号线', unit: 'osc', f: function () { return 'ema(ema(close,12)-ema(close,26),9)'; }, short: function () { return 'MACD信号线'; } },
-    { k: 'atrp', label: 'ATR%', unit: 'pct', len: 14, f: function (n) { return 'atr(' + n + ')/close*100'; }, short: function (n) { return 'ATR%(' + n + ')'; } },
-    { k: 'chg', label: '涨跌%', unit: 'pct', f: function () { return '(close/ref(close,1)-1)*100'; } },
-    { k: 'vol', label: '成交量', unit: 'vol', f: function () { return 'volume'; } },
-    { k: 'vma', label: '成交量均线', unit: 'vol', len: 20, f: function (n) { return 'sma(volume,' + n + ')'; }, short: function (n) { return '量均线(' + n + ')'; } },
+    { k: 'close', group: 'price', label: '当前价格', unit: 'price', f: function () { return 'close'; } },
+    { k: 'pclose', group: 'price', label: '昨日收盘', unit: 'price', f: function () { return 'ref(close,1)'; } },
+    { k: 'open', group: 'price', label: '今日开盘', unit: 'price', f: function () { return 'open'; } },
+    { k: 'high', group: 'price', label: '今日最高', unit: 'price', f: function () { return 'high'; } },
+    { k: 'low', group: 'price', label: '今日最低', unit: 'price', f: function () { return 'low'; } },
+    { k: 'hh', group: 'price', label: '前 N 日最高', unit: 'price', len: 20, f: function (n) { return 'ref(highest(high,' + n + '),1)'; }, short: function (n) { return '前' + n + '日最高'; } },
+    { k: 'll', group: 'price', label: '前 N 日最低', unit: 'price', len: 20, f: function (n) { return 'ref(lowest(low,' + n + '),1)'; }, short: function (n) { return '前' + n + '日最低'; } },
+    { k: 'sma', group: 'trend', label: 'SMA 均线', unit: 'price', len: 20, f: function (n) { return 'sma(close,' + n + ')'; }, short: function (n) { return 'SMA(' + n + ')'; } },
+    { k: 'ema', group: 'trend', label: 'EMA 均线', unit: 'price', len: 20, f: function (n) { return 'ema(close,' + n + ')'; }, short: function (n) { return 'EMA(' + n + ')'; } },
+    { k: 'sar', group: 'trend', label: 'SAR 抛物线', unit: 'price', f: function () { return 'psar()'; }, short: function () { return 'SAR'; } },
+    { k: 'st', group: 'trend', label: 'Supertrend', unit: 'price', f: function () { return 'supertrend()'; }, short: function () { return 'Supertrend(10,3)'; } },
+    { k: 'rsi', group: 'momentum', label: 'RSI', unit: 'osc', len: 14, f: function (n) { return 'rsi(close,' + n + ')'; }, short: function (n) { return 'RSI(' + n + ')'; } },
+    { k: 'macd', group: 'momentum', label: 'MACD 线', unit: 'osc', f: function () { return 'ema(close,12)-ema(close,26)'; }, short: function () { return 'MACD线'; } },
+    { k: 'macds', group: 'momentum', label: 'MACD 信号线', unit: 'osc', f: function () { return 'ema(ema(close,12)-ema(close,26),9)'; }, short: function () { return 'MACD信号线'; } },
+    { k: 'chg', group: 'momentum', label: '涨跌%', unit: 'pct', f: function () { return '(close/ref(close,1)-1)*100'; } },
+    { k: 'atrp', group: 'momentum', label: 'ATR% 波动', unit: 'pct', len: 14, f: function (n) { return 'atr(' + n + ')/close*100'; }, short: function (n) { return 'ATR%(' + n + ')'; } },
+    { k: 'vol', group: 'volume', label: '成交量', unit: 'vol', f: function () { return 'volume'; } },
+    { k: 'vma', group: 'volume', label: '成交量均线', unit: 'vol', len: 20, f: function (n) { return 'sma(volume,' + n + ')'; }, short: function (n) { return '量均线(' + n + ')'; } },
     // 相对量 = 今天成交量 ÷ 前 N 天平均 (不含今天)，跟表格的"相对量"同一个算法
-    { k: 'rvol', label: '相对量', unit: 'ratio', len: 20, f: function (n) { return 'volume/ref(sma(volume,' + n + '),1)'; }, short: function (n) { return '相对量(' + n + ')'; } },
-    { k: 't3', label: 'T3 形态突破', unit: 'bool', f: function () { return 't3()'; } }
+    { k: 'rvol', group: 'volume', label: '相对量', unit: 'ratio', len: 20, f: function (n) { return 'volume/ref(sma(volume,' + n + '),1)'; }, short: function (n) { return '相对量(' + n + ')'; } },
+    { k: 't3', group: 'pattern', label: 'T3 形态突破', unit: 'bool', f: function () { return 't3()'; } }
   ];
+  var OPERAND_GROUPS = [['price', '价格'], ['trend', '均线 · 趋势'], ['momentum', '动量 · 波动'], ['volume', '成交量'], ['pattern', '形态']];
   var OPERAND_BY_K = {};
   OPERANDS.forEach(function (o) { OPERAND_BY_K[o.k] = o; });
   var RULE_OPS = [
@@ -1158,18 +1162,18 @@
   // kind: 'strategy' = 选股策略 (带条件，套用后在报告全部股票里筛)；其余只是指标组合
   // ⚠️ s-backend 要跟后台 main.py 的 check_strategy / BACKEND_STRATEGY_PARTS 同一套条件，改的话两边一起改
   var BUILTIN_TEMPLATES = [
-    { id: 's-backend', kind: 'strategy', name: '后台默认策略', desc: '收盘价 > EMA(20)、收盘价 > SAR、T3 形态突破 (跟后台信号同一套条件)',
+    { id: 's-backend', kind: 'strategy', name: '后台默认策略', desc: '当前价格 > EMA(20)、当前价格 > SAR、T3 形态突破 (跟后台信号同一套条件)',
       items: [['psar']],
       rules: [{ a: { k: 'close' }, op: '>', b: { k: 'ema', n: 20 } }, { a: { k: 'close' }, op: '>', b: { k: 'sar' } }, { a: { k: 't3' }, op: 'is' }] },
     { id: 's-rsi', kind: 'strategy', name: 'RSI 超卖回升', desc: 'RSI(14) 上穿 30', items: [['rsi']],
       rules: [{ a: { k: 'rsi', n: 14 }, op: 'crossup', b: { k: 'num', v: 30 } }] },
     { id: 's-golden', kind: 'strategy', name: '均线金叉', desc: 'SMA(20) 上穿 SMA(50)', items: [['sma', { length: 20 }], ['sma', { length: 50 }]],
       rules: [{ a: { k: 'sma', n: 20 }, op: 'crossup', b: { k: 'sma', n: 50 } }] },
-    { id: 's-breakout', kind: 'strategy', name: '放量突破', desc: '收盘价 > 前 20 日最高价，而且相对量 ≥ 2', items: [['volsma']],
+    { id: 's-breakout', kind: 'strategy', name: '放量突破', desc: '当前价格 > 前 20 日最高，而且相对量 ≥ 2', items: [['volsma']],
       rules: [{ a: { k: 'close' }, op: '>', b: { k: 'hh', n: 20 } }, { a: { k: 'rvol', n: 20 }, op: '>=', b: { k: 'num', v: 2 } }] },
     { id: 's-macd', kind: 'strategy', name: 'MACD 金叉', desc: 'MACD 线上穿信号线 (12, 26, 9)', items: [['macd']],
       rules: [{ a: { k: 'macd' }, op: 'crossup', b: { k: 'macds' } }] },
-    { id: 's-supertrend', kind: 'strategy', name: 'Supertrend 转多', desc: '收盘价上穿 Supertrend (10, 3)', items: [['supertrend']],
+    { id: 's-supertrend', kind: 'strategy', name: 'Supertrend 转多', desc: '当前价格上穿 Supertrend (10, 3)', items: [['supertrend']],
       rules: [{ a: { k: 'close' }, op: 'crossup', b: { k: 'st' } }] },
     { id: 'b-trend', name: '趋势跟随', desc: 'SMA 50 + Supertrend + SAR', items: [['sma', { length: 50 }], ['supertrend'], ['psar']] },
     { id: 'b-ichimoku', name: '一目均衡表', desc: '一目均衡表 (9, 26, 52, 26)', items: [['ichimoku']] },
@@ -3142,12 +3146,14 @@
       return;
     }
     var errors = compiled.filter(function (c) { return c.error; });
+    // 条件之间用「且 / 或」连起来，一眼看得出是全部满足还是任一满足
+    var join = '<li class="sp-join" aria-hidden="true">' + (t.match === 'any' ? '或' : '且') + '</li>';
     var html = '<div class="sp-head"><span class="sp-title">选股条件</span><span class="sp-match">' + (t.match === 'any' ? '任一满足' : '全部满足') + ' · ' + t.rules.length + ' 条</span>' +
       '<div class="sp-actions"><button type="button" class="sp-btn" data-act="edit">✎ 编辑条件</button></div></div>' +
       '<ul class="sp-rules">' + compiled.map(function (c) {
         return '<li class="sp-rule' + (c.error ? ' err' : '') + '"' + (c.error ? ' title="' + escapeHtml(c.error) + '"' : '') + '>' +
           escapeHtml(ruleLabel(c.rule)) + (c.error ? ' ⚠' : '') + '</li>';
-      }).join('') + '</ul>';
+      }).join(join) + '</ul>';
     if (errors.length) html += '<p class="sp-err">' + errors.length + ' 条条件有错，没有参与筛选：' + escapeHtml(errors[0].error) + '</p>';
     if (errors.length === compiled.length) {
       panel.innerHTML = html;
@@ -3157,9 +3163,9 @@
       panel.innerHTML = html + '<p class="sp-loading">正在用今天报告里的 ' + total + ' 支股票计算…</p>';
       return;
     }
-    var note = '按成交量从高到低 · 用每支股票最新一根日线判断';
+    var note = '按成交量排序 · 看最新一根日线';
     if (sp.missing) note += ' · ' + sp.missing + ' 支没有K线数据没算' + (sp.tableError ? ' (表格股票的K线下载失败：' + sp.tableError + ')' : '');
-    html += '<p class="sp-stat">命中 <b>' + sp.hits.length + '</b> / ' + sp.total + ' 支 <small>· ' + escapeHtml(note) + '</small></p>';
+    html += '<p class="sp-stat"><span>命中</span> <b>' + sp.hits.length + '</b> <span>/ ' + sp.total + ' 支</span> <small>' + escapeHtml(note) + '</small></p>';
     if (sp.hits.length) {
       html += '<ol class="sp-hits">' + sp.hits.slice(0, sp.shown).map(function (it, i) {
         var e = it.stock;
@@ -3195,58 +3201,88 @@
     });
   })();
 
-  // ---------- 条件编辑器: 每条条件一行 (左边 比较 右边 / 公式)，改了立刻存进当前模板 ----------
+  // ---------- 条件编辑器: 每条条件一张小卡片，改了立刻存进当前模板 ----------
+  // 版面 (CSS grid，见 main.py 的 STRATEGY_CSS)：手机上三行 ——「① 条件 🗑」/「左边 [长度]」/「比较 右边 [长度或数字]」，
+  // 长度、数字固定在最右一栏，下拉框右边对齐；电脑上一行排完。没有长度的地方下拉框直接占满那一栏
   function defaultRule() { return { id: newId('rule'), a: { k: 'close' }, op: '>', b: { k: 'sma', n: 20 } }; }
   function operandOptions(selected, forRight) {
-    return OPERANDS.filter(function (o) { return !forRight || o.unit !== 'bool'; }).map(function (o) {
-      return '<option value="' + o.k + '"' + (o.k === selected ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
-    }).join('') + (forRight ? '<option value="num"' + (selected === 'num' ? ' selected' : '') + '>数字</option>' : '');
+    function opt(value, label) { return '<option value="' + value + '"' + (value === selected ? ' selected' : '') + '>' + escapeHtml(label) + '</option>'; }
+    var html = forRight ? '<optgroup label="数字">' + opt('num', '固定数字') + '</optgroup>' : '';
+    OPERAND_GROUPS.forEach(function (g) {
+      var items = OPERANDS.filter(function (o) { return o.group === g[0] && (!forRight || o.unit !== 'bool'); });
+      if (items.length) html += '<optgroup label="' + g[1] + '">' + items.map(function (o) { return opt(o.k, o.label); }).join('') + '</optgroup>';
+    });
+    return html;
   }
-  function lenInput(ref, field) {
+  // 数字后面的单位跟着左边走：价格 RM / $，百分比 %，倍数 倍，成交量 股
+  function numberSuffix(r) {
+    var u = OPERAND_BY_K[r.a.k] && OPERAND_BY_K[r.a.k].unit;
+    return { price: MARKET.id === 'US' ? '$' : 'RM', pct: '%', ratio: '倍', vol: '股' }[u] || '';
+  }
+  // 长度 / 数字输入框 (右边带单位)
+  function numBox(area, field, value, suffix, attrs, label) {
+    return '<label class="rl-num rl-' + area + (suffix ? '' : ' no-suf') + '"><input class="rl-ctl" type="number" data-f="' + field + '" value="' + value + '" ' + attrs +
+      ' aria-label="' + escapeHtml(label) + '">' + (suffix ? '<span class="rl-suf" aria-hidden="true">' + escapeHtml(suffix) + '</span>' : '') + '</label>';
+  }
+  function lenBox(ref, area, field) {
     var d = OPERAND_BY_K[ref.k];
     if (!d || !d.len) return '';
-    return '<input type="number" class="rl-len" data-f="' + field + '" min="1" max="' + MAX_LEN + '" step="1" inputmode="numeric" value="' + clampLen(ref.n, d.len) +
-      '" title="长度 (K线根数)" aria-label="' + escapeHtml(d.label) + ' 的长度">';
+    return numBox(area, field, clampLen(ref.n, d.len), '日', 'min="1" max="' + MAX_LEN + '" step="1" inputmode="numeric"', d.label + ' 用几日计算');
+  }
+  function selectBox(area, field, options, label) {
+    return '<select class="rl-ctl rl-' + area + '" data-f="' + field + '" aria-label="' + escapeHtml(label) + '">' + options + '</select>';
   }
   function ruleRowHtml(r, i) {
-    var del = '<button type="button" class="rl-del" data-act="del" title="删除这条条件" aria-label="删除第 ' + (i + 1) + ' 条条件">' + ICON_TRASH + '</button>';
+    var n = i + 1, id = escapeHtml(r.id);
+    var del = '<button type="button" class="rl-btn rl-del" data-act="del" title="删除这条条件" aria-label="删除第 ' + n + ' 条条件">' + ICON_TRASH + '</button>';
+    function no(text) { return '<span class="rl-no"><b>' + n + '</b><span class="rl-no-t">' + text + '</span></span>'; }
     if (r.formula !== undefined) {
-      return '<div class="rl-row rl-f" data-id="' + escapeHtml(r.id) + '"><span class="rl-no">' + (i + 1) + '</span>' +
-        '<input type="text" class="rl-formula" data-f="formula" maxlength="300" spellcheck="false" autocapitalize="off" autocomplete="off" value="' + escapeHtml(r.formula) +
-        '" placeholder="例如 close > sma(close,50) and rsi(close,14) < 70" aria-label="第 ' + (i + 1) + ' 条条件的公式">' + del +
+      return '<div class="rl-row is-formula" data-id="' + id + '">' + no('公式条件') + del +
+        '<textarea class="rl-ctl rl-formula" data-f="formula" rows="2" maxlength="300" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"' +
+        ' placeholder="例如 close > sma(close,50) and rsi(close,14) < 70" aria-label="第 ' + n + ' 条条件的公式">' + escapeHtml(r.formula) + '</textarea>' +
         '<p class="rl-err" hidden></p></div>';
     }
-    var html = '<div class="rl-row" data-id="' + escapeHtml(r.id) + '"><span class="rl-no">' + (i + 1) + '</span>' +
-      '<select data-f="a" aria-label="第 ' + (i + 1) + ' 条条件的左边">' + operandOptions(r.a.k, false) + '</select>' + lenInput(r.a, 'an');
+    var ad = OPERAND_BY_K[r.a.k], cls = 'rl-row' + (ad.len ? ' has-alen' : '');
+    var html = no('条件') + del + selectBox('a', 'a', operandOptions(r.a.k, false), '第 ' + n + ' 条条件的左边') + lenBox(r.a, 'alen', 'an');
     if (isBoolOperand(r.a)) {
-      html += '<select data-f="op" aria-label="成立或不成立">' + BOOL_OPS.map(function (o) {
-        return '<option value="' + o.k + '"' + (o.k === r.op ? ' selected' : '') + '>' + o.label + '</option>';
-      }).join('') + '</select>';
+      cls += ' is-bool';
+      html += '<div class="rl-seg rl-op" role="radiogroup" aria-label="成立或不成立">' + BOOL_OPS.map(function (o) {
+        return '<label><input type="radio" name="rl-op-' + id + '" data-f="op" value="' + o.k + '"' + (r.op === o.k ? ' checked' : '') + '><span>' + o.label + '</span></label>';
+      }).join('') + '</div>';
     } else {
-      html += '<select data-f="op" aria-label="比较">' + RULE_OPS.map(function (o) {
+      var bd = r.b.k === 'num' ? null : OPERAND_BY_K[r.b.k];
+      var right = r.b.k === 'num'
+        ? numBox('blen', 'bv', numLiteral(r.b.v), numberSuffix(r), 'step="any" inputmode="decimal"', '数字')
+        : lenBox(r.b, 'blen', 'bn');
+      if (right) cls += ' has-blen';
+      html += selectBox('op', 'op', RULE_OPS.map(function (o) {
         return '<option value="' + o.k + '"' + (o.k === r.op ? ' selected' : '') + '>' + o.label + '</option>';
-      }).join('') + '</select>' +
-        '<select data-f="b" aria-label="第 ' + (i + 1) + ' 条条件的右边">' + operandOptions(r.b.k, true) + '</select>' +
-        (r.b.k === 'num' ? '<input type="number" class="rl-num" data-f="bv" step="any" inputmode="decimal" value="' + numLiteral(r.b.v) + '" aria-label="数字">' : lenInput(r.b, 'bn'));
+      }).join(''), '比较') + selectBox('b', 'b', operandOptions(r.b.k, true), '第 ' + n + ' 条条件的右边') + right;
     }
     var warn = unitWarning(r);
-    return html + del + '<p class="rl-warn"' + (warn ? '' : ' hidden') + '>' + escapeHtml(warn) + '</p><p class="rl-err" hidden></p></div>';
+    return '<div class="' + cls + '" data-id="' + id + '">' + html +
+      '<p class="rl-warn"' + (warn ? '' : ' hidden') + '>' + escapeHtml(warn) + '</p><p class="rl-err" hidden></p></div>';
   }
   function openRulesDialog() {
     var t = activeTemplate();
     var root = document.createElement('div');
     root.className = 'rules-dlg';
     root.innerHTML =
-      '<div class="rl-top"><div class="seg" role="radiogroup" aria-label="怎样算命中"><span>命中</span>' +
-      '<label><input type="radio" name="rl-match" value="all"' + (t.match !== 'any' ? ' checked' : '') + '> 全部满足</label>' +
-      '<label><input type="radio" name="rl-match" value="any"' + (t.match === 'any' ? ' checked' : '') + '> 任一满足</label></div>' +
+      '<div class="rl-top"><div class="rl-seg rl-match" role="radiogroup" aria-label="怎样算命中">' +
+      '<label><input type="radio" name="rl-match" value="all"' + (t.match !== 'any' ? ' checked' : '') + '><span>全部满足</span></label>' +
+      '<label><input type="radio" name="rl-match" value="any"' + (t.match === 'any' ? ' checked' : '') + '><span>任一满足</span></label></div>' +
       '<p class="rl-live" aria-live="polite"></p></div>' +
       '<div class="rl-list"></div>' +
-      '<div class="rl-add"><button type="button" data-act="add">＋ 添加条件</button><button type="button" data-act="add-formula">＋ 公式条件</button></div>' +
-      '<p class="hint">每支股票只看<b>最新一根日线</b>符不符合。「上穿」= 这一根在上方、前一根还没有 (刚发生)；长度 = 用几根K线算。' +
-      '公式条件可以用 <code>&gt; &lt; &gt;= &lt;= == !=</code>、<code>and</code> / <code>or</code> / <code>not</code>，函数除了指标库那些还有 ' +
-      '<code>ref(x,n)</code> (n 根之前)、<code>crossup(a,b)</code> / <code>crossdown(a,b)</code>、<code>max</code> / <code>min</code>、<code>psar()</code>、<code>supertrend()</code>、<code>t3()</code>，' +
-      '例如 <code>close &gt; ref(high,1) and volume &gt; 2*sma(volume,20)</code>。改了会立刻存进模板「' + escapeHtml(t.name) + '」。</p>';
+      '<div class="rl-add"><button type="button" class="rl-btn" data-act="add"><b>＋</b>添加条件</button>' +
+      '<button type="button" class="rl-btn" data-act="add-formula"><b>ƒ</b>公式条件</button></div>' +
+      '<details class="rl-help"><summary>怎么看、怎么写</summary><ul>' +
+      '<li>每支股票只看<b>最新一根日线</b>：<b>当前价格</b> = 报告更新时的最新成交价 (跟表格"价格"一样，收盘后就是收盘价)；「今日」= 最新这一根，「昨日收盘」= 前一根</li>' +
+      '<li><b>上穿 / 下穿</b> = 这一根刚穿过去 (前一根还在另一边)；<b>日</b> = 用几根日线算，例如 EMA 20 日</li>' +
+      '<li><b>公式条件</b>：比较 <code>&gt; &lt; &gt;= &lt;= == !=</code>，组合 <code>and</code> <code>or</code> <code>not</code>；' +
+      '变量 <code>close</code> (当前价格) <code>open</code> <code>high</code> <code>low</code> <code>volume</code>；' +
+      '函数 <code>sma</code> <code>ema</code> <code>rsi</code> <code>atr</code> <code>highest</code> <code>lowest</code> <code>ref(x,n)</code> <code>crossup(a,b)</code> <code>crossdown(a,b)</code> <code>psar()</code> <code>supertrend()</code> <code>t3()</code> 等</li>' +
+      '<li>例子：<code>close &gt; ref(high,1) and volume &gt; 2*sma(volume,20)</code> (突破昨天高点，而且放量)</li>' +
+      '</ul></details>';
     var list = root.querySelector('.rl-list'), live = root.querySelector('.rl-live');
     function renderRows() {
       list.innerHTML = t.rules.length ? t.rules.map(ruleRowHtml).join('') : '<p class="rl-empty">还没有条件，点下面的「＋ 添加条件」。</p>';
@@ -3289,7 +3325,7 @@
       if (tpl !== t) return;
       var valid = compiled.filter(function (c) { return !c.error; }).length;
       live.innerHTML = !t.rules.length ? '还没有条件' : !valid ? '条件都有错，暂时算不了'
-        : sp.loading || !sp.hits ? '计算中…' : '目前命中 <b>' + sp.hits.length + '</b> / ' + sp.total + ' 支';
+        : sp.loading || !sp.hits ? '计算中…' : '命中 <b>' + sp.hits.length + '</b><span> / ' + sp.total + ' 支</span>';
     }
     strategyListeners.push(onLive);
 
@@ -3361,7 +3397,7 @@
         t.rules.push(nr);
         renderRows();
         var row = list.querySelector('[data-id="' + nr.id + '"]');
-        var target = row && row.querySelector(act === 'add' ? 'select' : 'input');
+        var target = row && row.querySelector(act === 'add' ? 'select' : 'textarea');
         if (target) target.focus();
         save(true);
       }
@@ -3374,7 +3410,7 @@
         strategyListeners.splice(strategyListeners.indexOf(onLive), 1);
       }
     });
-    dlg.foot.innerHTML = '<span class="grow rl-foot-note">改了自动保存</span><button type="button" class="btn-primary" data-act="done">完成</button>';
+    dlg.foot.innerHTML = '<span class="grow rl-foot-note">改了会自动保存到模板「' + escapeHtml(t.name) + '」</span><button type="button" class="btn-primary" data-act="done">完成</button>';
     dlg.foot.addEventListener('click', function (e) { if (e.target.closest('[data-act="done"]')) dlg.close(); });
     refreshStrategy(); // 填上"目前命中"
     return dlg;
