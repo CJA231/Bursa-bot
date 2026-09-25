@@ -102,10 +102,10 @@ MARKETS = {
         "analyst": "美国股市",
         "file_prefix": "us-report",
         "search_hint": "例如 AAPL / NVDA",
-        # 一天只跑一次、股票又多 (约 700 支)，每次多补一些。个股资料一支要十来个 Yahoo 请求：
-        # 第一次美股 run (9/24) 补 120 支，后面 58 支被 Yahoo 限流 (Too Many Requests)，所以改成 60；
-        # 新闻走 Google News，120 支全部成功
-        "detail_per_run": 60,
+        # 一天只跑一次、股票又多 (700–850 支)，每次多补一些。个股资料一支要十来个 Yahoo 请求：
+        # 9/24 头两次美股 run 各补 120 支，只写入 62 / 51 支，其余被 Yahoo 限流 (Too Many Requests)，
+        # 所以改成 50 (没拿到的下次运行排在前面再试)；新闻走 Google News，两次都是 120 支全部成功
+        "detail_per_run": 50,
         "news_per_run": 120,
     },
 }
