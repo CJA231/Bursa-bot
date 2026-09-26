@@ -18,6 +18,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from exports import export_downloads
+import engine
 
 IMPORT_SECS = time.perf_counter() - PROCESS_START
 
@@ -31,6 +32,7 @@ MARKETS = {
         "name": "马股",
         "title": "马股自动分析报告",
         "universe": "Bursa 全部上市股票 (Main + ACE)",
+        "universe_short": "Main + ACE",
         "docs_dir": "docs",
         "url": "https://cja231.github.io/Bursa-bot/",
         "tz": "Asia/Kuala_Lumpur",
@@ -78,6 +80,7 @@ MARKETS = {
         "name": "美股",
         "title": "美股自动分析报告",
         "universe": "市值 ≥ 100 亿美元的美股 (纽交所 / 纳斯达克)",
+        "universe_short": "市值 ≥ $10B",
         "docs_dir": os.path.join("docs", "us"),
         "url": "https://cja231.github.io/Bursa-bot/us/",
         "tz": "America/New_York",     # 夏令时自动处理 (日内K线时间也按当天的 UTC 偏移换算，见 local_epoch)
@@ -245,114 +248,283 @@ def detect_t3_pattern(df):
 
     return False
 
+# === 后台策略 (strategy.json) ===
+# 后台信号的选股条件 + 回测的离场规则写在仓库根目录的 strategy.json，写法跟网页「选股条件」一模一样
+# (网页「回测」里调好后按「设为后台信号」就会复制出这份内容)。条件用 engine.py 算 (docs/report.js 公式引擎的 Python 版)。
+# 文件没有 / 写错 → 用下面的默认策略 (就是以前写死的 EMA20 多头 + SAR 多头 + T3 形态突破)，日志会写原因。
+STRATEGY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "strategy.json")
+REPO_SLUG = "CJA231/Bursa-bot"   # 网页上「设为后台信号」打开 GitHub 编辑 strategy.json 用
+DEFAULT_STRATEGY = {
+    "name": "后台默认策略",
+    "match": "all",
+    "rules": [
+        {"a": {"k": "close"}, "op": ">", "b": {"k": "ema", "n": 20}},
+        {"a": {"k": "close"}, "op": ">", "b": {"k": "sar"}},
+        {"a": {"k": "t3"}, "op": "is"},
+    ],
+    # 离场规则 (回测用，哪一个先发生就按那天收盘价结算)：SAR 转空、EMA 快线下穿慢线、收盘跌破最近的波段低点 (HL)、
+    # 最多持有几天；另外可选固定止损 / 止盈 % (0 = 不用)
+    "exit": {"sar": True, "ema_cross": [5, 20], "swing_low": 2, "max_hold": 30, "stop_pct": 0, "take_pct": 0},
+}
+EXIT_DEFAULT = DEFAULT_STRATEGY["exit"]
+
+
+def _int_in(v, lo, hi, default):
+    try:
+        n = int(round(float(v)))
+    except (TypeError, ValueError, OverflowError):  # OverflowError = inf
+        return default
+    return max(lo, min(hi, n))
+
+
+def _float_in(v, lo, hi, default):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return default
+    return default if x != x else max(lo, min(hi, x))
+
+
+def clean_exit(ex):
+    """离场规则清洗一遍 (网页 cleanExit 同一套规则)：false / 0 = 不用这一条"""
+    ex = ex if isinstance(ex, dict) else {}
+    ema = ex.get("ema_cross", EXIT_DEFAULT["ema_cross"])
+    if isinstance(ema, (list, tuple)) and len(ema) == 2:
+        fast, slow = _int_in(ema[0], 1, 250, 5), _int_in(ema[1], 2, 250, 20)
+        ema = [fast, slow] if fast < slow else None
+    else:
+        ema = None
+    swing = ex.get("swing_low", EXIT_DEFAULT["swing_low"])
+    swing = _int_in(swing, 1, 10, 2) if swing not in (None, False, 0, "0") else 0
+    return {
+        "sar": bool(ex.get("sar", EXIT_DEFAULT["sar"])),
+        "ema_cross": ema,
+        "swing_low": swing,
+        "max_hold": _int_in(ex.get("max_hold", EXIT_DEFAULT["max_hold"]), 0, 250, 30),
+        "stop_pct": _float_in(ex.get("stop_pct", 0), 0, 90, 0),
+        "take_pct": _float_in(ex.get("take_pct", 0), 0, 1000, 0),
+    }
+
+
+def load_strategy():
+    """读 strategy.json → (策略, 编译好的条件, 说明)。出问题退回默认策略，不会让整个运行失败"""
+    raw, note = None, None
+    try:
+        with open(STRATEGY_FILE, encoding="utf-8") as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        note = "没有 strategy.json，用默认策略"
+    except (OSError, ValueError) as e:
+        note = f"strategy.json 读不了 ({e})，用默认策略"
+    if raw is not None and not isinstance(raw, dict):
+        note, raw = "strategy.json 格式不对 (最外层要是 { … })，用默认策略", None
+    strat = raw if isinstance(raw, dict) else DEFAULT_STRATEGY
+    rules = [r for r in (engine.clean_rule(x) for x in (strat.get("rules") or [])) if r]
+    compiled = engine.compile_rules(rules)
+    if not any(err is None for _, _, err in compiled):
+        if raw is not None:
+            note = "strategy.json 里没有可以用的条件，用默认策略"
+        strat = DEFAULT_STRATEGY
+        rules = [engine.clean_rule(x) for x in DEFAULT_STRATEGY["rules"]]
+        compiled = engine.compile_rules(rules)
+    bad = [f"{engine.rule_label(r)} ({err})" for r, _, err in compiled if err]
+    if bad:
+        note = (note + "；" if note else "") + "这些条件写错了、不参与筛选：" + "；".join(bad)
+    cost = strat.get("cost_pct")
+    cost = cost.get(MARKET_ID) if isinstance(cost, dict) else cost
+    return {
+        "name": str(strat.get("name") or "后台策略")[:40],
+        "match": "any" if strat.get("match") == "any" else "all",
+        "rules": rules,
+        "exit": clean_exit(strat.get("exit")),
+        "cost": _float_in(cost, 0, 10, MKT["round_trip_cost_pct"]) if cost is not None else MKT["round_trip_cost_pct"],
+        "custom": raw is not None and strat is not DEFAULT_STRATEGY,
+    }, compiled, note
+
+
+STRATEGY, STRATEGY_COMPILED, STRATEGY_NOTE = load_strategy()
+STRATEGY_LABELS = [engine.rule_label(r) for r, _, err in STRATEGY_COMPILED if not err]
+
+
+def exit_labels(ex):
+    """离场规则的中文 + 英文说明 (页面上、日志里都用)"""
+    out = []
+    if ex["sar"]:
+        out.append("SAR 转空 (SAR Flip)")
+    if ex["ema_cross"]:
+        out.append(f"EMA{ex['ema_cross'][0]} 下穿 EMA{ex['ema_cross'][1]} (EMA Cross-down)")
+    if ex["swing_low"]:
+        out.append("跌破最近波段低点 HL (Swing-Low Break)")
+    if ex["stop_pct"]:
+        out.append(f"止损 -{ex['stop_pct']:g}% (Stop Loss)")
+    if ex["take_pct"]:
+        out.append(f"止盈 +{ex['take_pct']:g}% (Take Profit)")
+    out.append(f"最多持有 {ex['max_hold']} 天 (Time Stop)" if ex["max_hold"] else "不限持有天数")
+    return out
+
+
+def strategy_note_text():
+    return f"后台策略「{STRATEGY['name']}」：{'、'.join(STRATEGY_LABELS)} ({'任一满足' if STRATEGY['match'] == 'any' else '全部满足'})"
+
+
+def rule_tags(ctx):
+    """信号卡片上的上榜理由：每条条件一个标签；"价格 比 价格"的条件顺便写高出多少 (占现价 %)，例如「当前价格 > EMA(20) +2.8%」"""
+    tags = []
+    for r, _, err in STRATEGY_COMPILED:
+        if err:
+            continue
+        label, extra = engine.rule_label(r), ""
+        if "formula" not in r and not engine.is_bool_operand(r["a"]) and r["op"] in (">", "<", ">=", "<=") \
+                and r["b"]["k"] != "num" and engine.OPERANDS[r["a"]["k"]][0] == "price" == engine.OPERANDS[r["b"]["k"]][0]:
+            try:
+                va = engine.eval_formula(engine.operand_formula(r["a"]), ctx)[-1]
+                vb = engine.eval_formula(engine.operand_formula(r["b"]), ctx)[-1]
+                if va and vb is not None:
+                    extra = f" {pct_text((va - vb) / va * 100, 1)}"
+            except (engine.FormulaError, TypeError, ZeroDivisionError, IndexError):
+                pass
+        tags.append(label + extra)
+    return tags
+
+
 # === 回测：后台策略过去 6 个月每一次信号之后的表现 ===
-# 用的就是每次运行本来就下载的那 6 个月日线 (不多发请求)，每一天都用"跟 check_strategy 一模一样"的条件判断：
-#   第 i 天收盘时 EMA20 多头 + SAR 多头 + T3 形态突破 → 信号；隔天 (i+1) 开盘价计入；
-#   之后哪天收盘跌到 SAR 以下 (SAR 转空) 就在那天收盘结算，最多拿 BT_MAX_HOLD 个交易日；
-#   同一支股票一笔还没结算时出现的新信号不重复算。收益扣掉来回交易成本 (MKT["round_trip_cost_pct"])。
-# 另外按固定天数 (5 / 10 / 20 天) 看信号之后的涨跌，跟"同期任意一天买进"的平均做对比 (看信号有没有比随便买好)。
+# 用每次运行本来就下载的 6 个月日线 (不多发请求)，价格跟 table.json 一样先取到 3 位小数 → 跟网页「回测」同一份数据、同一套算法
+# (report.js runBacktest，改的话两边一起改)：
+#   第 i 天收盘时条件成立 → 信号；隔天 (i+1) 开盘价计入；之后每天收盘检查离场规则 (strategy.json 的 exit)，
+#   哪一个先发生就按那天收盘价结算；同一支股票一笔还没结算时的新信号不重复算。收益扣来回交易成本。
+# 另外按固定天数 (5 / 10 / 20 天) 看信号之后的涨跌，跟"同期任意一天买进"的平均比 (看信号有没有比随便买好)。
+# 统计按月份分：上一个完整月份 = 基准，本月到今天另外算 (例如 10/15 看：9/1~9/30 + 10/1~10/15)。
 # ⚠️ 只统计今天进报告的股票 (成交量达标)，有幸存者偏差；历史统计不代表未来。
-BT_MAX_HOLD = 20
 BT_HORIZONS = (5, 10, 20)
+BT_START = 25             # 前 25 根K线当暖身 (指标还没算出来)，从第 26 根开始找信号
 BT_RECENT_BARS = 20       # "最近信号"列出最近 20 个交易日里出现过的信号
-BT_COST_PCT = MKT["round_trip_cost_pct"]
+BT_RECENT_SHOW = 10       # 先显示 10 条，其余按「显示全部」(CSS .bt-recent:not(.all) 藏起来)
+BT_DIST_EDGES = (-10, -5, 0, 5, 10)  # 收益分布: < -10%、-10~-5、-5~0、0~5、5~10、> 10%
+EXIT_REASON_LABELS = {
+    "stop": "止损 Stop Loss", "swing": "跌破波段低点 Swing-Low Break", "sar": "SAR 转空 SAR Flip",
+    "ema": "EMA 死叉 EMA Cross-down", "take": "止盈 Take Profit", "time": "满期 Time Stop", "open": "持有中 Open",
+}
 
 
-def t3_flags(df):
-    """detect_t3_pattern 的逐日版本：第 i 天 (看到第 i 天为止的数据) 是不是 T3 形态突破。条件跟 detect_t3_pattern 完全一样。"""
-    n = len(df)
-    flags = [False] * n
-    if n < 26:
-        return flags
-    vol_avg20 = df["Volume"].rolling(20).mean().shift(1).tolist()
-    high, close, vol = df["High"].tolist(), df["Close"].tolist(), df["Volume"].tolist()
-    for i in range(25, n):
-        for offset in range(2, 6):
-            t1 = i - offset
-            if t1 < 20:
-                continue
-            avg = vol_avg20[t1]
-            if avg != avg or vol[t1] <= avg:  # NaN 或没放量
-                continue
-            h1 = high[t1]
-            if any(h >= h1 for h in high[t1 + 1:i]):
-                continue
-            if close[i] > h1:
-                flags[i] = True
-                break
-    return flags
+def df_to_bars(df):
+    """跟 compact_bars 一样的取法 (去掉空行、价格取到 3 位小数)，网页 table.json 解出来的就是这一份"""
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    bars = [{"open": round(float(o) * 1000) / 1000, "high": round(float(h) * 1000) / 1000,
+             "low": round(float(lo) * 1000) / 1000, "close": round(float(c) * 1000) / 1000,
+             "volume": int(v) if pd.notna(v) else 0}
+            for o, h, lo, c, v in zip(df["Open"], df["High"], df["Low"], df["Close"], df["Volume"])]
+    return bars, [d.strftime("%Y-%m-%d") for d in df.index]
 
 
-def backtest_stock(df):
-    """一支股票的逐日信号 + 模拟交易。df 已经算好 EMA_20 / PSAR。返回 {"trades": [...], "base": {天数: [收益总和, 次数, 上涨次数]}}"""
-    n = len(df)
-    out = {"trades": [], "base": {h: [0.0, 0, 0] for h in BT_HORIZONS}}
-    if n < 27 or "EMA_20" not in df.columns or "PSAR" not in df.columns:
+def pivot_lows(low, k):
+    """波段低点: 比左边 k 根都低、不高于右边 k 根的那一根 (要等右边 k 根走完才确认)"""
+    n = len(low)
+    out = [False] * n
+    for p in range(k, n - k):
+        if all(low[p] < low[q] for q in range(p - k, p)) and all(low[p] <= low[q] for q in range(p + 1, p + k + 1)):
+            out[p] = True
+    return out
+
+
+def exit_series(bars, ex, ctx):
+    """回测要用的序列 (SAR、两条 EMA、波段低点)"""
+    c = [b["close"] for b in bars]
+    return {
+        "sar": engine.series_psar(ctx.series["high"], ctx.series["low"], ctx.series["close"]),
+        "ema_f": engine.series_ema(c, ex["ema_cross"][0]) if ex["ema_cross"] else None,
+        "ema_s": engine.series_ema(c, ex["ema_cross"][1]) if ex["ema_cross"] else None,
+        "piv": pivot_lows([b["low"] for b in bars], ex["swing_low"]) if ex["swing_low"] else None,
+    }
+
+
+def latest_pivot(piv, k, upto):
+    """到第 upto 根为止已经确认 (p + k <= upto) 的最近一个波段低点位置，没有返回 None"""
+    for p in range(min(upto - k, len(piv) - 1), -1, -1):
+        if piv[p]:
+            return p
+    return None
+
+
+def _r(v, d=2):
+    """四舍五入跟网页 (JS toFixed) 一样：按二进制的精确值，正好一半往绝对值大的那边 (Python round 是银行家舍入，会差 0.1)；-0 变 0"""
+    return None if v is None else engine.js_round(v, d) + 0.0
+
+
+def backtest_stock(bars, dates, entry, ex, cost, series):
+    """一支股票的模拟交易 + 同期基准。返回 {"trades": [...], "base": {天数: [收益总和, 次数, 上涨次数]}}"""
+    n = len(bars)
+    out = {"trades": [], "base": {h: [0.0, 0, 0] for h in BT_HORIZONS}, "from": dates[BT_START] if n > BT_START else None}
+    if n < BT_START + 2:
         return out
-    dates = [d.strftime("%Y-%m-%d") for d in df.index]
-    out["from"] = dates[25]
-    o, h, l, c = df["Open"].tolist(), df["High"].tolist(), df["Low"].tolist(), df["Close"].tolist()
-    ema, sar = df["EMA_20"].tolist(), df["PSAR"].tolist()
-    t3 = t3_flags(df)
+    o = [b["open"] for b in bars]
+    h = [b["high"] for b in bars]
+    lo = [b["low"] for b in bars]
+    c = [b["close"] for b in bars]
+    sar, ema_f, ema_s, piv = series["sar"], series["ema_f"], series["ema_s"], series["piv"]
+    k = ex["swing_low"]
 
-    def ok(x):
-        return x is not None and x == x
+    def bull(i):
+        return sar[i] is not None and engine.js_round(c[i], 3) > engine.js_round(sar[i], 3)
 
-    def bull(i):  # 跟 get_stock_data / check_strategy 一样先四舍五入到 3 位再比
-        return ok(sar[i]) and round(float(c[i]), 3) > round(float(sar[i]), 3)
-
-    def signal(i):
-        return ok(ema[i]) and round(float(c[i]), 3) > round(float(ema[i]), 3) and bull(i) and t3[i]
-
-    # 同期基准: 第 25 天之后任意一天收盘"买进" (隔天开盘价计入)，持有 N 天的涨跌
-    for i in range(25, n - 1):
-        entry = o[i + 1]
-        if not ok(entry) or entry <= 0:
+    for i in range(BT_START, n - 1):
+        entry_px = o[i + 1]
+        if not entry_px or entry_px <= 0:
             continue
         for hz in BT_HORIZONS:
             j = i + hz
-            if j < n and ok(c[j]):
-                r = (c[j] / entry - 1) * 100
+            if j < n:
+                r = (c[j] / entry_px - 1) * 100
                 b = out["base"][hz]
                 b[0] += r
                 b[1] += 1
                 b[2] += r > 0
 
-    i = 25
+    i = BT_START
     while i < n - 1:  # 最后一天的信号 = 今天的信号，还没有"隔天开盘"，不算进回测
-        if not signal(i):
+        if not entry[i] or not o[i + 1] or o[i + 1] <= 0:
             i += 1
             continue
         e = i + 1
-        entry = o[e]
-        if not ok(entry) or entry <= 0:
-            i += 1
-            continue
-        hi, lo = h[e], l[e]
-        j = e
-        reason = "open"
+        entry_px = o[e]
+        swing_p = latest_pivot(piv, k, i) if piv else None
+        swing = lo[swing_p] if swing_p is not None else None
+        stops = [x for x in (swing if ex["swing_low"] else None,
+                             sar[i] if ex["sar"] and sar[i] is not None else None,
+                             entry_px * (1 - ex["stop_pct"] / 100) if ex["stop_pct"] else None) if x is not None and x < entry_px]
+        risk = (entry_px - max(stops)) / entry_px * 100 if stops else None
+        hi, low_ = h[e], lo[e]
+        j, reason = e, "open"
         while True:
-            hi, lo = max(hi, h[j]), min(lo, l[j])
-            if not bull(j):
+            hi, low_ = max(hi, h[j]), min(low_, lo[j])
+            if piv and j - 1 - k > (swing_p if swing_p is not None else -1) and j - 1 - k >= 0 and piv[j - 1 - k]:
+                swing_p = j - 1 - k
+                swing = lo[swing_p] if swing is None else max(swing, lo[swing_p])  # 只往上移 (跟踪止损)
+            if ex["stop_pct"] and c[j] <= entry_px * (1 - ex["stop_pct"] / 100):
+                reason = "stop"
+            elif ex["swing_low"] and swing is not None and c[j] < swing:
+                reason = "swing"
+            elif ex["sar"] and bull(j - 1) and not bull(j):
                 reason = "sar"
-                break
-            if j - e + 1 >= BT_MAX_HOLD:
+            elif (ex["ema_cross"] and j >= 1 and None not in (ema_f[j], ema_s[j], ema_f[j - 1], ema_s[j - 1])
+                  and ema_f[j] < ema_s[j] and ema_f[j - 1] >= ema_s[j - 1]):
+                reason = "ema"
+            elif ex["take_pct"] and c[j] >= entry_px * (1 + ex["take_pct"] / 100):
+                reason = "take"
+            elif ex["max_hold"] and j - e + 1 >= ex["max_hold"]:
                 reason = "time"
-                break
-            if j == n - 1:
+            if reason != "open" or j == n - 1:
                 break
             j += 1
-        ret = (c[j] / entry - 1) * 100
         horizons = {}
         for hz in BT_HORIZONS:
-            k = e + hz - 1
-            horizons[hz] = round((c[k] / entry - 1) * 100, 2) if k < n and ok(c[k]) else None
-        risk = (entry - sar[i]) / entry * 100 if ok(sar[i]) else None
+            q = e + hz - 1
+            horizons[hz] = _r((c[q] / entry_px - 1) * 100) if q < n else None
+        ret = (c[j] / entry_px - 1) * 100
         out["trades"].append({
-            "sig": dates[i], "sig_ago": n - 1 - i, "entry": round(float(entry), 4), "exit": round(float(c[j]), 4),
-            "exit_date": dates[j], "days": j - e + 1, "reason": reason, "ret": round(ret, 2),
-            "mfe": round((hi / entry - 1) * 100, 2), "mae": round((lo / entry - 1) * 100, 2),
-            "risk": round(risk, 2) if risk is not None and risk > 0 else None, "h": horizons,
+            "sig": dates[i], "sig_ago": n - 1 - i, "entry": entry_px, "exit": c[j], "exit_date": dates[j],
+            "days": j - e + 1, "reason": reason, "ret": _r(ret), "net": _r(ret - cost),
+            "mfe": _r((hi / entry_px - 1) * 100), "mae": _r((low_ / entry_px - 1) * 100),
+            "risk": _r(risk) if risk else None, "h": horizons,
         })
         i = j + 1
     return out
@@ -366,14 +538,66 @@ def _median(xs):
     return xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2
 
 
-BT_DIST_EDGES = (-10, -5, 0, 5, 10)  # 收益分布: < -10%、-10~-5、-5~0、0~5、5~10、> 10%
+def trade_stats(trades):
+    """一组交易的统计 (网页 tradeStats 同一套)：已结算的算胜率等，持有中的另外给浮动平均"""
+    closed = [t for t in trades if t["reason"] != "open"]
+    opened = [t for t in trades if t["reason"] == "open"]
+    nets = [t["net"] for t in closed]
+    wins = [x for x in nets if x > 0]
+    losses = [x for x in nets if x <= 0]
+    streak = max_streak = 0
+    equity = peak = mdd = 0.0
+    for t in sorted(closed, key=lambda t: (t["exit_date"], t["sig"], t.get("code", ""))):  # 同一天结算的按代码排 (网页同一个顺序)
+        streak = streak + 1 if t["net"] <= 0 else 0
+        max_streak = max(max_streak, streak)
+        equity += t["net"]
+        peak = max(peak, equity)
+        mdd = min(mdd, equity - peak)
+    mean = sum(nets) / len(nets) if nets else None
+    sd = (sum((x - mean) ** 2 for x in nets) / (len(nets) - 1)) ** 0.5 if len(nets) > 1 else None
+    risks = [t["risk"] for t in closed if t["risk"]]
+    rs = [t["net"] / t["risk"] for t in closed if t["risk"]]
+    exits = {}
+    for t in closed:
+        exits[t["reason"]] = exits.get(t["reason"], 0) + 1
+    return {
+        "n": len(trades), "closed": len(closed), "open": len(opened),
+        "open_avg": _r(sum(t["ret"] for t in opened) / len(opened)) if opened else None,
+        "win_rate": _r(len(wins) / len(nets) * 100, 1) if nets else None,
+        "avg": _r(mean), "median": _r(_median(nets)),
+        "avg_win": _r(sum(wins) / len(wins)) if wins else None,
+        "avg_loss": _r(sum(losses) / len(losses)) if losses else None,
+        "payoff": _r((sum(wins) / len(wins)) / abs(sum(losses) / len(losses))) if wins and losses and sum(losses) else None,
+        "pf": _r(sum(wins) / abs(sum(losses))) if wins and losses and sum(losses) else None,
+        "avg_days": _r(sum(t["days"] for t in closed) / len(closed), 1) if closed else None,
+        "best": _r(max(nets)) if nets else None, "worst": _r(min(nets)) if nets else None,
+        "max_streak": max_streak, "mdd": _r(mdd) if nets else None,
+        "sqn": _r(math.sqrt(min(len(nets), 100)) * mean / sd) if sd else None,
+        "mfe_median": _r(_median([t["mfe"] for t in closed])) if closed else None,
+        "mae_median": _r(_median([t["mae"] for t in closed])) if closed else None,
+        "risk_median": _r(_median(risks)) if risks else None,
+        "avg_r": _r(sum(rs) / len(rs)) if rs else None,
+        "exits": exits,
+    }
+
+
+def month_windows(last_day):
+    """上一个完整月份 + 本月到今天 + 两段合计 (例如 10/15 → 9/1~9/30、10/1~10/15、9/1~10/15)"""
+    y, m, _ = (int(x) for x in last_day.split("-"))
+    py, pm = (y, m - 1) if m > 1 else (y - 1, 12)
+    prev_start = f"{py:04d}-{pm:02d}-01"
+    prev_end = f"{py:04d}-{pm:02d}-{calendar.monthrange(py, pm)[1]:02d}"
+    cur_start = f"{y:04d}-{m:02d}-01"
+    # "9 月" 中间是不换行空格：手机上表头挤的时候整个 "9 月" 一起换到下一行
+    return [("prev", f"上个月 {pm}\u00a0月", prev_start, prev_end), ("cur", f"本月至今 {m}\u00a0月", cur_start, last_day),
+            ("both", "合计", prev_start, last_day)]
 
 
 def summarize_backtest(stocks):
-    """把每支股票的回测合起来 → 页面上"策略回测"区块要的数字。没有任何一笔 (例如新市场第一次跑) 返回 None"""
-    closed, opened, recent = [], [], []
-    base = {h: [0.0, 0, 0] for h in BT_HORIZONS}
-    first_day, last_day, n_stocks = None, None, 0
+    """每支股票的回测合起来 → 页面上"策略回测"区块要的数字。没有任何数据返回 None"""
+    trades, base = [], {h: [0.0, 0, 0] for h in BT_HORIZONS}
+    first_day = last_day = None
+    n_stocks = 0
     for st in stocks:
         data = st.get("data")
         bt = data and data.get("backtest")
@@ -386,65 +610,36 @@ def summarize_backtest(stocks):
             base[hz][0] += tot
             base[hz][1] += cnt
             base[hz][2] += win
-        for tr in bt["trades"]:
-            tr = dict(tr, code=st["symbol"].split(".")[0], name=st["name"])
-            (opened if tr["reason"] == "open" else closed).append(tr)
-            if tr["sig_ago"] <= BT_RECENT_BARS:
-                recent.append(tr)
-        candles = data.get("candles") or []
-        if candles:
-            last_day = max(last_day or candles[-1]["time"], candles[-1]["time"])
-    trades = closed + opened
-    if not trades and not any(b[1] for b in base.values()):
+        for t in bt["trades"]:
+            trades.append(dict(t, code=st["symbol"].split(".")[0], name=st["name"]))
+        if data.get("last_date"):
+            last_day = max(last_day or data["last_date"], data["last_date"])
+    if not n_stocks or not last_day:
         return None
-    cost = BT_COST_PCT
-    nets = [t["ret"] - cost for t in closed]
-    wins = [x for x in nets if x > 0]
-    losses = [x for x in nets if x <= 0]
-    max_streak = streak = 0
-    for t in sorted(closed, key=lambda t: t["exit_date"]):
-        streak = streak + 1 if t["ret"] - cost <= 0 else 0
-        max_streak = max(max_streak, streak)
-    dist = [0] * (len(BT_DIST_EDGES) + 1)
-    for x in nets:
-        dist[sum(1 for edge in BT_DIST_EDGES if x >= edge)] += 1
     horizons = []
     for hz in BT_HORIZONS:
         rs = [t["h"][hz] for t in trades if t["h"].get(hz) is not None]
         tot, cnt, win = base[hz]
         horizons.append({
-            "h": hz, "n": len(rs),
-            "avg": round(sum(rs) / len(rs), 2) if rs else None,
-            "median": round(_median(rs), 2) if rs else None,
-            "win": round(sum(1 for r in rs if r > 0) / len(rs) * 100, 1) if rs else None,
-            "base_avg": round(tot / cnt, 2) if cnt else None,
-            "base_win": round(win / cnt * 100, 1) if cnt else None,
-            "base_n": cnt,
+            "h": hz, "n": len(rs), "avg": _r(sum(rs) / len(rs)) if rs else None, "median": _r(_median(rs)) if rs else None,
+            "win": _r(sum(1 for r in rs if r > 0) / len(rs) * 100, 1) if rs else None,
+            "base_avg": _r(tot / cnt) if cnt else None, "base_win": _r(win / cnt * 100, 1) if cnt else None,
         })
-    risks = [t["risk"] for t in closed if t["risk"]]
-    r_multiples = [(t["ret"] - cost) / t["risk"] for t in closed if t["risk"]]
+    dist = [0] * (len(BT_DIST_EDGES) + 1)
+    for t in trades:
+        if t["reason"] != "open":
+            dist[sum(1 for edge in BT_DIST_EDGES if t["net"] >= edge)] += 1
+    windows = [dict(key=key, label=label, start=a, end=b, **trade_stats([t for t in trades if a <= t["sig"] <= b]))
+               for key, label, a, b in month_windows(last_day)]
+    months = {}
+    for t in trades:
+        months.setdefault(t["sig"][:7], []).append(t)
+    monthly = [dict(month=mth, **trade_stats(ts)) for mth, ts in sorted(months.items())]
     return {
-        "stocks": n_stocks, "trades": len(trades), "closed": len(closed), "open": len(opened),
-        "from": first_day, "to": last_day, "cost": cost, "max_hold": BT_MAX_HOLD,
-        "win_rate": round(len(wins) / len(nets) * 100, 1) if nets else None,
-        "avg": round(sum(nets) / len(nets), 2) if nets else None,
-        "median": round(_median(nets), 2) if nets else None,
-        "avg_win": round(sum(wins) / len(wins), 2) if wins else None,
-        "avg_loss": round(sum(losses) / len(losses), 2) if losses else None,
-        "payoff": round((sum(wins) / len(wins)) / abs(sum(losses) / len(losses)), 2) if wins and losses and sum(losses) else None,
-        "pf": round(sum(wins) / abs(sum(losses)), 2) if wins and losses and sum(losses) else None,
-        "avg_days": round(sum(t["days"] for t in closed) / len(closed), 1) if closed else None,
-        "best": round(max(nets), 2) if nets else None,
-        "worst": round(min(nets), 2) if nets else None,
-        "max_streak": max_streak,
-        "exit_sar": sum(1 for t in closed if t["reason"] == "sar"),
-        "exit_time": sum(1 for t in closed if t["reason"] == "time"),
-        "mfe_median": round(_median([t["mfe"] for t in closed]), 2) if closed else None,
-        "mae_median": round(_median([t["mae"] for t in closed]), 2) if closed else None,
-        "risk_median": round(_median(risks), 2) if risks else None,
-        "avg_r": round(sum(r_multiples) / len(r_multiples), 2) if r_multiples else None,
-        "dist": dist, "horizons": horizons,
-        "recent": sorted(recent, key=lambda t: (t["sig_ago"], -t["ret"]))[:40],
+        "stocks": n_stocks, "from": first_day, "to": last_day, "cost": STRATEGY["cost"],
+        "name": STRATEGY["name"], "rules": STRATEGY_LABELS, "match": STRATEGY["match"], "exit": STRATEGY["exit"],
+        "all": trade_stats(trades), "windows": windows, "monthly": monthly, "horizons": horizons, "dist": dist,
+        "recent": sorted((t for t in trades if t["sig_ago"] <= BT_RECENT_BARS), key=lambda t: (t["sig_ago"], -t["ret"]))[:40],
     }
 
 
@@ -530,7 +725,7 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             vol_avg20 = df["Volume"].iloc[-21:-1].mean()
             last_volume = int(df["Volume"].iloc[-1])
             rel_volume = round(last_volume / vol_avg20, 2) if vol_avg20 and pd.notna(vol_avg20) else None
-            # 成交额 = 价格 × 股数 (马股仙股动辄几亿股，按股数排会误导，表格默认按成交额排)；前 20 天平均成交额 (不含今天)
+            # 成交额 = 价格 × 股数 (表格只显示成交量；成交额放在点开的图表 + 今日市场)；前 20 天平均成交额 (不含今天)
             turnover = (df["Close"] * df["Volume"])
             turnover_avg20 = turnover.iloc[-21:-1].mean() if history_days > 1 else None
             atr_col = next((col for col in df.columns if col.startswith("ATRr_") or col.startswith("ATR_")), None)
@@ -539,6 +734,27 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             listed_days = None
             if history_days < CHART_HISTORY_DAYS:
                 listed_days = (datetime.now(LOCAL_TZ).date() - df.index[0].date()).days + 1
+
+            # 后台策略 (strategy.json)：用跟网页 table.json 同一份取到 3 位小数的日线、同一套公式引擎，
+            # 逐日算条件成不成立 → 最后一天 = 今天有没有信号；整条 = 回测
+            bars, bar_dates = df_to_bars(df)
+            ctx = engine.Ctx(bars)
+            entry = engine.rules_truth(bars, STRATEGY_COMPILED, STRATEGY["match"], ctx)
+            ex = STRATEGY["exit"]
+            series = exit_series(bars, ex, ctx)
+            # 离场线 (风险参考)：现价下方最近的一条 —— SAR、最近的波段低点、固定止损 % (strategy.json 开了哪几条就看哪几条)
+            last_close = bars[-1]["close"] if bars else None
+            stop_refs = []
+            if last_close:
+                if ex["sar"] and series["sar"] and series["sar"][-1] is not None and series["sar"][-1] < last_close:
+                    stop_refs.append((series["sar"][-1], "SAR"))
+                if ex["swing_low"] and series["piv"]:
+                    p = latest_pivot(series["piv"], ex["swing_low"], len(bars) - 1)
+                    if p is not None and bars[p]["low"] < last_close:
+                        stop_refs.append((bars[p]["low"], "波段低点"))
+                if ex["stop_pct"]:
+                    stop_refs.append((last_close * (1 - ex["stop_pct"] / 100), f"止损 {ex['stop_pct']:g}%"))
+            stop_ref = max(stop_refs) if stop_refs else None
 
             return {
                 "symbol": symbol,
@@ -560,7 +776,11 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 "turnover_avg20": round(float(turnover_avg20), 2) if turnover_avg20 is not None and pd.notna(turnover_avg20) else None,
                 "atr_pct": round(atr / close * 100, 2) if atr and close else None,
                 "sar": psar_now,
-                "backtest": backtest_stock(df),
+                "strategy_hit": bool(entry[-1]) if entry else False,
+                "rule_tags": rule_tags(ctx) if entry and entry[-1] else None,
+                "stop_ref": (round(stop_ref[0], 4), stop_ref[1]) if stop_ref else None,
+                "last_date": bar_dates[-1] if bar_dates else None,
+                "backtest": backtest_stock(bars, bar_dates, entry, ex, STRATEGY["cost"], series),
                 "daily_bars": compact_bars(df, intraday=False),  # 点开看完整图表 + 网页上的选股条件用 (只有表格股票会写进 table.json)
                 "candles": candles,
                 "ema20": ema20,
@@ -1335,7 +1555,7 @@ def tick_badge(price):
 
 
 def fmt_compact(v):
-    """成交额这类大数字: 最多 3 位有效数字 (81.1M、425M、5.72M)，手机上一格放得下"""
+    """成交额 / 成交量这类大数字: 最多 3 位有效数字 (81.1M、425M、5.72M)，手机上一格放得下"""
     if v is None:
         return "—"
     for div, suffix in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")):
@@ -1343,6 +1563,32 @@ def fmt_compact(v):
             x = v / div
             return (f"{x:.0f}" if x >= 100 else f"{x:.1f}" if x >= 10 else f"{x:.2f}") + suffix
     return f"{v:.0f}"
+
+
+def name_pair(code, name):
+    """(主名称, 副标)。马股名称短，主名称 = 名称、副标 = 代号；美股公司全名很长 (Micron Technology, Inc.)，
+    手机上会把代号挤掉 → 主名称 = 代号 (MU)、副标 = 公司名"""
+    return (code, name) if MARKET_ID == "US" else (name, code)
+
+
+def display_name(code, name):
+    return name_pair(code, name)[0]
+
+
+def info_btn(gloss, label, tip=""):
+    """标题旁边的 ⓘ：点一下弹出说明气泡 (report.js)。gloss = 名词解释里那一条，tip = 这里专用的说明 (可以带当天的数字，\n 分段)"""
+    tip_attr = f' data-tip="{html.escape(tip)}"' if tip else ""
+    return f'<button type="button" class="info-btn" data-gloss="{gloss}"{tip_attr} aria-label="{html.escape(label)}说明" aria-expanded="false">ⓘ</button>'
+
+
+def tip_attrs(gloss="", tip="", cls=""):
+    """名称 / 数字格子点一下弹出说明 (虚线底)：加在元素上的属性 (cls = 元素本来的 class)"""
+    out = f' class="{cls + " " if cls else ""}has-tip" tabindex="0" role="button" aria-expanded="false"'
+    if gloss:
+        out += f' data-gloss="{gloss}"'
+    if tip:
+        out += f' data-tip="{html.escape(tip)}"'
+    return out
 
 
 def pct_text(v, digits=1, plus=True):
@@ -1358,41 +1604,17 @@ def fmt_num(v, pattern, missing="—"):
     return pattern.format(v)
 
 
-def fmt_volume(v):
-    if v >= 1e9:
-        return f"{v / 1e9:.2f}B"
-    if v >= 1e6:
-        return f"{v / 1e6:.2f}M"
-    if v >= 1e3:
-        return f"{v / 1e3:.1f}K"
-    return str(v)
 
 # === 4. 筛选策略 ===
-# 四个条件同时满足才算命中 (成交量门槛已经在 main() 里提前筛掉，这里不用重复判断):
-#   - EMA20 < 现价 (价格站上 EMA20)
-#   - SAR < 现价 (SAR 在价格下方，多头状态)
-#   - T3 形态 (放量创高后回调，今天再次突破)
-# ⚠️ 改这里的条件时，docs/report.js 里内置策略「后台默认策略」(s-backend) 的三条规则也要一起改，
-#    否则网页上套用"后台默认策略"筛出来的股票会跟后台信号对不上
-BACKEND_STRATEGY_PARTS = ["EMA20多头", "SAR多头", "T3形态突破"]
+# 条件写在 strategy.json (见上面"后台策略")，get_stock_data 已经用 engine.py 算好今天成不成立 (data["strategy_hit"])。
+# 网页内置策略「后台策略」也是读同一份 (main.py 放在页面 report-meta 里)，所以网页套用后结果跟后台信号一致。
 
 
 def check_strategy(data):
-    """
-    在这里修改你的筛选条件
-    返回: (是否符合, 原因)
-    """
-    # 新股天数不够时 EMA20 / SAR 是 None，直接不算命中 (照样会进表格)
-    if data['ema20_latest'] is None or not (data['close'] > data['ema20_latest']):
+    """返回: (是否符合, 原因)。新股天数不够、指标算不出来的条件当成不成立 (照样会进表格)"""
+    if not data.get("strategy_hit"):
         return False, None
-
-    if not data['sar_bullish_now']:
-        return False, None
-
-    if not data['t3_pattern']:
-        return False, None
-
-    return True, "🎯 " + " + ".join(BACKEND_STRATEGY_PARTS)
+    return True, "🎯 " + " + ".join(STRATEGY_LABELS)
 
 # === 5. 呼叫 DeepSeek 进行分析 ===
 # system prompt 独立成常量、内容完全固定 (不拼时间戳/随机数)，且不含任何逐股票才知道的数据；
@@ -1511,7 +1733,7 @@ UI_CSS = """
   .dlg-body { padding: 0 1rem 1rem; overflow: auto; flex: 1; min-height: 0; }
   .dlg-foot { display: flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border-top: 1px solid var(--border); }
   .dlg-foot .grow { flex: 1; }
-  .dlg button:not(.dlg-x):not(.ind-row-main):not(.ind-nav-item):not(.ind-star):not([role="tab"]):not(.rl-btn),
+  .dlg button:not(.dlg-x):not(.ind-row-main):not(.ind-nav-item):not(.ind-star):not([role="tab"]):not(.rl-btn):not(.info-btn),
   .dlg select, .dlg input[type="text"], .dlg input[type="number"], .dlg input[type="search"], .dlg textarea {
     font: inherit; font-size: 0.85rem; color: var(--text-primary);
     background: var(--page); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.65rem;
@@ -1738,7 +1960,7 @@ TABLE_CSS = """
 
   /* 手机: 不再左右滑动整张表，每一行排成两层刚好塞进屏幕宽度
      第一层  #  股票  走势  价格
-     第二层     成交额  相对量  RSI  SAR  EMA20  涨跌%   (成交量藏起来，排序下拉框里还能按成交量排)
+     第二层     成交量  相对量  RSI  SAR  EMA20  涨跌%   (成交额在点开的图表里)
      数字一律短格式 (81.1M)，每一格超出就省略号，不会挤在一起；表头藏起来，改用"排序"下拉框 */
   @media (max-width: 640px) {
     .tf-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; flex-basis: 100%; padding-bottom: 2px;
@@ -1751,14 +1973,14 @@ TABLE_CSS = """
     #watchlist-table thead { display: none; }
     #watchlist-table tbody tr {
       display: grid;
-      /* 各栏按内容宽度分配 (成交额 5 个字、相对量 / RSI 4 个字、SAR 标签、EMA20 最多 6 个字)，iPhone 最窄 375px 也不会被截断 */
+      /* 各栏按内容宽度分配 (成交量 5 个字、相对量 / RSI 4 个字、SAR 标签、EMA20 最多 6 个字)，iPhone 最窄 375px 也不会被截断 */
       grid-template-columns: 1.1rem minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.45fr) minmax(3.5rem, auto);
       grid-template-areas:
         "idx   stock stock  stock spark spark price"
-        ".     turn  relvol rsi   sar   ema   change";
+        ".     vol   relvol rsi   sar   ema   change";
       align-items: center; column-gap: 0.35rem; row-gap: 0.15rem;
       padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border);
-      content-visibility: auto; contain-intrinsic-size: auto 62px; /* 屏幕外的行先不排版 (美股 800 多行时滑起来顺很多) */
+      /* 不能用 content-visibility: auto —— 它自带 style containment，CSS 计数器会被关在每一行里，iPhone 上序号全部变成 0 */
     }
     #watchlist-table td { display: block; padding: 0; border: none; background: none; position: static; min-width: 0; max-width: none; width: auto; }
     #watchlist-table td.idx-cell { grid-area: idx; text-align: left; font-size: 0.72rem; }
@@ -1767,8 +1989,7 @@ TABLE_CSS = """
     #watchlist-table .spark { min-width: 0; height: 24px; }
     #watchlist-table td.col-price { grid-area: price; font-weight: 600; font-size: 0.85rem; }
     #watchlist-table td.col-change { grid-area: change; font-size: 0.8rem; }
-    #watchlist-table td.col-turn { grid-area: turn; }
-    #watchlist-table td.col-vol { display: none; }
+    #watchlist-table td.col-vol { grid-area: vol; }
     #watchlist-table td.col-relvol { grid-area: relvol; }
     #watchlist-table td.col-rsi { grid-area: rsi; }
     #watchlist-table td.col-sar { grid-area: sar; }
@@ -2069,6 +2290,7 @@ MARKET_CSS = """
   .mk-bar .down { background: var(--down); }
   .mk-counts { display: flex; justify-content: space-between; margin-top: 0.45rem; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
   .mk-note { margin: 0.4rem 0 0; font-size: 0.72rem; color: var(--muted); line-height: 1.5; }
+  .mk-breadth .mk-note span { display: block; }
   .mk-movers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; margin-top: 0.7rem; }
   .mk-group { min-width: 0; }
   .mk-group h4 { margin: 0 0 0.35rem; font-size: 0.72rem; font-weight: 500; color: var(--text-secondary); }
@@ -2086,13 +2308,21 @@ MARKET_CSS = """
   .bt-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.6rem; }
   .bt-head h4 { margin: 0; font-size: 0.92rem; }
   .bt-sub { font-size: 0.74rem; color: var(--muted); }
-  .bt-head .info-btn { margin-left: auto; }
   .bt-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; margin: 0.6rem 0 0; }
   .bt-tiles > div, .bt-risk > div { background: var(--page); border-radius: 8px; padding: 0.5rem 0.65rem; min-width: 0; }
   .bt-tiles dt, .bt-risk dt { font-size: 0.7rem; color: var(--text-secondary); }
   .bt-tiles dd { margin: 0.1rem 0 0; font-size: 1.2rem; font-weight: 650; font-variant-numeric: tabular-nums; }
   .bt-tiles small, .bt-risk small { display: block; margin-top: 0.1rem; font-size: 0.66rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bt-vs { margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.6; }
+  /* 10 日平均 / 基准 / 超额: 一排三个小数字 */
+  .bt-vs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; margin: 0.6rem 0 0; padding: 0.5rem 0.7rem;
+    background: var(--page); border-radius: 8px; }
+  .bt-vs span { display: block; font-size: 0.68rem; color: var(--text-secondary); }
+  .bt-vs b { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+  .bt-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .bt-recent:not(.all) tbody tr:nth-child(n+11) { display: none; }
+  .bt-all { margin-top: 0.5rem; }
+  .bt-chip { font-size: 0.74rem; padding: 0.18rem 0.55rem; border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary); }
+  .bt-chip b { color: var(--text-primary); margin-left: 0.15rem; font-variant-numeric: tabular-nums; }
   .bt-more { margin-top: 0.6rem; border-top: 1px solid var(--border); padding-top: 0.55rem; }
   .bt-more summary { cursor: pointer; font-size: 0.82rem; font-weight: 500; color: var(--text-primary); }
   .bt-more h5 { margin: 1rem 0 0.4rem; font-size: 0.82rem; }
@@ -2118,12 +2348,76 @@ MARKET_CSS = """
   .bt-bin.neg .bt-bin-bar { background: var(--down); }
   .bt-bin.pos .bt-bin-bar { background: var(--up); }
   .bt-bin small { color: var(--muted); font-size: 0.62rem; white-space: nowrap; }
-  .bt-method { margin-top: 0.9rem; }
+  .bt-head h4 i, .bt-tiles dt i, .bt-risk dt i, .cbt h4 i { font-style: normal; font-weight: 400; color: var(--muted); font-size: 0.88em; }
+  .bt-custom { padding: 0.28rem 0.65rem; font-size: 0.76rem; margin-left: auto; }
+  .bt-win { margin-top: 0.4rem; }
+  .bt-win thead th b { display: block; color: var(--text-primary); font-weight: 600; font-size: 0.76rem; }
+  .bt-win th small, .bt-win td small { display: block; font-size: 0.66rem; color: var(--muted); font-weight: 400; }
+  .bt-win tbody td { font-size: 0.84rem; font-weight: 600; }
+  .bt-win tbody td small { font-weight: 400; }
+  /* 自定义回测对话框 */
+  .dlg.dlg-cbt { width: min(840px, 100%); }
+  .cbt-sec { border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.75rem 0.7rem; margin: 0 0 0.7rem; }
+  .cbt h4 { margin: 0 0 0.5rem; font-size: 0.86rem; }
+  .cbt h4 small { font-weight: 400; color: var(--muted); font-size: 0.72rem; margin-left: 0.3rem; }
+  .cbt-src { width: 100%; font: inherit; font-size: 0.86rem; padding: 0.45rem 0.55rem; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-primary); }
+  .cbt-rules { margin: 0.55rem 0 0; }
+  .cbt-edit { margin-top: 0.55rem; }
+  .cbt-exits { display: grid; margin-bottom: 0.55rem; }
+  .cbt-x { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.3rem 0.8rem; padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border); font-size: 0.82rem; }
+  .dlg .cbt-x label, .dlg label.cbt-x { display: flex; flex-direction: row; align-items: center; gap: 0.55rem; cursor: pointer;
+    font-size: 0.82rem; color: var(--text-primary); }
+  .dlg label.cbt-x { justify-content: flex-start; }
+  .cbt-x input[type=checkbox] { width: 1.1rem; height: 1.1rem; margin: 0; accent-color: var(--ema); flex: none; }
+  .cbt-x i { font-style: normal; color: var(--muted); font-size: 0.74rem; }
+  .cbt-x small { display: block; color: var(--muted); font-size: 0.7rem; }
+  .cbt-cost > span:first-child { padding-left: 1.65rem; }
+  .cbt-p { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; color: var(--text-secondary); font-size: 0.78rem; }
+  .cbt-num { width: 4.4rem; font: inherit; font-size: 0.86rem; padding: 0.28rem 0.4rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface); color: var(--text-primary); text-align: right; font-variant-numeric: tabular-nums; }
+  .cbt-warn { color: var(--down); font-size: 0.76rem; margin: 0 0 0.5rem; }
+  .cbt-res { transition: opacity 0.15s; }
+  .cbt-res.busy { opacity: 0.5; }
+  .cbt-sum { font-size: 0.84rem; margin: 0 0 0.2rem; }
+  .cbt-sum small { color: var(--muted); font-size: 0.7rem; }
+  .cbt-set { border: 1px solid color-mix(in srgb, var(--ema) 45%, var(--border)); border-radius: 10px; padding: 0.6rem 0.75rem; margin-top: 0.8rem; }
+  .cbt-steps { margin: 0 0 0.55rem; padding-left: 1.2rem; font-size: 0.8rem; line-height: 1.75; }
+  .cbt-steps a.sp-btn { display: inline-block; text-decoration: none; margin: 0.15rem 0; }
+  .cbt-json { margin: 0 0 0.5rem; padding: 0.5rem 0.6rem; max-height: 16rem; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--page); color: var(--text-primary); font: 0.72rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-all; -webkit-user-select: all; user-select: all; }
   .info-btn {
     font: inherit; width: 1.5rem; height: 1.5rem; flex: 0 0 auto; display: inline-grid; place-items: center; padding: 0; cursor: pointer;
     border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); font-size: 0.8rem; line-height: 1;
   }
   .info-btn:hover { color: var(--text-primary); border-color: color-mix(in srgb, var(--text-primary) 30%, transparent); }
+  .info-btn[aria-expanded="true"] { color: var(--surface); background: var(--text-primary); border-color: var(--text-primary); }
+  /* 标题旁边的 ⓘ: 小一号、跟文字同一行 */
+  p .info-btn { width: 1.15rem; height: 1.15rem; font-size: 0.64rem; margin-left: 0.3rem; vertical-align: 0.1em; }
+  h2 .info-btn, h3 .info-btn, h4 .info-btn, h5 .info-btn, .sp-title .info-btn { width: 1.25rem; height: 1.25rem; font-size: 0.7rem; margin-left: 0.35rem; vertical-align: 0.12em; font-weight: 400; }
+  /* 点一下看说明的名称 / 数字格子 (虚线底) */
+  .has-tip { cursor: help; }
+  .has-tip .tl, .quote-grid .has-tip > dt { text-decoration: underline dotted color-mix(in srgb, var(--text-secondary) 60%, transparent); text-underline-offset: 3px; }
+  .has-tip:focus-visible { outline: 2px solid var(--ema); outline-offset: 2px; border-radius: 4px; }
+  /* ⓘ 说明气泡 */
+  .tip-pop {
+    position: fixed; z-index: 65; width: min(320px, calc(100vw - 24px)); box-sizing: border-box; padding: 0.7rem 0.85rem 0.6rem;
+    background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); font-size: 0.8rem; line-height: 1.65;
+  }
+  .tip-body { max-height: calc(100vh - 48px); overflow-y: auto; }
+  .tip-pop::before {
+    content: ""; position: absolute; top: -6px; left: calc(var(--caret, 50%) - 6px); width: 10px; height: 10px; transform: rotate(45deg);
+    background: var(--surface); border-left: 1px solid var(--border); border-top: 1px solid var(--border);
+  }
+  .tip-pop.above::before { top: auto; bottom: -6px; transform: rotate(225deg); }
+  .tip-pop.no-caret::before { display: none; }
+  .tip-pop b { display: block; font-size: 0.84rem; margin-bottom: 0.15rem; }
+  .tip-pop p { margin: 0 0 0.35rem; color: var(--text-secondary); }
+  .tip-pop .tip-extra { color: var(--text-primary); }
+  .tip-more { font: inherit; font-size: 0.74rem; padding: 0; border: 0; background: none; color: var(--ema); cursor: pointer; }
 
   /* ---- 公司公告栏 ---- */
   .ann-filter { display: flex; gap: 0.35rem; overflow-x: auto; scrollbar-width: none; padding: 0 0 0.15rem; margin: 0 0 0.55rem; }
@@ -2178,6 +2472,17 @@ MARKET_CSS = """
     .bt-recent td:last-child { white-space: normal; }
     .bt-recent td:last-child small { display: block; }
     .bt-risk dd { font-size: 0.88rem; }
+    /* 三栏 (上个月 / 本月至今 / 合计) 要在 375px 宽的手机上排得下：字小一点、小字可以换行 */
+    .bt-win th, .bt-win td { white-space: normal; padding-left: 0.2rem; padding-right: 0.2rem; }
+    .bt-win thead th b { font-size: 0.7rem; }
+    .bt-win tbody td { font-size: 0.76rem; }
+    .bt-win tbody th { font-size: 0.72rem; width: 26%; }
+    .bt-win td small, .bt-win th small { font-size: 0.6rem; line-height: 1.3; }
+    /* iPhone 输入框字号小于 16px 一点就会自动放大整页 */
+    .dlg .cbt-src, .dlg .cbt-num { font-size: 16px; }
+    .cbt-num { width: 4.6rem; }
+    .cbt-x .cbt-p { padding-left: 1.65rem; }
+    .cbt-cost .cbt-p { padding-left: 0; }
   }
 """
 
@@ -2291,6 +2596,7 @@ TOOLS_CSS = """
   .calc-out .calc-use { margin: 0.5rem 0 0.4rem; }
   .calc-fees { margin-top: 0.8rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
   .calc-fees summary { cursor: pointer; font-size: 0.82rem; font-weight: 500; margin-bottom: 0.6rem; }
+  .calc-fee-foot { display: flex; align-items: center; gap: 0.5rem; margin: 0.6rem 0 0; }
 
   /* ---- 名词解释 ---- */
   .dlg.dlg-gloss { width: min(620px, 100%); }
@@ -2752,7 +3058,7 @@ def build_dashboard_html(signal_count, stock_count, updated, downloads_html=""):
     因为模板存在浏览器的 localStorage 里，后台不知道；「条件命中」的数字也是 report.js 算完填进 #dash-hits。"""
     markets = []
     for mid, m in MARKETS.items():
-        label = f'<b>{html.escape(m["name"])}</b><small>{html.escape(m["universe"])}</small>'
+        label = f'<b>{html.escape(m["name"])}</b><small>{html.escape(m["universe_short"])}</small>'
         if mid == MARKET_ID:
             markets.append(f'<a class="dash-mkt on" href="./" aria-current="page">{label}</a>')
         elif os.path.exists(os.path.join(m["docs_dir"], "index.html")):
@@ -2772,11 +3078,10 @@ def build_dashboard_html(signal_count, stock_count, updated, downloads_html=""):
     <h2 id="dash-h-ov">概览</h2>
     <dl class="dash-stats">
       <div><dt>后台信号</dt><dd>{signal_count}</dd></div>
-      <div><dt>报告内股票</dt><dd>{stock_count}</dd></div>
+      <div title="{html.escape(MKT["universe"])}，成交量达标的才进报告"><dt>报告内股票</dt><dd>{stock_count}</dd></div>
       <div><dt>条件命中</dt><dd id="dash-hits" title="当前模板的选股条件在报告里命中几支">—</dd></div>
       <div><dt>更新时间</dt><dd class="dash-time">{html.escape(updated)}</dd></div>
     </dl>
-    <p class="dash-note">扫描范围：{html.escape(MKT["universe"])}；成交量达标的股票才会进报告。</p>
     <ul class="dash-links">
       <li><a href="#sec-market">今日市场</a></li>
       <li><a href="#sec-screener">筛选器</a></li>
@@ -2789,8 +3094,8 @@ def build_dashboard_html(signal_count, stock_count, updated, downloads_html=""):
   <section class="dash-sec" aria-labelledby="dash-h-tools">
     <h2 id="dash-h-tools">工具</h2>
     <div class="dash-tools">
-      <button type="button" class="dash-tool" data-dash="calc"><b>股票计算器</b><small>手续费、印花税、保本价、按风险算股数</small></button>
-      <button type="button" class="dash-tool" data-dash="gloss"><b>名词解释</b><small>SAR、T3 形态、相对量、胜率、盈亏比…</small></button>
+      <button type="button" class="dash-tool" data-dash="calc"><b>股票计算器</b></button>
+      <button type="button" class="dash-tool" data-dash="gloss"><b>名词解释</b></button>
     </div>
   </section>
   <section class="dash-sec" aria-labelledby="dash-h-watch">
@@ -2814,13 +3119,13 @@ def market_state(now):
 
 
 def state_badge_html(state, delay):
+    """标题旁的「盘中 / 开市前 / 已收盘」小标签，点一下弹出说明 (报价延迟几分钟也写在说明里)"""
     if state == "live":
-        note = f"，报价约延迟 {delay} 分钟" if delay else ""
-        return (f'<span class="mstate live" title="信号用的是还没收完的日线，收盘前可能变化{note}">'
-                f'盘中 · 未收盘{note}</span>')
+        tip = "信号用的是还没收完的日线，收盘前可能变化" + (f"；报价约延迟 {delay} 分钟" if delay else "")
+        return f'<span{tip_attrs("state", tip, "mstate live")}>盘中</span>'
     if state == "pre":
-        return '<span class="mstate" title="今天还没开市，数字是上一个交易日的">开市前 · 上一交易日数据</span>'
-    return '<span class="mstate closed" title="数字是当天收盘后的">已收盘</span>'
+        return f'<span{tip_attrs("state", "今天还没开市，数字是上一个交易日的", "mstate")}>开市前</span>'
+    return f'<span{tip_attrs("state", "", "mstate closed")}>已收盘</span>'
 
 
 def change_pct_of(data):
@@ -2851,16 +3156,17 @@ def build_market_html(market, stocks):
     <div class="mk-bar" role="img" aria-label="上涨 {b['up']} 家，平盘 {b['flat']} 家，下跌 {b['down']} 家">
       <span class="up" style="width:{w(b['up'])}"></span><span class="flat" style="width:{w(b['flat'])}"></span><span class="down" style="width:{w(b['down'])}"></span></div>
     <div class="mk-counts"><span class="change-up">涨 {b['up']}</span><span class="change-neutral">平 {b['flat']}</span><span class="change-down">跌 {b['down']}</span></div>
-    <p class="mk-note">全市场 {b['total']} 支 · 成交额 {CURRENCY_SYMBOL} {fmt_compact(b['turnover'])} · 52 周新高 {b['highs']} / 新低 {b['lows']}</p>
+    <p class="mk-note"><span>成交额 {CURRENCY_SYMBOL} {fmt_compact(b['turnover'])}</span><span>新高 {b['highs']} · 新低 {b['lows']}</span></p>
   </div>""")
     if tiles:
         parts.append(f'<div class="mk-row">{"".join(tiles)}</div>')
 
     listed = [s for s in stocks if s["data"]]
+    tip = [f"全市场 {b['total']} 支：涨 {b['up']} · 平 {b['flat']} · 跌 {b['down']}"] if b else []
     if listed:
         def chip(s, value, cls):
             code = s["symbol"].split(".")[0]
-            return (f'<button type="button" class="mk-chip" data-code="{html.escape(code)}"><b>{html.escape(s["name"])}</b>'
+            return (f'<button type="button" class="mk-chip" data-code="{html.escape(code)}" title="{html.escape(s["name"])}"><b>{html.escape(display_name(code, s["name"]))}</b>'
                     f'<span class="{cls}">{value}</span></button>')
         liquid = [s for s in listed if (s["data"].get("turnover") or 0) >= MOVER_MIN_TURNOVER]
         gainers = sorted((s for s in liquid if change_pct_of(s["data"]) > 0), key=lambda s: -change_pct_of(s["data"]))[:3]
@@ -2876,19 +3182,23 @@ def build_market_html(market, stocks):
         pairs = [(s["data"]["turnover"], s["data"]["turnover_avg20"]) for s in listed if s["data"].get("turnover_avg20")]
         base_sum = sum(b2 for _, b2 in pairs)
         ratio = sum(a for a, _ in pairs) / base_sum if pairs and base_sum else None
-        note = (f'<p class="mk-note">报告里 {len(listed)} 支股票今天的成交额是前 20 天平均的 {ratio:.2f} 倍；'
-                f'涨跌榜只看成交额 ≥ {CURRENCY_SYMBOL} {fmt_compact(MOVER_MIN_TURNOVER)} 的股票</p>') if ratio else ""
+        if ratio:
+            tip.append(f"报告里 {len(listed)} 支股票今天的成交额是前 20 天平均的 {ratio:.2f} 倍")
+        tip.append(f"涨跌榜只看成交额 ≥ {CURRENCY_SYMBOL} {fmt_compact(MOVER_MIN_TURNOVER)} 的股票")
         if groups:
             parts.append('<div class="mk-movers">' + "".join(f'<div class="mk-group"><h4>{t}</h4><div>{c}</div></div>' for t, c in groups)
-                         + "</div>" + note)
+                         + "</div>")
     if not parts:
         return ""
     return (f'<section class="market" id="sec-market" aria-labelledby="sec-market-h">'
-            f'<h2 class="section" id="sec-market-h">今日市场</h2>{"".join(parts)}</section>')
+            f'<h2 class="section" id="sec-market-h">今日市场{info_btn("market", "今日市场", chr(10).join(tip))}</h2>{"".join(parts)}</section>')
 
 
 def build_backtest_html(bt):
-    """"后台信号"下面的策略回测区块 (纯 HTML，不开 JS 也看得到)；最近信号那张表点一行打开完整图表 (report.js)"""
+    """"后台信号"下面的策略回测区块 (纯 HTML，不开 JS 也看得到)。
+    上面：上个月 (基准) / 本月至今 / 合计 三栏 + 10 日平均 vs 基准；「详细数据」展开：全部、月度、固定天数涨跌、风险报酬、分布、最近信号。
+    画面上只放数字和名称 (中文 + 英文)，规则、公式都收在 ⓘ / 名称的虚线里 (点一下弹出)。网页「自定义回测」用 report.js
+    backtestResultHtml 画同一套版面，改的话两边一起改"""
     if not bt:
         return ""
 
@@ -2898,74 +3208,124 @@ def build_backtest_html(bt):
     def num(v, d=2):
         return "—" if v is None else f"{v:.{d}f}"
 
-    def pct_or_dash(v, d=1):
+    def pct(v, d=1):
         return "—" if v is None else f"{v:.{d}f}%"
+
+    def pts(v):
+        # 最大回撤是"每笔同样本金、收益一笔一笔加起来"的回落，单位是百分点 (单笔本金 = 100 点)，写成 % 会被看成亏超过 100%
+        return "—" if v is None else f"{v:.1f} 点"
+
+    def diff(x, y):
+        return None if x is None or y is None else x - y
+
+    def label(zh, gloss):
+        """名称：有名词解释的带虚线，点一下弹出说明"""
+        return f'<span{tip_attrs(gloss)}><span class="tl">{zh}</span></span>' if gloss else zh
+
+    def h5(zh, en, gloss=""):
+        return f'<h5>{label(zh, gloss)} <small>{en}</small></h5>'
+
+    a = bt["all"]
+    # 三个时间窗口 (上个月 / 本月至今 / 合计)
+    rows = [
+        ("信号笔数", "Trades", "", lambda w: f'{w["n"]}' + (f'<small>持有 {w["open"]}</small>' if w["open"] else ""), lambda w: ""),
+        ("胜率", "Win Rate", "winrate", lambda w: pct(w["win_rate"]), lambda w: ""),
+        ("期望值", "Expectancy", "expectancy", lambda w: pct_text(w["avg"], 2), lambda w: cls(w["avg"])),
+        ("盈亏比", "Payoff Ratio", "payoff", lambda w: num(w["payoff"]), lambda w: ""),
+        ("获利因子", "Profit Factor", "pf", lambda w: num(w["pf"]), lambda w: ""),
+        ("最大回撤", "Max Drawdown", "mdd", lambda w: pts(w["mdd"]), lambda w: "change-down" if w["mdd"] else ""),
+        ("持有中浮动", "Open P/L", "openpl", lambda w: pct_text(w["open_avg"], 2) if w["open"] else "—", lambda w: cls(w["open_avg"]) if w["open"] else ""),
+    ]
+    heads = "".join(f'<th class="num"><b>{html.escape(w["label"])}</b><small>{w["start"][5:].replace("-", "/")} ~ {w["end"][5:].replace("-", "/")}</small></th>'
+                    for w in bt["windows"])
+    body = "".join(f'<tr><th scope="row">{label(zh, g)}<small>{en}</small></th>' + "".join(f'<td class="num {c(w)}">{f(w)}</td>' for w in bt["windows"]) + "</tr>"
+                   for zh, en, g, f, c in rows)
+    windows = f'<div class="bt-table-wrap"><table class="bt-table bt-win"><thead><tr><th>指标</th>{heads}</tr></thead><tbody>{body}</tbody></table></div>'
 
     h10 = next((h for h in bt["horizons"] if h["h"] == 10), None)
     vs = ""
     if h10 and h10["avg"] is not None and h10["base_avg"] is not None:
-        vs = (f'<p class="bt-vs">信号出现后 10 个交易日平均 <b class="{cls(h10["avg"])}">{pct_text(h10["avg"], 2)}</b>，'
-              f'同期任意一天买进平均 <b class="{cls(h10["base_avg"])}">{pct_text(h10["base_avg"], 2)}</b> (都没扣成本)</p>')
+        ex = diff(h10["avg"], h10["base_avg"])
+        vs = (f'<div class="bt-vs"{tip_attrs("forward")}>'
+              f'<div><span class="tl">10 日平均</span><b class="{cls(h10["avg"])}">{pct_text(h10["avg"], 2)}</b></div>'
+              f'<div><span>基准 Benchmark</span><b class="{cls(h10["base_avg"])}">{pct_text(h10["base_avg"], 2)}</b></div>'
+              f'<div><span>超额 Excess</span><b class="{cls(ex)}">{pct_text(ex, 2)}</b></div></div>')
+
     tiles = [
-        ("胜率", pct_or_dash(bt["win_rate"]), "", f'已结算 {bt["closed"]} 笔'),
-        ("每笔平均", pct_text(bt["avg"], 2), cls(bt["avg"]), f'中位 {pct_text(bt["median"], 2)}'),
-        ("盈亏比", num(bt["payoff"]), "", f'赚 {pct_text(bt["avg_win"], 1)} / 亏 {pct_text(bt["avg_loss"], 1)}'),
-        ("平均持有", f'{num(bt["avg_days"], 1)} 天' if bt["avg_days"] is not None else "—", "", f'最多 {bt["max_hold"]} 天'),
+        ("胜率", "Win Rate", "winrate", pct(a["win_rate"]), "", f'已结算 {a["closed"]} 笔'),
+        ("期望值", "Expectancy", "expectancy", pct_text(a["avg"], 2), cls(a["avg"]), f'中位 {pct_text(a["median"], 2)}'),
+        ("盈亏比", "Payoff Ratio", "payoff", num(a["payoff"]), "", f'{pct_text(a["avg_win"], 1)} / {pct_text(a["avg_loss"], 1)}'),
+        ("获利因子", "Profit Factor", "pf", num(a["pf"]), "", ""),
+        ("最大回撤", "Max Drawdown", "mdd", pts(a["mdd"]), "change-down" if a["mdd"] else "", ""),
+        ("平均持有", "Avg Holding", "", f'{num(a["avg_days"], 1)} 天' if a["avg_days"] is not None else "—", "", ""),
+        ("系统品质", "SQN", "sqn", num(a["sqn"]), "", ""),
+        ("最多连亏", "Max Losing Streak", "", f'{a["max_streak"]} 笔', "", ""),
     ]
-    tiles_html = "".join(f'<div><dt>{k}</dt><dd class="{c}">{v}</dd><small>{sub}</small></div>' for k, v, c, sub in tiles)
+    tiles_html = "".join(f'<div{tip_attrs(g) if g else ""}><dt><span class="tl">{zh}</span> <i>{en}</i></dt><dd class="{c}">{v}</dd>'
+                         + (f'<small>{sub}</small>' if sub else "") + "</div>" for zh, en, g, v, c, sub in tiles)
     hz_rows = "".join(
-        f'<tr><th scope="row">{h["h"]} 天</th><td class="num {cls(h["avg"])}">{pct_text(h["avg"], 2)}</td>'
-        f'<td class="num">{pct_or_dash(h["win"])}</td>'
+        f'<tr><th scope="row">{h["h"]} 天</th><td class="num {cls(h["avg"])}">{pct_text(h["avg"], 2)}</td><td class="num">{pct(h["win"])}</td>'
         f'<td class="num {cls(h["base_avg"])}">{pct_text(h["base_avg"], 2)}</td>'
-        f'<td class="num">{pct_or_dash(h["base_win"])}</td><td class="num">{h["n"]}</td></tr>'
+        f'<td class="num {cls(diff(h["avg"], h["base_avg"]))}">{pct_text(diff(h["avg"], h["base_avg"]), 2)}</td><td class="num">{h["n"]}</td></tr>'
         for h in bt["horizons"])
+    risk = [
+        ("初始风险", "Initial Risk", "irisk", pct_text(-a["risk_median"], 1) if a["risk_median"] else "—"),
+        ("最大涨幅", "MFE", "mfe", pct_text(a["mfe_median"], 1)),
+        ("最大跌幅", "MAE", "mfe", pct_text(a["mae_median"], 1)),
+        ("平均 R", "Avg R-Multiple", "r", num(a["avg_r"])),
+        ("最好 / 最差", "Best / Worst", "", f'{pct_text(a["best"], 1)} / {pct_text(a["worst"], 1)}'),
+    ]
+    risk_html = "".join(f'<div{tip_attrs(g) if g else ""}><dt><span class="tl">{zh}</span> <i>{en}</i></dt><dd>{v}</dd></div>' for zh, en, g, v in risk)
+    exits = "".join(f'<span class="bt-chip">{EXIT_REASON_LABELS[k].split(" ")[0]} <b>{v}</b></span>'
+                    for k, v in sorted(a["exits"].items(), key=lambda kv: -kv[1])) or '<span class="hint">—</span>'
     labels = ["< -10%", "-10~-5%", "-5~0%", "0~5%", "5~10%", "> 10%"]
     peak = max(bt["dist"]) or 1
     dist = "".join(f'<div class="bt-bin {"neg" if i < 3 else "pos"}"><b>{c}</b><span class="bt-bin-track"><span class="bt-bin-bar" style="height:{c / peak * 100:.0f}%"></span></span>'
                    f'<small>{labels[i]}</small></div>' for i, c in enumerate(bt["dist"]))
-    risk = [
-        ("初始风险", pct_text(-bt["risk_median"], 1) if bt["risk_median"] else "—", "计入价到 SAR，中位数"),
-        ("期间最大涨幅", pct_text(bt["mfe_median"], 1), "中位数"),
-        ("期间最大跌幅", pct_text(bt["mae_median"], 1), "中位数"),
-        ("平均 R 倍数", num(bt["avg_r"]), "每笔收益 ÷ 初始风险"),
-        ("获利因子", num(bt["pf"]), "总赚 ÷ 总亏"),
-        ("最好 / 最差", f'{pct_text(bt["best"], 1)} / {pct_text(bt["worst"], 1)}', "单笔，已扣成本"),
-        ("最多连亏", f'{bt["max_streak"]} 笔', "按结算日期排"),
-        ("结算原因", f'SAR {bt["exit_sar"]} · 满期 {bt["exit_time"]}', f'满期 = 拿满 {bt["max_hold"]} 天'),
-    ]
-    risk_html = "".join(f'<div><dt>{k}</dt><dd>{v}</dd><small>{sub}</small></div>' for k, v, sub in risk)
-    status = {"open": "持有中", "sar": "SAR 结算", "time": "满期结算"}
+    month_rows = "".join(
+        f'<tr><th scope="row">{m["month"]}</th><td class="num">{m["n"]}</td><td class="num">{pct(m["win_rate"])}</td>'
+        f'<td class="num {cls(m["avg"])}">{pct_text(m["avg"], 2)}</td><td class="num">{num(m["pf"])}</td>'
+        f'<td class="num">{pts(m["mdd"])}</td></tr>' for m in reversed(bt["monthly"]))
+    status = {k: v.split(" ")[0] for k, v in EXIT_REASON_LABELS.items()}
     recent_rows = "".join(
-        f'<tr data-code="{html.escape(t["code"])}" tabindex="0"><td><b>{html.escape(t["name"])}</b> <small>{html.escape(t["code"])}</small></td>'
+        f'<tr data-code="{html.escape(t["code"])}" tabindex="0"><td><b>{html.escape(name_pair(t["code"], t["name"])[0])}</b> <small>{html.escape(name_pair(t["code"], t["name"])[1])}</small></td>'
         f'<td>{t["sig"][5:].replace("-", "/")}</td><td class="num bt-hide-sm">{fmt_price(t["entry"])}</td><td class="num">{fmt_price(t["exit"])}</td>'
         f'<td class="num {cls(t["ret"])}">{pct_text(t["ret"], 1)}</td><td class="num bt-hide-sm">{pct_text(t["mae"], 1)}</td>'
         f'<td><span class="bt-st {t["reason"]}">{status[t["reason"]]}</span> <small>{t["days"]} 天</small></td></tr>'
         for t in bt["recent"])
     if recent_rows:
-        recent = (f'<h5>最近 {BT_RECENT_BARS} 个交易日的信号现在怎样 <small>(没扣成本；点一行看图表)</small></h5>'
+        recent = (h5("最近信号", "Recent Signals", "recent") +
                   f'<div class="bt-table-wrap"><table class="bt-table bt-recent"><thead><tr><th>股票</th><th>信号日</th><th class="num bt-hide-sm">计入价</th>'
-                  f'<th class="num" title="还没结算 = 现价；已结算 = 结算那天的收盘价">现价</th><th class="num">收益</th><th class="num bt-hide-sm">期间最大跌幅</th><th>状态</th></tr></thead>'
-                  f'<tbody>{recent_rows}</tbody></table></div>')
+                  f'<th class="num">现价 / 结算</th><th class="num">收益</th><th class="num bt-hide-sm">MAE</th><th>状态</th></tr></thead><tbody>{recent_rows}</tbody></table></div>'
+                  + (f'<button type="button" class="sp-btn bt-all" data-act="bt-all">显示全部 {len(bt["recent"])} 条</button>' if len(bt["recent"]) > BT_RECENT_SHOW else ""))
     else:
-        recent = f'<p class="hint">最近 {BT_RECENT_BARS} 个交易日没有出现过信号。</p>'
-    period = f'{bt["from"][5:].replace("-", "/")} ~ {bt["to"][5:].replace("-", "/")}' if bt["from"] and bt["to"] else "近 6 个月"
+        recent = h5("最近信号", "Recent Signals", "recent") + f'<p class="hint">最近 {BT_RECENT_BARS} 个交易日没有信号</p>'
+    period = f'{bt["from"][5:].replace("-", "/")} ~ {bt["to"][5:].replace("-", "/")}' if bt["from"] else "近 6 个月"
+    rule_tip = "\n".join([f"进场：{'、'.join(bt['rules'])} ({'任一满足' if bt['match'] == 'any' else '全部满足'})",
+                          f"离场：{' / '.join(exit_labels(bt['exit']))}",
+                          f"成本：来回 {bt['cost']:g}% · {period} · {bt['stocks']} 支"])
     return f"""<div class="bt" id="sec-backtest">
-  <div class="bt-head"><h4>策略回测</h4><span class="bt-sub">{period} · {bt['stocks']} 支 · {bt['trades']} 笔信号</span>
-    <button type="button" class="info-btn" data-gloss="backtest" aria-label="回测怎么算">ⓘ</button></div>
-  <dl class="bt-tiles">{tiles_html}</dl>
+  <div class="bt-head"><h4>策略回测 <i>Backtest</i>{info_btn("backtest", "策略回测", rule_tip)}</h4>
+    <span class="bt-sub">{period} · {a['n']} 笔</span>
+    <button type="button" class="sp-btn bt-custom" data-act="custom-backtest">自定义回测 ›</button></div>
+  {windows}
   {vs}
-  <details class="bt-more"><summary>详细数据 · 风险报酬 · 最近信号表现</summary>
-    <h5>信号之后固定天数的涨跌 <small>(隔天开盘价计入，没扣成本)</small></h5>
-    <div class="bt-table-wrap"><table class="bt-table"><thead><tr><th>持有</th><th class="num">信号平均</th><th class="num">信号胜率</th>
-      <th class="num">任意日平均</th><th class="num">任意日胜率</th><th class="num">笔数</th></tr></thead><tbody>{hz_rows}</tbody></table></div>
-    <h5>风险与报酬 <small>(已结算的 {bt['closed']} 笔)</small></h5>
+  <details class="bt-more"><summary>详细数据</summary>
+    {h5("全部", f"All · {period}")}
+    <dl class="bt-tiles">{tiles_html}</dl>
+    {h5("月度表现", "Monthly", "monthly")}
+    <div class="bt-table-wrap"><table class="bt-table"><thead><tr><th>月份</th><th class="num">笔数</th><th class="num">胜率</th>
+      <th class="num">期望值</th><th class="num">PF</th><th class="num">回撤</th></tr></thead><tbody>{month_rows}</tbody></table></div>
+    {h5("固定天数涨跌", "Forward Returns", "forward")}
+    <div class="bt-table-wrap"><table class="bt-table"><thead><tr><th>持有</th><th class="num">信号平均</th><th class="num">胜率</th>
+      <th class="num">基准</th><th class="num">超额</th><th class="num">笔数</th></tr></thead><tbody>{hz_rows}</tbody></table></div>
+    {h5("风险与报酬", "Risk / Reward")}
     <dl class="bt-risk">{risk_html}</dl>
-    <h5>每笔收益分布 <small>(已扣成本)</small></h5>
+    {h5("离场原因", "Exit Reasons", "exit")}
+    <div class="bt-chips">{exits}</div>
+    {h5("收益分布", "Distribution", "dist")}
     <div class="bt-dist">{dist}</div>
     {recent}
-    <p class="hint bt-method">规则：信号当天收盘后，隔天开盘价计入；之后哪天收盘跌到 SAR 以下就按当天收盘价结算，最多 {bt['max_hold']} 个交易日。
-      每笔已扣来回交易成本约 {bt['cost']}%。同一支股票一笔没结算前的新信号不重复算。只统计今天进报告的股票 (成交量达标)，有幸存者偏差；
-      样本只有近 6 个月的日线，历史统计不代表未来，也不是投资建议。</p>
   </details>
 </div>"""
 
@@ -2977,8 +3337,7 @@ def build_board_html(board):
     cat_label = dict(ANN_CATS)
     count = ""
     if not board:
-        body = (f'<p class="hint">这次没有抓到公告 (后台每次运行补一批，刚开始要跑几次才会齐)。'
-                f'可以直接到 <a href="{official}" target="_blank" rel="noopener">{source} ↗</a> 看。</p>')
+        body = f'<p class="hint">这次没有抓到公告 · <a href="{official}" target="_blank" rel="noopener">{source} ↗</a></p>'
     else:
         counts = {}
         for it in board:
@@ -2988,17 +3347,16 @@ def build_board_html(board):
                   for c, label in ANN_CATS if counts.get(c)]
         items = "".join(
             f'<li class="ann-item" data-cat="{it["cat"]}"><time datetime="{it["date"]}">{it["date"][5:].replace("-", "/")}</time>'
-            f'<button type="button" class="ann-stock{" sig" if it["signal"] else ""}" data-code="{html.escape(it["code"])}">{html.escape(it["name"])}</button>'
+            f'<button type="button" class="ann-stock{" sig" if it["signal"] else ""}" data-code="{html.escape(it["code"])}" title="{html.escape(it["name"])}">{html.escape(display_name(it["code"], it["name"]))}</button>'
             f'<span class="ann-cat">{cat_label.get(it["cat"], "其他")}</span>'
             f'<a href="{html.escape(it["link"])}" target="_blank" rel="noopener noreferrer">{html.escape(it["title"])}</a></li>'
             for it in board)
         body = (f'<div class="ann-filter" role="toolbar" aria-label="公告分类">{"".join(chips)}</div>'
                 f'<ul class="ann-board" id="ann-board">{items}</ul>'
-                f'<p class="hint">来源：<a href="{official}" target="_blank" rel="noopener">{source} ↗</a>，点标题看原文；'
-                f'点股票名看图表、财报和这支股票的全部公告。</p>')
+                f'<p class="hint ann-src">来源 <a href="{official}" target="_blank" rel="noopener">{source} ↗</a></p>')
         count = f' <span class="section-count">({len(board)})</span>'
-    return (f'<h2 class="section with-sub" id="sec-ann">公司公告{count}</h2>'
-            f'<p class="sub-note">报告里的股票最近 {ANN_BOARD_DAYS} 天的公告</p>{body}')
+    return (f'<h2 class="section" id="sec-ann">公司公告{count}'
+            f'{info_btn("ann", "公司公告", f"报告里的股票最近 {ANN_BOARD_DAYS} 天的公告 ({source})")}</h2>{body}')
 
 
 # === 7. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
@@ -3007,7 +3365,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
     now = now_dt.strftime("%Y-%m-%d %H:%M")
     state = market_state(now_dt)
     delay = ((market or {}).get("breadth") or {}).get("delay")
-    mfe_median = backtest.get("mfe_median") if backtest else None
+    mfe_median = backtest["all"].get("mfe_median") if backtest else None
     meta = {}  # 每支股票给 report.js 用的数字 (详情顶部的市值 / 市盈率、计算器、自选列表)
 
     cards = []
@@ -3081,14 +3439,15 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
             flags = (f'data-sar="{sar_value}" data-rv="{rel_vol if rel_vol is not None else -1}" '
                      f'data-rsi="{fmt_num(data["rsi"], "{}", "-1")}" data-px="{data["close"]}"')
 
-            table_rows.append((turnover, f"""<tr data-search="{code} {name.lower()}" data-code="{code}" data-name="{name}" tabindex="0" {flags}>
+            # 马股: 徽章 = 名称、灰字 = 代号；美股公司全名太长 (Micron Technology, Inc.)，手机上会把代号挤掉 → 徽章 = 代号、灰字 = 公司名
+            main_label, sub_label = (html.escape(x) for x in name_pair(code, s["name"]))
+            table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()}" data-code="{code}" data-name="{name}" tabindex="0" {flags}>
                 <td class="idx-cell"></td>
-                <td class="stock-cell" data-value="{name}"><span class="ticker">{name}</span><span class="stock-code">{code}</span>{new_badge}</td>
+                <td class="stock-cell" data-value="{main_label}"><span class="ticker">{main_label}</span><span class="stock-code">{sub_label}</span>{new_badge}</td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
                 <td class="num col-price" data-value="{data['close']}">{fmt_price(data['close'])}<span class="unit">{MKT['currency']}</span></td>
                 <td class="num col-change {change_class}" data-value="{change_pct}">{change_sign}{change_pct:.2f}%</td>
-                <td class="num col-turn" data-label="成交额" data-value="{turnover:.0f}">{fmt_compact(turnover)}</td>
-                <td class="num col-vol" data-label="成交量" data-value="{data['volume']}">{fmt_volume(data['volume'])}</td>
+                <td class="num col-vol" data-label="成交量" data-value="{data['volume']}" title="{data['volume']:,} 股">{fmt_compact(data['volume'])}</td>
                 {rel_vol_cell}
                 <td class="num col-rsi" data-label="RSI" data-value="{fmt_num(data['rsi'], '{}', '-1')}">{fmt_num(data['rsi'], '{:.1f}')}</td>
                 <td class="col-sar" data-label="SAR" data-value="{sar_value}">{sar_pill}</td>
@@ -3114,39 +3473,38 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
         change_pct = change / prev_close * 100 if prev_close else 0
         change_class = "change-up" if change > 0 else "change-down" if change < 0 else "change-neutral"
         sign = "+" if change > 0 else ""
-        # 上榜理由做成一行小标签 (不带表情符号)，带上"高出多少"：例如 "EMA20多头 +3.0% · SAR多头 +5.5% · T3形态突破 · 放量 2.1×"
+        # 上榜理由 = strategy.json 的每条条件 (价格比价格的写高出多少)，加上今天的量是平时几倍
         close, ema, sar = data["close"], data["ema20_latest"], data.get("sar")
         rel_vol = data.get("rel_volume")
-        # 距离一律按"占现价的 %"算，跟下面"风险 (到 SAR)"是同一个数
-        tag_parts = [
-            ("EMA20多头" + (f" {pct_text((close - ema) / close * 100, 1)}" if ema else ""), "现价比 EMA20 高多少 (占现价 %)"),
-            ("SAR多头" + (f" {pct_text((close - sar) / close * 100, 1)}" if sar else ""), "现价比 SAR 高多少 = 跌到 SAR 要跌多少"),
-            ("T3形态突破", "放量创高后回调，今天收盘再突破那天的最高价"),
-        ]
+        tag_parts = [(t, "后台策略的条件 (strategy.json)") for t in (data.get("rule_tags") or STRATEGY_LABELS)]
         if rel_vol is not None:
             tag_parts.append((f"量 {rel_vol:.1f}×", "今天成交量是前 20 天平均的几倍"))
         tags_html = " · ".join(f'<span title="{t}">{html.escape(x)}</span>' for x, t in tag_parts)
-        # 风险报酬 (都是数字，不是建议)：风险 = 现价跌到 SAR 要跌多少；报酬参考 = 回测里同类信号期间最大涨幅的中位数
-        risk = (close - sar) / close * 100 if sar and sar < close else None
+        # 风险报酬 (都是数字，不是建议)：风险 = 现价跌到最近的离场线 (SAR / 波段低点 / 止损 %) 要跌多少；
+        # 报酬参考 = 回测里同类信号期间最大涨幅的中位数
+        stop_ref = data.get("stop_ref")
+        risk = (close - stop_ref[0]) / close * 100 if stop_ref and stop_ref[0] < close else None
         rr = mfe_median / risk if mfe_median and risk else None
         sar_pill = sar_pill_html(data["sar_bullish_now"]) + (f' <span class="q-sub">{fmt_price(sar)}</span>' if sar else "")
+        # (名称, 数值, 名词解释, 这支股票专用的说明)：有说明的格子名称带虚线，点一下弹出 (不在卡片上写一大段字)
         quote_items = [
-            ("成交额", fmt_compact(turnover), ""),
-            ("相对量", f"{rel_vol:.2f}×" if rel_vol is not None else "—", ""),
-            ("RSI(14)", fmt_num(data["rsi"], "{:.1f}"), ""),
-            ("EMA20", fmt_num(ema, PRICE_PATTERN), ""),
-            ("50日均线", fmt_num(data["sma50"], PRICE_PATTERN), ""),
-            ("SAR", sar_pill, ""),
-            ("ATR(14)", pct_text(data.get("atr_pct"), 1, plus=False), "近 14 天平均每天波动多少"),
-            ("风险 (到 SAR)", pct_text(-risk, 1) if risk else "—", "现价跌到 SAR 要跌多少"),
-            ("风险报酬比", f"1 : {rr:.1f}" if rr else "—",
-             f"报酬参考 = 回测里同类信号期间最大涨幅的中位数 {pct_text(mfe_median, 1)}" if mfe_median else "回测样本不够"),
+            ("成交额", fmt_compact(turnover), "", ""),
+            ("相对量", f"{rel_vol:.2f}×" if rel_vol is not None else "—", "relvol", ""),
+            ("RSI(14)", fmt_num(data["rsi"], "{:.1f}"), "", ""),
+            ("EMA20", fmt_num(ema, PRICE_PATTERN), "", ""),
+            ("50日均线", fmt_num(data["sma50"], PRICE_PATTERN), "", ""),
+            ("SAR", sar_pill, "", ""),
+            ("ATR(14)", pct_text(data.get("atr_pct"), 1, plus=False), "atr", ""),
+            ("风险", pct_text(-risk, 1) if risk else "—", "risk",
+             f"最近的离场线：{stop_ref[1]} {fmt_price(stop_ref[0])}" if stop_ref else "现价下方没有离场线"),
+            ("风险报酬比", f"1 : {rr:.1f}" if rr else "—", "rr",
+             f"报酬参考 (回测同类信号期间最大涨幅中位数)：{pct_text(mfe_median, 1)}" if mfe_median else "回测样本不够"),
         ]
-        quote_grid = "".join(f'<div{f" title={chr(34)}{t}{chr(34)}" if t else ""}><dt>{k}</dt><dd>{v}</dd></div>' for k, v, t in quote_items)
+        quote_grid = "".join(f'<div{tip_attrs(g, t) if g or t else ""}><dt>{k}</dt><dd>{v}</dd></div>' for k, v, g, t in quote_items)
         live_badge = '<span class="live-badge" title="盘中信号：用的是还没收完的日线，收盘前可能消失">盘中</span>' if state == "live" else ""
 
         # 图表下方只放数据 (quote)，不放说明文字/图例/符号；AI 点评只保留在下载的 Excel/PDF 里
-        chips.append(f'''<button type="button" class="sym-chip" aria-current="false"><b>{html.escape(s['name'])}</b>'''
+        chips.append(f'''<button type="button" class="sym-chip" aria-current="false"><b>{html.escape(display_name(code, s['name']))}</b>'''
                      f'''<span class="sym-price">{fmt_price(data['close'])}</span><span class="{change_class}">{sign}{change_pct:.2f}%</span></button>''')
         cards.append(f"""<section class="card" data-chart="{chart_id}" aria-roledescription="卡片" aria-label="{html.escape(s['name'])} {code}">
             <div class="card-head">
@@ -3165,17 +3523,20 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
             </div>
         </section>""")
 
-    # 默认按成交额从高到低排 (马股仙股成交股数动辄几亿，按股数排会误导)，点表头 / 排序下拉框仍然可以改
+    # 默认按成交量从高到低排 (9/26 用户要求：表格显示成交量、不显示成交额；成交额在点开的图表里)，点表头 / 排序下拉框仍然可以改
     table_rows = [row for _, row in sorted(table_rows, key=lambda r: r[0], reverse=True)]
 
     # 放进 <script> 里，"</" 转义掉，免得名字里万一有 "</script>" 把脚本截断
     chart_json = json.dumps(chart_payload, separators=(",", ":")).replace("</", "<\\/")
-    no_data_note = f"<p class='no-data'>另有 {no_data_count} 支股票数据不足，未列入。</p>" if no_data_count else ""
+    no_data_note = f"另有 {no_data_count} 支股票数据不足，没有列入" if no_data_count else ""
     downloads_html = build_downloads_html(downloads)
     dashboard_html = build_dashboard_html(len(cards), len(cards) + len(table_rows), f"{now} ({MKT['tz_label']})", downloads_html)
     page_meta = {"stocks": meta, "lot": MKT["lot_size"], "cur": MKT["currency"], "sym": CURRENCY_SYMBOL, "state": state,
                  "usd_myr": (market or {}).get("usd_myr"),
-                 "bt": {k: backtest.get(k) for k in ("mfe_median", "risk_median", "cost", "win_rate", "avg")} if backtest else None}
+                 "bt": {k: backtest["all"].get(k) for k in ("mfe_median", "risk_median", "win_rate", "avg")} if backtest else None,
+                 # 后台策略 (strategy.json)：网页「后台默认策略」模板、「自定义回测」的默认值、「设为后台信号」都读这一份
+                 "strategy": {k: STRATEGY[k] for k in ("name", "match", "rules", "exit", "cost")}, "repo": REPO_SLUG,
+                 "cost_default": MKT["round_trip_cost_pct"]}
     meta_json = json.dumps(page_meta, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     market_html = build_market_html(market, stocks)
     backtest_html = build_backtest_html(backtest)
@@ -3241,13 +3602,17 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
   h1 {{ margin: 0 0 0.25rem; font-size: 1.5rem; }}
   .updated {{ color: var(--text-secondary); margin: 0 0 1.5rem; }}
   .site-footer {{
-    margin-top: 3rem;
-    padding-top: 1.5rem;
+    margin-top: 2.5rem;
+    padding-top: 1rem;
     border-top: 1px solid var(--border);
     color: var(--muted);
-    font-size: 0.8rem;
+    font-size: 0.72rem;
     line-height: 1.6;
   }}
+  .site-footer p {{ margin: 0 0 0.25rem; }}
+  .site-footer a {{ color: inherit; }}
+  .site-footer .legal summary {{ cursor: pointer; margin-top: 0.3rem; }}
+  .site-footer .legal p {{ margin: 0.4rem 0 0; }}
   .card {{
     background: var(--surface);
     border: 1px solid var(--border);
@@ -3317,14 +3682,13 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 {TEMPLATE_BAR_HTML}
 <div class="strategy-panel" id="strategy-panel"></div>
 
-<h3 class="subsection" id="sec-signals">后台信号 <span class="section-count">({len(cards)})</span></h3>
-<p class="sub-note">后台固定策略 ({' + '.join(BACKEND_STRATEGY_PARTS)}) 筛出来的股票，附多周期 K 线图</p>
+<h3 class="subsection" id="sec-signals">后台信号 <span class="section-count">({len(cards)})</span>{info_btn("backend", "后台信号", strategy_note_text())}</h3>
 {backtest_html}
 {build_screener_html(cards, chips)}
 
 {board_html}
 
-<h2 class="section" id="sec-table">其余股票 ({len(table_rows)})</h2>
+<h2 class="section" id="sec-table">其余股票 <span class="section-count">({len(table_rows)})</span>{info_btn("table", "其余股票", no_data_note)}</h2>
 <div class="table-toolbar">
   <div class="tf-chips" id="table-chips" role="group" aria-label="快速筛选">
     <button type="button" class="tf-chip" data-f="watch" aria-pressed="false">★ 自选</button>
@@ -3335,16 +3699,16 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
     <button type="button" class="tf-chip" data-f="px" aria-pressed="false">{"排除 RM0.10 以下" if MARKET_ID == "MY" else "排除 $5 以下"}</button>
   </div>
   <select id="table-sort" class="table-sort" aria-label="排序">
-    <option value="5:desc" selected>成交额 ↓</option>
+    <option value="5:desc" selected>成交量 ↓</option>
+    <option value="5:asc">成交量 ↑</option>
     <option value="4:desc">涨跌% ↓</option>
     <option value="4:asc">涨跌% ↑</option>
-    <option value="6:desc">成交量 ↓</option>
-    <option value="7:desc">相对量 ↓</option>
-    <option value="8:desc">RSI ↓</option>
-    <option value="8:asc">RSI ↑</option>
+    <option value="6:desc">相对量 ↓</option>
+    <option value="7:desc">RSI ↓</option>
+    <option value="7:asc">RSI ↑</option>
     <option value="3:desc">价格 ↓</option>
     <option value="3:asc">价格 ↑</option>
-    <option value="1:asc">名称 A→Z</option>
+    <option value="1:asc">{"名称" if MARKET_ID == "MY" else "代码"} A→Z</option>
   </select>
   <span id="table-count" class="table-count"></span>
 </div>
@@ -3357,8 +3721,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
       <th data-type="none">走势</th>
       <th data-type="num" class="num">价格 <span class="arrow"></span></th>
       <th data-type="num" class="num">涨跌% <span class="arrow"></span></th>
-      <th data-type="num" class="num" data-default-sort="desc" aria-sort="descending">成交额 <span class="arrow">▼</span></th>
-      <th data-type="num" class="num">成交量 <span class="arrow"></span></th>
+      <th data-type="num" class="num" data-default-sort="desc" aria-sort="descending">成交量 <span class="arrow">▼</span></th>
       <th data-type="num" class="num">相对量 <span class="arrow"></span></th>
       <th data-type="num" class="num">RSI <span class="arrow"></span></th>
       <th data-type="num">SAR <span class="arrow"></span></th>
@@ -3370,13 +3733,17 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
   </tbody>
 </table>
 </div>
-{no_data_note}
 
 <footer class="site-footer">
-  <p>本报告及其筛选策略、代码与分析方法版权所有 © {datetime.now(LOCAL_TZ).year} CJA231，保留一切权利。未经书面授权，禁止复制、转载、二次分发或用于商业用途。</p>
-  <p>K 线图: TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · <a href="https://www.tradingview.com/" target="_blank" rel="noopener">https://www.tradingview.com/</a> (Apache License 2.0)</p>
-  <p>行情数据来自公开渠道 (Yahoo Finance)，可能有延迟或错误，仅供个人研究参考，不构成投资建议。</p>
-  <p>© {datetime.now(LOCAL_TZ).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
+  <p>© {datetime.now(LOCAL_TZ).year} CJA231 · 仅供研究参考，不构成投资建议 · 数据 Yahoo Finance</p>
+  <!-- 图表库 Apache 2.0 NOTICE 要求的署名 + 链接，要放在看得到的地方 -->
+  <p>K 线图 TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · <a href="https://www.tradingview.com/" target="_blank" rel="noopener">tradingview.com</a></p>
+  <details class="legal"><summary>版权与免责声明</summary>
+    <p>本报告及其筛选策略、代码与分析方法版权所有 © {datetime.now(LOCAL_TZ).year} CJA231，保留一切权利。未经书面授权，禁止复制、转载、二次分发或用于商业用途。</p>
+    <p>行情数据来自公开渠道 (Yahoo Finance)，可能有延迟或错误，仅供个人研究参考，不构成投资建议。</p>
+    <p>© {datetime.now(LOCAL_TZ).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
+    <p>K 线图: TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · https://www.tradingview.com/ (Apache License 2.0)</p>
+  </details>
 </footer>
 
 <script id="chart-data" type="application/json">{chart_json}</script>
@@ -3606,6 +3973,11 @@ def main():
     today_local = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")
     print(f"开始扫描{MKT['name']} ({today_local} {MKT['tz_label']})...")
 
+    print(f"🎯 {strategy_note_text()}；离场: {' / '.join(exit_labels(STRATEGY['exit']))}；成本 {STRATEGY['cost']:g}%"
+          + ("" if STRATEGY["custom"] else " (默认策略)"))
+    if STRATEGY_NOTE:
+        print(f"⚠️ {STRATEGY_NOTE}")
+
     if FORCE_RUN:
         print("⚠️ FORCE_RUN 模式：跳过交易日检查，直接用最新可用数据扫描 (用于测试)。")
     elif not is_trading_day(today_local):
@@ -3741,8 +4113,10 @@ def main():
     try:
         backtest = summarize_backtest(stocks)
         if backtest:
-            print(f"🧪 策略回测 ({backtest['from']} ~ {backtest['to']}，{backtest['stocks']} 支): {backtest['trades']} 笔 "
-                  f"(已结算 {backtest['closed']})，胜率 {backtest['win_rate']}%，每笔平均 {backtest['avg']}% (已扣成本 {backtest['cost']}%)")
+            a = backtest["all"]
+            print(f"🧪 策略回测 ({backtest['from']} ~ {backtest['to']}，{backtest['stocks']} 支): {a['n']} 笔 "
+                  f"(已结算 {a['closed']})，胜率 {a['win_rate']}%，每笔平均 {a['avg']}% (已扣成本 {backtest['cost']}%)；"
+                  + "；".join(f"{w['label']} {w['n']} 笔 胜率 {w['win_rate']}% 平均 {w['avg']}%" for w in backtest["windows"]))
     except Exception as e:
         print(f"⚠️ 策略回测失败 ({type(e).__name__}: {e})")
 
