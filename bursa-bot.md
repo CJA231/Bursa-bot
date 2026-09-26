@@ -27,6 +27,8 @@
 Bursa-bot/
 ├── main.py                      # 主程序：抓数据 → 算指标 → 筛选 → 生成 HTML → 推送
 ├── exports.py                   # 导出下载文件 (CSV / Excel / PDF)，见第 4 节"下载报告"
+├── engine.py                    # report.js 公式引擎的 Python 版 (后台算 strategy.json 的条件)，见第 4 节"后台信号自定义"
+├── strategy.json                # 后台信号 + 策略回测用的条件和离场规则 (可以自己改；网页「自定义回测 → 设为后台信号」产生)
 ├── requirements.txt
 ├── README.md                    # GitHub 仓库首页介绍 (功能、架构图、免责声明)
 ├── LICENSE                      # All Rights Reserved (见第 9 节)
@@ -60,8 +62,8 @@ Bursa-bot/
 0. 市场设置 `MARKETS` (马股 MY / 美股 US，环境变量 `MARKET` 选) → `MKT`；`LOCAL_TZ`、`DOCS_DIR`、`ASSET_PREFIX`、`fmt_price` 都从这里来
 1. 配置区域 (`VOLUME_TIERS`/`min_volume_for`、`FETCH_WORKERS` 等常量，门槛数值在 `MARKETS` 里)
 2. DeepSeek 客户端
-3. `detect_t3_pattern` / `get_stock_data` / `CHART_SOURCES` + `get_chart_history` (信号股多周期K线) / `get_intraday` (日内收盘价给迷你走势 + 精简K线给完整图表) / `compact_bars` / `write_table_charts` / 个股资料 (`FIN_ROWS`、`fetch_detail`、`refresh_details`、`prune_details`) / `build_sparkline` / `fmt_volume`
-4. `check_strategy` (筛选策略)
+3. `detect_t3_pattern` (旧的 T3 判断，只剩 scripts/debug_stock.py 和对照测试在用) / **后台策略** (`STRATEGY_FILE`、`DEFAULT_STRATEGY`、`clean_exit`、`load_strategy` → `STRATEGY`，`rule_tags`) / **回测** (`df_to_bars`、`pivot_lows`、`exit_series`、`backtest_stock`、`trade_stats`、`month_windows`、`summarize_backtest`) / `get_stock_data` / `CHART_SOURCES` + `get_chart_history` (信号股多周期K线) / `get_intraday` (日内收盘价给迷你走势 + 精简K线给完整图表) / `compact_bars` / `write_table_charts` / 个股资料 (`FIN_ROWS`、`fetch_detail`、`refresh_details`、`prune_details`) / `build_sparkline`
+4. `check_strategy` (筛选策略：只看 `get_stock_data` 用 engine.py 算好的 `strategy_hit`)
 5. `DEEPSEEK_SYSTEM_PROMPT` + `ask_deepseek`
 6. 报告页面的前端代码常量：`SETTINGS_CSS`、`TABLE_CSS`、`SETTINGS_PANEL_HTML`、`CARD_CSS`、`TEMPLATE_BAR_HTML`
    (**这几个是普通字符串，不是 f-string**，CSS 里的大括号不用写成 `{{ }}`)
@@ -75,13 +77,15 @@ Bursa-bot/
 
 ## 3. 筛选策略（当前版本）
 
+> 9/26 起条件 1~3 写在仓库根目录的 **`strategy.json`** (可以自己改，见第 4 节「后台信号自定义」)。下面是**默认内容** (= 以前写死的策略，逐日对照 0 差异)；成交量门槛 (条件 4) 照旧在 main.py。
+
 **四个条件必须「同时」满足**（AND 逻辑，不是 OR）：
 
 | # | 条件 | 代码位置 |
 |---|------|---------|
-| 1 | `SAR < 现价`（PSAR 多头） | `check_strategy()` |
-| 2 | `EMA20 < 现价` | `check_strategy()` |
-| 3 | **T3 形态** 突破 | `detect_t3_pattern()` |
+| 1 | `SAR < 现价`（PSAR 多头） | `strategy.json` → engine.py |
+| 2 | `EMA20 < 现价` | `strategy.json` → engine.py |
+| 3 | **T3 形态** 突破 | `strategy.json` → engine.py `series_t3` (= `detect_t3_pattern` 的逐日版) |
 | 4 | 成交量达到**按价格分级的门槛** (见下表) | `VOLUME_TIERS` / `min_volume_for()`，不达标直接忽略，不进报告 |
 
 成交量门槛 (2026-09-23 用户定的)：
@@ -95,7 +99,7 @@ Bursa-bot/
 
 价格先四舍五入到 3 位再分档 (避免 0.0999999 这种浮点误差把 0.10 分进 5M 档)。
 
-命中时返回文案：`🎯 EMA20多头 + SAR多头 + T3形态突破`
+命中时返回文案：`🎯 当前价格 > EMA(20) + 当前价格 > SAR + T3 形态突破` (= strategy.json 每条条件的中文说明)
 
 **新上市 / 历史很短的股票** (9/24 用户要求："不足 90 天也不用紧，一样按照设定的成交量筛选")：
 - 以前 `get_stock_data` 里 `len(df) < 50` 就当"数据不足"直接丢掉 (9/23 日志里的 0041、0468–0471、5356 就是这样被丢的)；现在**只要有 1 天数据就照样按成交量门槛筛选**
@@ -276,7 +280,7 @@ def detect_t3_pattern(df):
 - 页面 `<body>` 带 `data-market` `data-session-start` `data-price-dp` `data-search-hint`，`report.js` 两个页面共用 (美股页面引用 `../report.js`、`../vendor/`)；财报货币说明、完整年报链接也按市场 (美股 = SEC EDGAR 10-K)
 - `exports.py`：`write_pdf` / `export_downloads` / `_files_for` 多了 `title` `tz_label` `file_prefix` (不传就是原来的马股文案)
 - `daily.yml`：`market` 选项 (MY / US，不传 = MY，cron-job.org 旧任务不用改)；`concurrency: publish-report` (两个市场同时触发会排队，不取消)；`git add -A docs` (美股在 `docs/us/`)；**推之前 `git pull --rebase`** —— 排队的 run checkout 的是触发当时的 commit，前一个 run 推了新报告之后直接 push 会被拒 (两个市场写不同目录，rebase 不会冲突)；美股的 commit message 带 "(US)"
-- `check_strategy()` 的文案改从 `BACKEND_STRATEGY_PARTS` 拼；**改后台策略时，`docs/report.js` 内置策略 `s-backend` 的三条规则要一起改**
+- ~~`check_strategy()` 的文案改从 `BACKEND_STRATEGY_PARTS` 拼~~ → 9/26 起后台条件在 `strategy.json`，网页内置策略 `s-backend` 自动读页面里的 `META.strategy`，不用两边一起改了
 
 **自定义选股条件 (docs/report.js)**
 - 模板 = 指标 + **选股条件**：`rules: [...]`、`match: 'all' | 'any'`，跟指标存在同一个 `bursa_templates_v2` (旧模板读进来 `rules` 是空的，行为不变)
@@ -313,7 +317,7 @@ def detect_t3_pattern(df):
 ### 🧪 回测 + 风险报酬、公司公告、股票计算器、手机修正 (9/25 第二轮，PR #28)
 用户要求 (原话要点)：信号应该用哪些指标量化和回测？要不要在页面上列出回测数据和 risk & reward？另外 1. 表格数字挤在一起 2. 信号卡片的周期条两头被切 3. 只留底下的搜索框 4. 返回手势不要直接离开页面 5. 新股标签看不懂 6. 附上公司公告栏 7. 做一个股票计算器 (数量、汇率、brokerage fee、clearing fee、stamp duty)，「其他提到的也一并改善」(= 上一轮我给的专业用户建议清单)。
 
-**策略回测** (main.py `t3_flags` / `backtest_stock` / `summarize_backtest` / `build_backtest_html`)
+**策略回测** (main.py `t3_flags` / `backtest_stock` / `summarize_backtest` / `build_backtest_html`) —— ⚠️ 9/26 已改成回测 v2 (离场规则、按月统计、可自定义)，见下一节；这里留着当历史
 - 用每次运行本来就下载的 6 个月日线 (不多发请求)，每一天都用跟 `check_strategy` 一模一样的条件判断 (价格类先四舍五入到 3 位再比)。`t3_flags` = `detect_t3_pattern` 的逐日版本 (**改 T3 定义要三处一起改：`detect_t3_pattern`、`t3_flags`、report.js `seriesT3`**)
 - 规则：信号当天收盘后，**隔天开盘价计入**；之后哪天收盘跌到 SAR 以下 (SAR 转空) 就按当天收盘价结算，最多 `BT_MAX_HOLD` = 20 天；同一支股票一笔没结算前的新信号不重复算；最后一天的信号 (= 今天的信号) 不算进回测
 - 扣来回成本 `MARKETS[..]["round_trip_cost_pct"]`：马股 0.5% (佣金 0.1% + 结算费 0.03% + 印花税 0.1%，买卖各一次 ≈ 0.46%)、美股 0.1%
@@ -353,11 +357,58 @@ def detect_t3_pattern(df):
 - 自选股 (`bursa_watch_v1_MY/US`)：☰ 里有列表、表格行标 ★
 - 名词解释对话框 + 页面上的 ⓘ；☰ 加「工具」「自选」，「下载报告」收进 ☰ 最下面；标题的表情符号拿掉；浅色模式灰字 `--muted` 改 #6f6d68 (对比度 3.4 → 4.9)
 - "添加到主屏幕"：`docs/icons/` 四个图标 (scratchpad 的 make_icons.py 画的) + 每次运行写 `<市场目录>/manifest.webmanifest` (`write_manifest`)；没做 service worker (报告一天更新 10 次，离线缓存容易看到旧的)
-- 手机表格行 `content-visibility: auto`：屏幕外的行先不排版 (美股 800 多行时滑起来顺很多)
+- ~~手机表格行 `content-visibility: auto`~~ → 9/26 拿掉：它自带 style containment，CSS 计数器被关在每一行里，**iPhone 上序号全部变成 0** (用户截图)
 
 **没做的 (跟用户说明过)**：自定义选股条件的推送 (后台要有一套跟网页一样的公式引擎，另外做)；AI 点评照旧只在下载文件 (用户 9/23 要求图表下方只放数据)；美股页面 2.5MB 的进一步瘦身 (信号股 K 线拆文件、走势图按需画)
 
 **验证** (沙箱连不上 Yahoo / Bursa / SEC)：模拟跑 `main()` 马股 / 美股 (mock_run.py 另外假造 screener 的市值等字段、指数、Bursa / SEC 的回应)；回测逐日对齐 (上面)；Playwright 旧的 109 项 + 新的 143 项 (手机 + 电脑 × 马股 + 美股：今日市场、回测、公告栏、周期选单、表格筛选 / 不截断、返回手势、深链接、上一支下一支、自选、计算器数字、名词解释、同比、条件回测)；旧版页面 + 新脚本 14 项
+
+### 🎯 后台信号自定义 + 回测 v2 + 表格改回成交量 (9/26 第三轮)
+用户原话要点 (附 iPhone 美股表格截图：序号全是 0、公司全名太长把代码挤掉)：后台信号能不能自定义？回测要有基准 —— 例如 9/1 执行到 9/30 = 回看过去一个月；10/15 看的话就是 9/1~10/15，多出来的 15 天另外统计，"主要是要跑一个月的回测"；离场 = EMA5 下穿 EMA20，或 Parabolic SAR 转空，通常跌破最近的 HL 就停损或止盈；后台信号自定义、回测页可以自定义指标；回测数据加英文量化术语 (跟中文一起)；其余股票的排序和显示栏加回成交量、剔除成交额，成交额放在点开的图表里。
+
+**engine.py (新文件) = report.js 公式引擎的 Python 版**
+- 递归下降解析器 + 所有序列函数 (sma / ema (presma) / stdev / highest / lowest / sum / rsi (Wilder) / atr / obv / ref / crossup / crossdown / psar / supertrend / t3 / round)，JS 数字语义 (null 传染、除以 0、`toFixed` 的四舍五入用 `Decimal ROUND_HALF_UP`)；条件格式跟网页模板一模一样 (`{a, op, b}` / `{formula}`)，`OPERANDS` 表也照抄
+- API：`compile_rules(rules)` (用 5 根假K线试算，错的条件标出来、不参与)、`rules_truth(bars, compiled, match)` → 每根K线成不成立
+- 对照：真实 9/24 数据 273 支 × 53 条公式 = **1,803,537 个值，JS vs Python 0 差异** (scratchpad parity2/)；网页 `window.BursaBotEngine` 就是给这个测试用的
+- ⚠️ **改公式引擎要两边一起改** (report.js `evalFormula` 系列 ↔ engine.py)，改完跑 parity2
+
+**strategy.json (仓库根目录) = 后台信号 + 回测用的策略**
+- 内容：`name`、`match` (all / any)、`rules` (跟网页选股条件同一个格式)、`exit` (离场规则)、可选 `cost_pct` (数字，或 `{"MY": 0.3, "US": 0.1}`；不写用 `MARKETS[..]["round_trip_cost_pct"]`)。马股、美股**共用同一个文件**
+- `exit`：`sar` (true = SAR 转空离场)、`ema_cross` ([快, 慢] = 快线下穿慢线离场，null = 不用)、`swing_low` (N = 收盘跌破最近一个左右各 N 根确认的波段低点离场，持有期间只往上移 = 跟踪止损；0 = 不用)、`max_hold` (最多持有几个交易日，0 = 不限)、`stop_pct` / `take_pct` (固定止损 / 止盈 %，0 = 不用)。`clean_exit()` 清洗 (网页 `cleanExit` 同一套)
+- `load_strategy()`：文件没有 / JSON 坏了 / 最外层不是 {} / 没有能用的条件 → 退回 `DEFAULT_STRATEGY` (= 以前写死的 EMA20 + SAR + T3)，**不会让运行失败**，原因写在日志第二行 `⚠️`；部分条件写错 → 那几条不参与，日志列出来
+- 日志第一行 `🎯 后台策略「…」：条件… ；离场: …；成本 x%` (默认策略后面标 "(默认策略)")
+- 后台算条件用的K线 = `df_to_bars(df)` (跟 table.json 一样取到 3 位小数)，所以后台跟网页对表格股票逐根K线一致
+- 默认 strategy.json vs 以前写死的判断：274 支 × 34,157 天 T3 逐日 0 差异、最后一天信号 274 支 0 差异 (scratchpad sig_parity.py)
+- 信号卡片上榜理由 = 每条条件的说明，价格比价格的附距离 (`rule_tags`，例如「当前价格 > EMA(20) +2.8%」) + 量 N×；"风险 (到 X)" 的 X = 开着的离场线里现价下方最近的一条 (SAR / 波段低点 / 止损 %)
+- 页面 `#report-meta` 带 `strategy` (name / match / rules / exit / cost)、`repo`、`cost_default` → 网页内置「后台默认策略」模板、「自定义回测」默认值、「设为后台信号」都读这份
+
+**回测 v2** (main.py `backtest_stock` / `trade_stats` / `month_windows` / `summarize_backtest` / `build_backtest_html`；report.js `backtestStock` / `tradeStats` / `monthWindows` / `runBacktest` / `backtestResultHtml` —— **两边同一套算法，改的话一起改**)
+- 第 i 天收盘时条件成立 → 隔天开盘价计入；之后每天收盘按顺序检查：止损 → 跌破波段低点 → SAR 转空 (前一天多头、今天不是) → EMA 死叉 → 止盈 → 满期；第一个成立的就按那天收盘价结算；同一支一笔没结算前的新信号不重复算；最后一天的信号不算 (还没有隔天开盘)
+- 波段低点 `pivot_lows(low, k)`：比左边 k 根都低、不高于右边 k 根；要等右边 k 根走完才"确认" (第 j 天只看得到 p + k ≤ j−1 的)，避免偷看未来
+- 统计 (中英文)：信号笔数 Trades、胜率 Win Rate、期望值 Expectancy、盈亏比 Payoff Ratio、获利因子 Profit Factor、最大回撤 Max Drawdown、持有中浮动 Open P/L、平均持有 Avg Holding、系统品质 SQN、最多连亏 Max Consec. Losses、初始风险 Initial Risk、MFE / MAE、平均 R 倍数 Avg R-Multiple、离场原因 Exit Reasons、Forward Returns vs Benchmark (超额 Excess)、月度表现 Monthly Performance
+- **按月统计** (`month_windows`)：上一个完整月份 (基准) / 本月至今 / 合计 三栏，按**信号日期**分 (上个月的信号到现在还没结算的算"持有中")；例如 10/15 → 9/1~9/30、10/1~10/15、9/1~10/15
+- 最大回撤单位是"点"：每笔同样本金 (= 100 点)，按结算日期 (同一天按信号日、代码) 把收益加起来的最大回落；写成 % 会被看成亏超过 100%
+- 四舍五入两边都用 JS `toFixed` 的规则 (Python `_r` = `engine.js_round`，不用 Python `round` 的银行家舍入，不然平均持有会差 0.1)
+- 对照：同一份K线 3 组条件 × 5 组离场规则 (含止损 / 止盈 / 关掉 SAR / 什么都不开)，**JS vs Python 全部栏位 0 差异**；页面上后台算的回测 vs 浏览器用后台设定重算也 0 差异 (scratchpad bt_js_dump.js + bt_parity.py)
+- 美股 / 马股各自算 (成本不一样)；只统计今天进报告的股票 → 幸存者偏差照旧写在页面上
+
+**自定义回测对话框** (report.js `openBacktestDialog`，策略回测区块的「自定义回测 ›」、选股条件面板的「回测这组条件」都打开它)
+- 进场条件来源：后台信号 (META.strategy) / 我的模板 (有条件的) / 内置策略；「✎ 修改条件 / 换指标」：后台信号和内置策略先复制成自己的模板再打开条件编辑器 (改了会实时重算)
+- 离场规则：勾选 + 数字 (在数字框里改了顺便勾上)，成本 %；「恢复后台设定」；设定存在 `bursa_backtest_v1_MY/US` (每台设备自己记)
+- 改了 250ms 后在浏览器里重算 (马股 274 支约 10~100ms)；信号股页面上带的是 2 年日线，只取最后 6 个月 (`lastSixMonths`，跟后台一样)
+- 「设为后台信号 ›」：产生 strategy.json 内容 (每条条件一行、不带网页自己用的 id；成本跟市场默认不一样才写 `cost_pct: {"MY": x}`)，自动复制 + 显示 `<pre>` (复制不了可以长按全选) + 按钮打开 `https://github.com/CJA231/Bursa-bot/edit/main/strategy.json`；用户在 GitHub 贴上、Commit → 下一次运行起生效。daily.yml 推之前本来就 `git pull --rebase`，用户改 strategy.json 不会跟自动提交冲突
+- ⚠️ 坑：对话框通用样式 `.dlg label { flex-direction: column }` 会把勾选框挤到文字上面 → 写成 `.dlg .cbt-x label`；手机上输入框 16px (iPhone 不放大)，JSON 用 `<pre>` 不用 textarea (textarea 一聚焦就放大)
+
+**表格 + 其他**
+- 其余股票：拿掉「成交额」栏，**加回「成交量」**，默认按成交量从高到低 (后台 `table_rows` 排序、表头、手机排序下拉框都改了，下拉框多了「成交量 ↑」)；手机第二排 = 成交量 / 相对量 / RSI / SAR / EMA20 / 涨跌%，成交量用 `fmt_compact` (3 位有效数字，鼠标移上去看完整股数)；`fmt_volume` 删掉
+- 成交额移到点开的详情顶部：「今日成交额 RM 80.8M · 平均的 0.5 倍」(META 的 `t` / `a`)；今日市场的成交额榜照旧
+- 选股条件命中列表也改成按成交量排、显示成交量
+- **美股名称**：`name_pair(code, name)` —— 美股徽章 = 代码 (MU)、后面灰字 = 公司名；马股照旧 (名称 + 代号)。表格、今日市场榜单、公告栏、卡片标签、回测最近信号、命中列表、☰ 自选、底部搜索都改了；卡片标题照旧 (名称 + 代码，放得下)
+- 表格 `data-search` 的代码改小写 (以前美股代码大写，表格旧搜索框搜小写搜不到)
+- 名词解释：加 期望值 / 最大回撤 / SQN / 离场规则，其余回测术语都附英文；"风险 (到 SAR)" 改成"风险 (到离场线)"
+
+**验证**：mock 跑马股 / 美股；engine 对照 (上面)；回测 JS vs Python 0 差异；strategy.json 各种写错的情况 (坏 JSON、空条件、部分写错、奇怪的离场数字 (inf / "abc" / 负数)、最外层是数组、文件不存在) 都退回默认或清洗，不会失败；Playwright ui_test (109) + ui_test2 (174，新加：按月三栏不用左右滑、中英文指标、自定义回测笔数 = 后台笔数、勾止盈重算、恢复后台设定、设为后台信号的 JSON、成交量排序、手机行没有 content-visibility、详情今日成交额、美股徽章 = 代码) + ui_extra (15) + ui_xss 全部通过，控制台 0 错误
+- 没验证到：iPhone Safari 真机 (沙箱只有 Chromium) —— 序号 0 的原因是 content-visibility 的 style containment，已经拿掉，合并后请在手机上看一下序号
 
 ### ☁️ 一目均衡表 (Ichimoku Cloud，9/23 按用户给的 TradingView Pine 脚本加入)
 - 指标库「趋势」里的「一目均衡表」，一次加 5 条线 + 云 (4 个参数、5 种颜色都能改)：转换线 `#2962FF`、基准线 `#B71C1C`、延迟线 `#43A047`、先行带A `#A5D6A7`、先行带B `#EF9A9A`；A 在 B 上方云是绿色，下方是红色 (颜色跟 TradingView 一样)
@@ -631,6 +682,10 @@ CMSA 2007、SC Guidance Note **SC-GN/1-2020 (R2-2024)**、Digital Investment Man
 
 ## 10. 下一步 TODO
 
+- [ ] **第三轮 (后台信号自定义 + 回测 v2 + 成交量) 合并后**：
+  1. 看马股 / 美股 run 日志第一行 `🎯 后台策略…` (应该是默认策略、没有 ⚠️)、`🧪 策略回测` 那行 (上个月 / 本月至今 / 合计)，信号数应该跟以前一样
+  2. 手机上看表格序号是不是 1、2、3 (不再全是 0)，美股表格徽章是不是代码
+  3. 试一次「自定义回测 → 设为后台信号 → GitHub 贴上 Commit」，下一次 run 日志第一行应该换成新策略 (不满意就把 strategy.json 改回默认内容或删掉)
 - [ ] **PR #28 (回测、公告、计算器…) 合并后**：
   1. 看马股 / 美股 run 的日志：`📢 公司公告` 那行 (写入几支；Bursa 有没有挡、格式对不对；SEC 有没有 403 → 要的话加 `SEC_USER_AGENT`)、`🧪 策略回测` 那行 (几笔、胜率)、`⏱️ 耗时` 多了几秒 (公告约 10–20 秒)
   2. 手机上看：今日市场的指数、涨跌家数有没有出来 (screener 真实回传的字段名如果不一样，`quote_meta` 要改)、详情顶部的市值 / 市盈率 / 股息率数字合不合理 (股息率是 `trailingAnnualDividendYield` × 100)
