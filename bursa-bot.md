@@ -42,6 +42,7 @@ Bursa-bot/
 │   ├── report.js                # 报告页脚本 (卡片轮播/工具栏/K线图/指标库/模板/表格)，手写的，不是每次生成
 │   ├── downloads/               # 最近 7 个交易日的下载文件 + 7 天合并文件 (自动生成、自动清理)
 │   ├── charts/table.json        # "其余股票"每支的 6 个月日线 + 当天 5 分钟线 (每次运行重写，点开表格 / 模板有选股条件时才下载)
+│   ├── charts/card/<代码>.json   # 信号股的分时K线 (1m 5 天、5m / 15m 59 天、60m 6 个月；选分时周期才下载，没有信号了自动删)
 │   ├── stock/<代码>.json         # 每支股票的财报 + 2 年日线 + 10 年月线 (一周刷新一次)，见第 4 节"完整图表 + 财报"
 │   ├── ann/<代码>.json           # 每支股票的公司公告 (马股 Bursa 官网 / 美股 SEC EDGAR，12 小时更新一次)，见第 4 节"回测 + 风险报酬、公司公告…"
 │   ├── manifest.webmanifest     # "添加到主屏幕"用 (每次运行生成，美股的在 us/ 下面)
@@ -62,7 +63,7 @@ Bursa-bot/
 0. 市场设置 `MARKETS` (马股 MY / 美股 US，环境变量 `MARKET` 选) → `MKT`；`LOCAL_TZ`、`DOCS_DIR`、`ASSET_PREFIX`、`fmt_price` 都从这里来
 1. 配置区域 (`VOLUME_TIERS`/`min_volume_for`、`FETCH_WORKERS` 等常量，门槛数值在 `MARKETS` 里)
 2. DeepSeek 客户端
-3. `detect_t3_pattern` (旧的 T3 判断，只剩 scripts/debug_stock.py 和对照测试在用) / **后台策略** (`STRATEGY_FILE`、`DEFAULT_STRATEGY`、`clean_exit`、`load_strategy` → `STRATEGY`，`rule_tags`) / **回测** (`df_to_bars`、`pivot_lows`、`exit_series`、`backtest_stock`、`trade_stats`、`month_windows`、`summarize_backtest`) / `get_stock_data` / `CHART_SOURCES` + `get_chart_history` (信号股多周期K线) / `get_intraday` (日内收盘价给迷你走势 + 精简K线给完整图表) / `compact_bars` / `write_table_charts` / 个股资料 (`FIN_ROWS`、`fetch_detail`、`refresh_details`、`prune_details`) / `build_sparkline`
+3. `detect_t3_pattern` (旧的 T3 判断，只剩 scripts/debug_stock.py 和对照测试在用) / **后台策略** (`STRATEGY_FILE`、`DEFAULT_STRATEGY`、`clean_exit`、`load_strategy` → `STRATEGY`，`rule_tags`) / **回测** (`df_to_bars`、`pivot_lows`、`exit_series`、`backtest_stock`、`trade_stats`、`month_windows`、`summarize_backtest`) / `get_stock_data` / `CHART_SOURCES` + `get_chart_history` (信号股多周期K线) / `write_card_charts` (信号股分时拆到 `docs/charts/card/`) / `get_intraday` (日内收盘价给迷你走势 + 精简K线给完整图表) / `compact_bars` / `write_table_charts` / 个股资料 (`FIN_ROWS`、`fetch_detail`、`refresh_details`、`prune_details`) / `build_sparkline`
 4. `check_strategy` (筛选策略：只看 `get_stock_data` 用 engine.py 算好的 `strategy_hit`)
 5. `DEEPSEEK_SYSTEM_PROMPT` + `ask_deepseek`
 6. 报告页面的前端代码常量：`SETTINGS_CSS`、`TABLE_CSS`、`SETTINGS_PANEL_HTML`、`CARD_CSS`、`TEMPLATE_BAR_HTML`
@@ -230,7 +231,7 @@ def detect_t3_pattern(df):
 - **怎么打开**：点"其余股票"的一行 (9/24 第三轮起电脑也是单击，网页上不再出现"双击"字眼；电脑上拖选文字不算)、键盘选中行按 Enter、点选股条件命中的一行；筛选器卡片标题下方也有「完整图表 · 财报 ›」按钮
 - **对话框** (`openStockModal`，`docs/report.js` 的"完整图表 + 财报"那一段)：周期按钮 + ƒx 指标 + 图表 + 开高低收 + 财报。图表就是卡片那套 `renderChart`，所以图表类型、指标、模板全部通用 (改了指标所有图表一起变)；关掉时 `destroyChart` + 删掉 `data[id]`
 - **K 线从哪来**：
-  - 筛选器卡片：直接用卡片自己的数据 (2 年日线 + 10 年月线 + 1/5/15/60 分钟线)
+  - 筛选器卡片：直接用卡片自己的数据 (2 年日线 + 10 年月线；1/5/15/60 分钟线 9/26 第五轮起在 `docs/charts/card/<代码>.json`，跟卡片共用)
   - 表格股票：`docs/charts/table.json` (6 个月日线 `d` + 当天 5 分钟线 `i`，每次运行都重写) **接上** `docs/stock/<代码>.json` 里更早的日线 / 月线 (`basesFromTable`)：
     - 日线 = 个股资料里早于 table.json 第一天的部分 + table.json 的 6 个月
     - 月线 = 日线第一个月 (可能不完整) 以及更早的月份用 10 年月线，之后的月份用日线合成
@@ -346,7 +347,7 @@ def detect_t3_pattern(df):
 
 **手机修正 + 其他**
 - 表格数字挤在一起：手机第二排改成 成交额 / 相对量 / RSI / SAR / EMA20 / 涨跌% (成交量藏起来，排序下拉框还能按成交量)，各栏按内容宽度分配 (`1.1rem 1.3fr 1fr 1fr 1.15fr 1.45fr minmax(3.5rem, auto)`)，大数字 3 位有效数字 (`fmt_compact`：81.1M)；测试会检查前 60 行每一格 `scrollWidth ≤ clientWidth`
-- 周期：「分时 ▾」(1 分 ~ 4 小时收进选单，手机上从底部弹出) + 天 / 周 / 月 (`buildTfControl`，卡片工具栏和完整图表共用)
+- 周期：「分时 ▾」(1 分 ~ 4 小时收进选单，手机上 ~~从底部弹出~~ 9/26 第五轮起在按钮下面展开 3×3) + 天 / 周 / 月 (`buildTfControl`，卡片工具栏和完整图表共用)
 - 表格上面的搜索框拿掉 (只留底部搜索栏)，换成快速筛选：★ 自选、SAR 多头、放量 ≥ 2×、RSI < 30、RSI > 70、排除 RM0.10 / $5 以下 (行上的 `data-sar` `data-rv` `data-rsi` `data-px`)
 - **返回手势** (`pushLayer` / `releaseLayer` / `popstate`)：每打开一层对话框 / ☰ 就 `history.pushState` 一格，按返回关最上面那层；用 × / Esc 关的时候自己 `history.back()`。`history.back()` 是异步的，退格还没完成就又开一层的话新的那格等退完再 push (`pendingPush`)；☰ 里点工具 / 自选时，导航那一格直接交给接着打开的对话框 (不然要多按一次返回)；上一支 / 下一支用 `replaceState` 换同一格
 - 深链接：看股票时网址是 `#s=代码`，打开这种链接直接显示那支 (`openFromHash`)；关掉就把 `#s=` 去掉
@@ -362,6 +363,38 @@ def detect_t3_pattern(df):
 **没做的 (跟用户说明过)**：自定义选股条件的推送 (后台要有一套跟网页一样的公式引擎，另外做)；AI 点评照旧只在下载文件 (用户 9/23 要求图表下方只放数据)；美股页面 2.5MB 的进一步瘦身 (信号股 K 线拆文件、走势图按需画)
 
 **验证** (沙箱连不上 Yahoo / Bursa / SEC)：模拟跑 `main()` 马股 / 美股 (mock_run.py 另外假造 screener 的市值等字段、指数、Bursa / SEC 的回应)；回测逐日对齐 (上面)；Playwright 旧的 109 项 + 新的 143 项 (手机 + 电脑 × 马股 + 美股：今日市场、回测、公告栏、周期选单、表格筛选 / 不截断、返回手势、深链接、上一支下一支、自选、计算器数字、名词解释、同比、条件回测)；旧版页面 + 新脚本 14 项
+
+### 📐 条件指标参数 + 回测分类 / 追溯 / 图表 + 分时 90 天 (9/26 第五轮)
+用户原话 (附 iPhone 截图：JSSOLAR 卡片的「分时」选单、图例 "Supertrend 3 1.4"、自定义回测对话框)："1. 后台信号的指标不能自定义参数，例如 super trend 不能改成 (3，1.4) 这些量化数据；可以在 设为后台信号左边栏目中 分类回测数据 以及追溯 2. 包括可以在里面下载回测 csv 可视化图表 3. 在分时中选择不是在图表中出现 而且分时没有过往 90 个交易日数据"
+
+**条件里的指标参数** (report.js `OPERANDS` 的 `params` ↔ engine.py `OPERAND_PARAMS`，**两边一起改**)
+- SAR `{"k":"sar","af":0.03,"mx":0.3}` → `psar(0.03,0.3)`；Supertrend `{"k":"st","n":3,"m":1.4}` → `supertrend(3,1.4)` (n = ATR 周期，整数；m = 倍数)；MACD 线 `{"k":"macd","f":8,"s":21}`；信号线 `{"k":"macds","f":8,"s":21,"g":5}`
+- 默认值不写进规则 (`{"k":"st"}` 还是 Supertrend(10,3))，旧模板、旧 strategy.json 照常能用；改过参数的说明才带括号 (「当前价格 > Supertrend(3,1.4)」)，默认的照旧 (「SAR」「MACD线」)
+- 清洗 (`cleanParam` ↔ `clean_param`)：不是数字 → 默认；夹到范围 (af 0.001~1、mx 0.01~1、n 1~200、m 0.1~20、MACD f 1~200 / s 1~300 / g 1~100)；整数参数四舍五入、小数取 4 位；输入框离开时显示清洗后的值
+- 条件编辑器：选了这几个指标，那一格下面多一排小数字框 (`paramsBox`，跟其他框一样 40px 高)
+- 后台：strategy.json 写 `{"k":"st","n":3,"m":1.4}` → 日志 / 卡片理由「当前价格 > Supertrend(3,1.4) +x%」(scratchpad strat_params.py：写错的参数也会清洗，不会失败)
+- 对照：条件层 132 条 JS vs Python 0 差异 (rule_parity.js)；公式 59 条 (多了 `supertrend(3,1.4)` 等) × 真实数据 = 2,007,711 个值 0 差异 (parity2)
+
+**自定义回测对话框的分页** (report.js「回测：分类 / 追溯 / 图表」那一段 + `openBacktestDialog`)
+- 底部「设为后台信号 ›」左边：总览 / 分类 / 追溯 / 图表 (`.cbt-tabs`)；改条件重算后停在同一个分页
+- **分类** (`BT_GROUPS`、`groupTrades`)：离场原因 / 股票 (先列 15 支，「显示全部 N 支」) / 持有天数 (`HOLD_BUCKETS`：1–2、3–5、6–10、11–20、21 天以上，持有中另一组) / 信号月份；每组 笔数、胜率、期望值、合计 (点)；点股票那一行打开图表
+- **追溯** (`btLogHtml`)：逐笔 (股票、信号 / 进场 / 离场日期和价格、天数、离场原因、收益)，筛选 全部 / 赚 / 亏 / 持有中，先 50 笔「再显示」；点一笔 → `openStockModal` 打开**日线**，`createSeriesMarkers` 标「进」(K线下方箭头) 和「出 ±x%」(上方箭头，赚绿亏红)，第一次自动放大到那一笔前后 (`applyMarks`)；同一支的其他笔也标出来；‹ › 按追溯列表的顺序换股票 (`ctx.marksFor`)
+- **⤓ CSV** (`btTradesCsv`)：BOM + 18 栏中英文表头 (代码 Code、名称 Name、信号日、进场日 / 进场价、离场日 / 离场价、持有天数、离场原因、收益%、扣成本%、MFE%、MAE%、初始风险%、R 倍数、5 / 10 / 20 日%)，文件名 `backtest-my-2026-09-26.csv`
+- **图表** (`btChartsInit`)：累计收益 Equity Curve (Lightweight Charts `BaselineSeries`，0 以上绿、以下红) + 下面一格回撤 (同一张图的 pane 1，高度 3:1)，十字光标显示 日期 / 累计 / 回撤；每月期望值 = SVG 柱状图 (`monthBarsSvg`，有负数时下面留位置给数值)；**⤓ 图片** = `chart.takeScreenshot()` 存 PNG
+- **最大回撤改成按天算** (`trade_stats` ↔ `tradeStats`)：同一天结算的几笔先加起来再算回落 (以前逐笔加，同一天几笔的先后顺序会影响回撤)，跟曲线图一致；每笔多了 `entry_date`
+- 名词解释加 equity (累计收益，共 43 条)
+- 对照：回测 JS vs Python 11 组设定 + 页面上后台算的 vs 浏览器重算，全部栏位 0 差异 (bt_parity.py 比对时去掉 trades 明细)
+
+**分时选单 + 90 天分时**
+- 手机上「分时 ▾」以前从底部弹出一条，被底部搜索栏挡住 (截图里只看得到"2小时")，现在跟电脑一样在按钮下面展开成 3×3 小格 (TOOLS_CSS 的 `.tf-menu` 手机 media)
+- `CHART_SOURCES`：1m `5d` / 5m 59 天 / 15m 59 天 / 60m `6mo` (数字 = `history(start=今天-59天)`)。**Yahoo 的限制**：1m 一次最多 7 天；5m / 15m 只给最近 60 天 (约 40 个交易日)；60m 最多 730 天 → 6 个月约 125 个交易日 (≥ 90)。所以 1 / 2 / 4 小时有 90 天以上，5 ~ 45 分钟最多约 40 天，1 分钟约 5 天
+- 分时太大，不再嵌进页面：`write_card_charts()` → `docs/charts/card/<代码>.json` (`{"v":1,"bars":{"1m","5m","15m","60m"}}`，`compact_bars` 精简格式)；页面卡片只带 1d / 1mo + `intra` (有哪些周期) + `iu` (`charts/card/<代码>.json?v=<哈希>`)；没有信号了的旧文件自动删掉；写失败日志 `⚠️ 写信号股分时K线失败`，页面照常生成 (没有分时)
+- 前端 `loadIntraday`：第一次选分时才下载 (图上写「「4小时」载入中…」，先留在日线)，下载完切过去；完整图表对话框跟卡片共用同一份；失败显示「分时数据载入失败 (…)，显示的是日线」
+- 表格股票照旧只有当天 5 分钟线 (要 90 天就得每支多抓 60m，约 270 支太慢；跟用户说明过)
+- 大小 (按真实K线数量模拟估算，scratchpad size_est.py)：每支信号股约 180KB (马股) / 200KB (美股)，gzip 后约 30KB (GitHub Pages 会压缩)；5m 占最多 (约 80KB)
+
+**验证**：mock 跑马股 / 美股；上面的对照；Playwright ui_test (109) + ui_test2 (184) + ui_extra (15) + ui_xss + 新的 ui_test3 (参数框、Supertrend(3,1.4)、四个分页、分类、追溯筛选、CSV 341 笔、点一笔打开日线 + 标记、图表 + PNG、手机分时选单在按钮下面 / 9 个都点得到、选 4 小时才下载分时文件) 手机 + 电脑全部通过
+- 没验证到：真实 Yahoo (沙箱连不上) —— 5m / 15m 用 `start=` 抓 59 天、60m 6 个月的真实大小和耗时要看合并后的 run；iPhone Safari 真机
 
 ### 🧹 页面文字精简 + ⓘ 说明气泡 (9/26 第四轮，PR #29)
 用户原话："关于 html 里的文字排版 中文解释太多了 可以放到符号 i 里进行解释，使用界面需要干净 简洁整洁"
@@ -707,6 +740,11 @@ CMSA 2007、SC Guidance Note **SC-GN/1-2020 (R2-2024)**、Digital Investment Man
 
 ## 10. 下一步 TODO
 
+- [ ] **第五轮 (条件参数 + 回测分类 / 追溯 / 图表 + 分时 90 天) 的 PR 合并后**：
+  1. 看马股 / 美股 run 日志：`⏱️ 耗时` 的「抓取+指标+日内」多了几秒 (信号股的 5m / 15m 改抓 59 天、60m 改抓 6 个月)；有没有 `⚠️ 写信号股分时K线失败`；`docs/charts/card/` 每支多大 (估计 180~200KB)
+  2. 手机上点「分时 ▾」：选单在按钮下面、9 个都点得到；选 1 小时 / 4 小时往左拖，应该看得到约 6 个月；5 / 15 分钟约 40 个交易日，1 分钟约 5 天
+  3. 自定义回测：条件改 Supertrend(3,1.4) → 分类 / 追溯 / 图表三个分页、⤓ CSV 用 Excel 打开中文不乱码、⤓ 图片存得下来 (iPhone Safari 下载的文件在「文件」App → 下载项)
+  4. 满意的话「设为后台信号」贴进 strategy.json，下一次 run 日志第一行应该写着 Supertrend(3,1.4)
 - [ ] **PR #29 (后台信号自定义 + 回测 v2 + 成交量 + ⓘ 精简) 合并后**：
   1. 看马股 / 美股 run 日志第一行 `🎯 后台策略…` (应该是默认策略、没有 ⚠️)、`🧪 策略回测` 那行 (上个月 / 本月至今 / 合计)，信号数应该跟以前一样
   2. 手机上看表格序号是不是 1、2、3 (不再全是 0)，美股表格徽章是不是代码

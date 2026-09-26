@@ -14,7 +14,7 @@ import pandas_ta as ta
 import requests
 from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from exports import export_downloads
@@ -521,7 +521,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series):
             horizons[hz] = _r((c[q] / entry_px - 1) * 100) if q < n else None
         ret = (c[j] / entry_px - 1) * 100
         out["trades"].append({
-            "sig": dates[i], "sig_ago": n - 1 - i, "entry": entry_px, "exit": c[j], "exit_date": dates[j],
+            "sig": dates[i], "sig_ago": n - 1 - i, "entry_date": dates[e], "entry": entry_px, "exit": c[j], "exit_date": dates[j],
             "days": j - e + 1, "reason": reason, "ret": _r(ret), "net": _r(ret - cost),
             "mfe": _r((hi / entry_px - 1) * 100), "mae": _r((low_ / entry_px - 1) * 100),
             "risk": _r(risk) if risk else None, "h": horizons,
@@ -547,10 +547,14 @@ def trade_stats(trades):
     losses = [x for x in nets if x <= 0]
     streak = max_streak = 0
     equity = peak = mdd = 0.0
+    day_net = {}
     for t in sorted(closed, key=lambda t: (t["exit_date"], t["sig"], t.get("code", ""))):  # 同一天结算的按代码排 (网页同一个顺序)
         streak = streak + 1 if t["net"] <= 0 else 0
         max_streak = max(max_streak, streak)
-        equity += t["net"]
+        day_net[t["exit_date"]] = day_net.get(t["exit_date"], 0.0) + t["net"]
+    # 最大回撤看每天收盘后的累计 (同一天结算的几笔一起算)，跟网页「图表」里的累计收益曲线同一条
+    for d in day_net:  # 按上面排好的顺序加进去的，日期已经由小到大
+        equity += day_net[d]
         peak = max(peak, equity)
         mdd = min(mdd, equity - peak)
     mean = sum(nets) / len(nets) if nets else None
@@ -795,14 +799,19 @@ def get_stock_data(symbol, retries=1, check_volume=True):
 # 信号股K线图的多周期数据: (键, yfinance interval, period, 只保留最近几个交易日)
 # 网页上的 1分~月 这些周期都从这几份数据合成 (例如 10 分 = 两根 5 分，2 小时 = 两根 1 小时，周 = 日线按周合并)。
 # Yahoo 没有秒级数据，所以没有 30 秒；各周期的历史长度受 Yahoo 限制 (1 分钟线最多 7 天、分钟线最多 60 天)。
+# 分时尽量抓长 (9/26 用户要求分时要有过去 90 个交易日)，但 Yahoo 有上限：1 分钟线一次最多 7 天、5 / 15 分钟线只给最近 60 天，
+# 60 分钟线可以到 2 年 → 1 / 2 / 4 小时用 6 个月 (约 125 个交易日)；5 / 15 分钟抓满 60 天 (约 40 个交易日)。
+# 数字 = 往前几天 (用 start 抓，Yahoo 的 period 没有 "60d" 这种写法)。分时K线不放进 index.html，
+# 另外写成 charts/card/<代码>.json，网页选了分时周期才下载 (write_card_charts)
 CHART_SOURCES = [
-    ("1m", "1m", "5d", 2),       # 1 分: 只留最近 2 个交易日，不然网页太大
-    ("5m", "5m", "5d", None),    # 5 分、10 分
-    ("15m", "15m", "1mo", None),  # 15 分、30 分、45 分
-    ("60m", "60m", "3mo", None),  # 1 小时、2 小时、4 小时
+    ("1m", "1m", "5d", None),     # 1 分
+    ("5m", "5m", 59, None),       # 5 分、10 分
+    ("15m", "15m", 59, None),     # 15 分、30 分、45 分
+    ("60m", "60m", "6mo", None),  # 1 小时、2 小时、4 小时
     ("1d", "1d", "2y", None),     # 天、周 (2 年够一目均衡表的先行带 B 画满整张图)
     ("1mo", "1mo", "10y", None),  # 月
 ]
+INTRADAY_SOURCES = ("1m", "5m", "15m", "60m")
 
 
 def local_epoch(ts):
@@ -838,13 +847,19 @@ def get_chart_history(symbol):
     def fetch(source):
         key, interval, period, keep_days = source
         try:
-            df = yf.Ticker(symbol).history(period=period, interval=interval)
+            if isinstance(period, int):
+                start = (datetime.now(LOCAL_TZ) - timedelta(days=period)).strftime("%Y-%m-%d")
+                df = yf.Ticker(symbol).history(start=start, interval=interval)
+            else:
+                df = yf.Ticker(symbol).history(period=period, interval=interval)
             if df is None or df.empty:
                 return key, None
             if keep_days:
                 days = sorted(set(df.index.date))[-keep_days:]
                 df = df[[d in days for d in df.index.date]]
-            return key, bars_payload(df, intraday=interval.endswith("m"))
+            if key in INTRADAY_SOURCES:  # 分时另外存文件，用精简格式 (价格 ×1000 整数、时间只存间隔)，小一半
+                return key, compact_bars(df, intraday=True)
+            return key, bars_payload(df, intraday=False)
         except Exception as e:
             print(f"⚠️ {symbol} {interval} K线获取失败 ({type(e).__name__}: {e})")
             return key, None
@@ -894,6 +909,33 @@ def compact_bars(df, intraday):
 CHARTS_DIR = os.path.join(DOCS_DIR, "charts")
 TABLE_CHARTS_FILE = os.path.join(CHARTS_DIR, "table.json")
 DOWNLOADS_DIR = os.path.join(DOCS_DIR, "downloads")
+
+
+CARD_CHARTS_DIR = os.path.join(CHARTS_DIR, "card")
+
+
+def write_card_charts(stocks):
+    """信号股的分时K线 (1 / 5 / 15 / 60 分钟) 写成 <市场目录>/charts/card/<代码>.json，网页选了分时周期才下载
+    (不放进 index.html：信号多的时候页面会大好几 MB)。返回 {代码: 文件哈希}，网址后面带上防止用到旧缓存；
+    这次不是信号股的旧文件删掉"""
+    os.makedirs(CARD_CHARTS_DIR, exist_ok=True)
+    versions = {}
+    for s in stocks:
+        d = s["data"]
+        if not d or not s["matched"]:
+            continue
+        intra = {k: v for k, v in (d.get("chart_history") or {}).items() if k in INTRADAY_SOURCES and v}
+        if not intra:
+            continue
+        code = s["symbol"].split(".")[0]
+        body = json.dumps({"v": 1, "bars": intra}, separators=(",", ":"))
+        with open(os.path.join(CARD_CHARTS_DIR, f"{code}.json"), "w", encoding="utf-8") as f:
+            f.write(body)
+        versions[code] = {"v": hashlib.sha1(body.encode()).hexdigest()[:10], "keys": sorted(intra)}
+    for name in os.listdir(CARD_CHARTS_DIR):
+        if name.endswith(".json") and name[:-5] not in versions:
+            os.remove(os.path.join(CARD_CHARTS_DIR, name))
+    return versions
 
 
 def write_table_charts(stocks):
@@ -2388,6 +2430,41 @@ MARKET_CSS = """
   .cbt-json { margin: 0 0 0.5rem; padding: 0.5rem 0.6rem; max-height: 16rem; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
     background: var(--page); color: var(--text-primary); font: 0.72rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     white-space: pre-wrap; word-break: break-all; -webkit-user-select: all; user-select: all; }
+  /* 自定义回测: 下面的页签 (总览 / 分类 / 追溯 / 图表) + 各页内容 */
+  .dlg-cbt .dlg-foot { gap: 0.5rem; }
+  .cbt-tabs, .cbt-seg { display: inline-flex; gap: 0.15rem; padding: 0.2rem; border-radius: 10px; background: var(--page); border: 1px solid var(--border); }
+  .cbt-seg { flex-wrap: wrap; margin: 0 0 0.6rem; }
+  .cbt-tabs [role="tab"], .cbt-seg [role="tab"] {
+    font: inherit; font-size: 0.8rem; padding: 0.35rem 0.62rem; border: 0; border-radius: 8px; background: transparent;
+    color: var(--text-secondary); cursor: pointer; white-space: nowrap;
+  }
+  .cbt-tabs [role="tab"][aria-selected="true"], .cbt-seg [role="tab"][aria-selected="true"] {
+    background: var(--surface); color: var(--text-primary); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+  }
+  .cbt-seg small { color: var(--muted); margin-left: 0.15rem; font-weight: 400; }
+  .cbt-vsum { font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 0.6rem; }
+  .cbt-vsum b { color: var(--text-primary); }
+  .cbt-log-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+  .cbt-log-bar .cbt-seg { margin-bottom: 0.5rem; }
+  .dlg .cbt-dl { padding: 0.3rem 0.65rem; font-size: 0.78rem; white-space: nowrap; }
+  .cbt-log td small, .cbt-gtable th small { display: block; font-size: 0.66rem; color: var(--muted); font-weight: 400; }
+  .cbt-log tbody tr, .cbt-gtable tbody tr[data-code] { cursor: pointer; }
+  .cbt-log tbody tr:hover, .cbt-gtable tbody tr[data-code]:hover { background: var(--page); }
+  .cbt-log tbody tr:focus-visible, .cbt-gtable tbody tr:focus-visible { outline: 2px solid var(--ema); outline-offset: -2px; }
+  .cbt-more { margin-top: 0.5rem; }
+  .cbt-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin: 0.3rem 0 0.2rem; }
+  .cbt-chart-head h4 { margin: 0; font-size: 0.86rem; }
+  .cbt-chart-head h4 i { font-style: normal; font-weight: 400; color: var(--muted); font-size: 0.88em; }
+  .cbt-readout { margin: 0 0 0.3rem; font-size: 0.78rem; color: var(--text-secondary); min-height: 1.4em; font-variant-numeric: tabular-nums; }
+  .cbt-readout b { font-size: 0.95rem; margin-right: 0.35rem; }
+  .cbt-eq { width: 100%; height: 280px; margin-bottom: 1.1rem; }
+  .cbt-mo { width: 100%; }
+  .cbt-mo-svg { display: block; overflow: visible; }
+  .cbt-mo-svg .mo-zero { stroke: var(--gridline); stroke-width: 1; }
+  .cbt-mo-svg path.up { fill: var(--up); }
+  .cbt-mo-svg path.down { fill: var(--down); }
+  .cbt-mo-svg .mo-val { font-size: 11px; fill: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .cbt-mo-svg .mo-lbl { font-size: 11px; fill: var(--muted); }
   .info-btn {
     font: inherit; width: 1.5rem; height: 1.5rem; flex: 0 0 auto; display: inline-grid; place-items: center; padding: 0; cursor: pointer;
     border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); font-size: 0.8rem; line-height: 1;
@@ -2494,6 +2571,19 @@ TOOLS_CSS = """
   .tf-intra-btn[aria-selected="true"] { background: var(--page); border-color: var(--border); color: var(--text-primary); font-weight: 600; }
   .tf-menu { width: 180px; }
   .tf-menu .tb-menu-item { padding: 0.5rem 0.7rem; }
+  @media (max-width: 640px) {
+    /* 手机: 其他下拉 (图表类型…) 照旧从底部弹出，但要盖过底部的搜索栏；
+       「分时」改成就在按钮下面弹出的 3 × 3 小格子 (以前从底部弹出、宽度又被 180px 卡住，被搜索栏挡住一半，4 小时点不到) */
+    .tb-menu { z-index: 60; bottom: calc(0.5rem + env(safe-area-inset-bottom)); }
+    .tf-menu {
+      position: absolute; top: calc(100% + 6px); bottom: auto; left: 0; right: auto; z-index: 45;
+      width: min(300px, calc(100vw - 2rem)); max-height: none; overflow: visible;
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.25rem; padding: 0.35rem;
+    }
+    .tf-menu[hidden] { display: none; }
+    .tf-menu .tb-menu-item { justify-content: center; padding: 0.6rem 0.3rem; }
+    .tf-menu .tb-menu-item small { display: none; }
+  }
   .sv-toolbar .tf-compact { flex: 1; }
 
   /* ---- 信号卡片: 上榜理由的数字、SAR 价位 ---- */
@@ -3000,6 +3090,12 @@ STRATEGY_CSS = """
   }
   .rl-del:hover, .rl-del:focus-visible { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); outline: none; }
   .rl-del .ico { width: 15px; height: 15px; }
+  /* 指标参数 (Supertrend 的 ATR / 倍数、SAR、MACD)：条件卡片里多一行小框 */
+  .rl-params { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.7rem; font-size: 0.76rem; color: var(--text-secondary); }
+  .rl-params-t { color: var(--muted); }
+  .rl-pnum { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; }
+  .dlg .rl-row .rl-pnum input.rl-ctl { width: 4.8rem; text-align: right; padding: 0 0.6rem; font-variant-numeric: tabular-nums; -moz-appearance: textfield; } /* 跟其他框一样 40px 高 */
+  .rl-pnum input::-webkit-outer-spin-button, .rl-pnum input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .rl-warn, .rl-err { grid-column: 1 / -1; margin: 0; font-size: 0.76rem; line-height: 1.5; }
   .rl-warn { color: var(--text-secondary); }
   .rl-warn::before { content: "⚠ "; color: #d08a00; }
@@ -3038,7 +3134,7 @@ STRATEGY_CSS = """
     .rl-row.is-bool.has-alen { grid-template-areas: "no a alen op op op del"; }
     .rl-row.is-formula { grid-template-areas: "no f f f f f del"; }
     .rl-no-t { display: none; }
-    .rl-warn, .rl-err { grid-column: 2 / -1; }
+    .rl-warn, .rl-err, .rl-params { grid-column: 2 / -1; }
   }
   /* 没有鼠标的设备 (手机 / 平板)：字号 16px，iPhone 点进去才不会自动放大整页 */
   @media (hover: none) {
@@ -3360,7 +3456,7 @@ def build_board_html(board):
 
 
 # === 7. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
-def build_html_report(stocks, downloads=None, table_charts_version=None, market=None, backtest=None, board=None):
+def build_html_report(stocks, downloads=None, table_charts_version=None, market=None, backtest=None, board=None, card_charts=None):
     now_dt = datetime.now(LOCAL_TZ)
     now = now_dt.strftime("%Y-%m-%d %H:%M")
     state = market_state(now_dt)
@@ -3456,7 +3552,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
             continue
 
         chart_id = f"chart-{code}"
-        bars = dict(data.get("chart_history") or {})
+        bars = {k: v for k, v in (data.get("chart_history") or {}).items() if k not in INTRADAY_SOURCES}
         if "1d" not in bars:
             # 多周期数据整个抓不到时，至少用策略那份 90 天日线把"天"画出来
             candles = data["candles"]
@@ -3467,6 +3563,9 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
                 "v": [c["volume"] for c in candles],
             }
         chart_payload[chart_id] = {"bars": bars}
+        card = (card_charts or {}).get(code)
+        if card:  # 分时在另外的文件 (选了分时周期才下载)
+            chart_payload[chart_id].update({"intra": card["keys"], "iu": f"charts/card/{code}.json?v={card['v']}"})
 
         prev_close = round(data["prev_close"], 3) if data["prev_close"] else None
         change = data["close"] - prev_close if prev_close else 0
@@ -4078,6 +4177,11 @@ def main():
         table_charts_version = write_table_charts(stocks)
     except Exception as e:
         print(f"⚠️ 写表格股票K线失败 ({type(e).__name__}: {e})，这次点表格看不了完整图表、选股条件也只算得了信号股")
+    card_charts = {}
+    try:
+        card_charts = write_card_charts(stocks)
+    except Exception as e:
+        print(f"⚠️ 写信号股分时K线失败 ({type(e).__name__}: {e})，这次信号卡片只有天 / 周 / 月线")
     try:
         tried, written, with_fin, pruned = refresh_details(stocks, today_local)
         if tried or pruned:
@@ -4123,7 +4227,7 @@ def main():
     t_report = time.perf_counter()
     os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
     with open(REPORT_PATH, "w", encoding="utf-8") as f:
-        f.write(build_html_report(stocks, downloads, table_charts_version, market=market, backtest=backtest, board=board))
+        f.write(build_html_report(stocks, downloads, table_charts_version, market=market, backtest=backtest, board=board, card_charts=card_charts))
     try:
         write_manifest()
     except OSError as e:

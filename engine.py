@@ -695,6 +695,15 @@ OPERANDS = {
     "rvol": ("ratio", 20, "volume/ref(sma(volume,{n}),1)", "相对量({n})"),
     "t3": ("bool", None, "t3()", "T3 形态突破"),
 }
+# 可以调参数的指标 (report.js OPERANDS 的 params)：(键, 默认值, 最小, 最大, 是否整数)。跟默认值一样的参数不存进规则，
+# 公式 / 名称也跟以前一样 (例如 {"k": "st"} = supertrend() = "Supertrend(10,3)"；{"k": "st", "n": 3, "m": 1.4} = supertrend(3,1.4))
+OPERAND_PARAMS = {
+    "sar": (("af", 0.02, 0.001, 1, False), ("mx", 0.2, 0.01, 1, False)),
+    "st": (("n", 10, 1, 200, True), ("m", 3, 0.1, 20, False)),
+    "macd": (("f", 12, 1, 200, True), ("s", 26, 1, 300, True)),
+    "macds": (("f", 12, 1, 200, True), ("s", 26, 1, 300, True), ("g", 9, 1, 100, True)),
+}
+NUM_TEXT = re.compile(r"^\s*[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?\s*$")
 RULE_OPS = {">": ">", "<": "<", ">=": "≥", "<=": "≤", "crossup": "上穿", "crossdown": "下穿"}
 MAX_LEN = 500
 PRICE_ROUND = 3
@@ -716,6 +725,46 @@ def num_literal(v):
     return "0" if txt in ("-0", "") else txt
 
 
+def clean_param(v, spec):
+    """跟 report.js cleanParam 一样：只认数字 (或写成数字的字符串)，夹在范围内，整数参数四舍五入 (JS Math.round)，小数取 4 位 (JS toFixed)"""
+    _, default, lo, hi, is_int = spec
+    if isinstance(v, bool) or not (isinstance(v, (int, float)) or (isinstance(v, str) and NUM_TEXT.match(v))):
+        return default
+    x = float(v)
+    if x != x or x in (INF, -INF):
+        return default
+    x = max(lo, min(hi, x))
+    return int(math.floor(x + 0.5)) if is_int else js_round(x, 4)
+
+
+def ref_params(ref):
+    return {spec[0]: clean_param(ref.get(spec[0]), spec) for spec in OPERAND_PARAMS[ref["k"]]}
+
+
+def is_default_params(k, p):
+    return all(p[spec[0]] == spec[1] for spec in OPERAND_PARAMS[k])
+
+
+def _param_formula(k, p, dflt):
+    if k == "sar":
+        return "psar()" if dflt else f"psar({num_literal(p['af'])},{num_literal(p['mx'])})"
+    if k == "st":
+        return "supertrend()" if dflt else f"supertrend({p['n']},{num_literal(p['m'])})"
+    if k == "macd":
+        return f"ema(close,{p['f']})-ema(close,{p['s']})"
+    return f"ema(ema(close,{p['f']})-ema(close,{p['s']}),{p['g']})"  # macds
+
+
+def _param_label(k, p, dflt):
+    if k == "sar":
+        return "SAR" if dflt else f"SAR({num_literal(p['af'])},{num_literal(p['mx'])})"
+    if k == "st":
+        return f"Supertrend({p['n']},{num_literal(p['m'])})"
+    if k == "macd":
+        return "MACD线" if dflt else f"MACD线({p['f']},{p['s']})"
+    return "MACD信号线" if dflt else f"MACD信号线({p['f']},{p['s']},{p['g']})"
+
+
 def is_bool_operand(ref):
     return bool(ref and ref.get("k") in OPERANDS and OPERANDS[ref["k"]][0] == "bool")
 
@@ -724,7 +773,11 @@ def operand_formula(ref):
     if ref["k"] == "num":
         return num_literal(ref["v"])
     unit, default, tpl, _ = OPERANDS[ref["k"]]
-    f = tpl.replace("{n}", str(clamp_len(ref.get("n"), default))) if default else tpl
+    if ref["k"] in OPERAND_PARAMS:
+        p = ref_params(ref)
+        f = _param_formula(ref["k"], p, is_default_params(ref["k"], p))
+    else:
+        f = tpl.replace("{n}", str(clamp_len(ref.get("n"), default))) if default else tpl
     return f"round({f},{PRICE_ROUND})" if unit == "price" else f
 
 
@@ -732,6 +785,9 @@ def operand_label(ref):
     if ref["k"] == "num":
         return num_literal(ref["v"])
     unit, default, _, short = OPERANDS[ref["k"]]
+    if ref["k"] in OPERAND_PARAMS:
+        p = ref_params(ref)
+        return _param_label(ref["k"], p, is_default_params(ref["k"], p))
     return short.replace("{n}", str(clamp_len(ref.get("n"), default))) if default else short
 
 
@@ -772,6 +828,11 @@ def clean_ref(ref, allow_num):
     d = OPERANDS.get(ref.get("k"))
     if not d:
         return None
+    if ref["k"] in OPERAND_PARAMS:  # 跟默认值不一样的参数才存
+        p = ref_params(ref)
+        out = {"k": ref["k"]}
+        out.update({spec[0]: p[spec[0]] for spec in OPERAND_PARAMS[ref["k"]] if p[spec[0]] != spec[1]})
+        return out
     return {"k": ref["k"], "n": clamp_len(ref.get("n"), d[1])} if d[1] else {"k": ref["k"]}
 
 
