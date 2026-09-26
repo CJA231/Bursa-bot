@@ -32,6 +32,7 @@ MARKETS = {
         "name": "马股",
         "title": "马股自动分析报告",
         "universe": "Bursa 全部上市股票 (Main + ACE)",
+        "universe_short": "Main + ACE",
         "docs_dir": "docs",
         "url": "https://cja231.github.io/Bursa-bot/",
         "tz": "Asia/Kuala_Lumpur",
@@ -79,6 +80,7 @@ MARKETS = {
         "name": "美股",
         "title": "美股自动分析报告",
         "universe": "市值 ≥ 100 亿美元的美股 (纽交所 / 纳斯达克)",
+        "universe_short": "市值 ≥ $10B",
         "docs_dir": os.path.join("docs", "us"),
         "url": "https://cja231.github.io/Bursa-bot/us/",
         "tz": "America/New_York",     # 夏令时自动处理 (日内K线时间也按当天的 UTC 偏移换算，见 local_epoch)
@@ -362,8 +364,7 @@ def exit_labels(ex):
 
 
 def strategy_note_text():
-    return (f"后台策略「{STRATEGY['name']}」：{'、'.join(STRATEGY_LABELS)} ({'任一满足' if STRATEGY['match'] == 'any' else '全部满足'})，"
-            f"筛出来的股票附多周期 K 线图")
+    return f"后台策略「{STRATEGY['name']}」：{'、'.join(STRATEGY_LABELS)} ({'任一满足' if STRATEGY['match'] == 'any' else '全部满足'})"
 
 
 def rule_tags(ctx):
@@ -397,6 +398,7 @@ def rule_tags(ctx):
 BT_HORIZONS = (5, 10, 20)
 BT_START = 25             # 前 25 根K线当暖身 (指标还没算出来)，从第 26 根开始找信号
 BT_RECENT_BARS = 20       # "最近信号"列出最近 20 个交易日里出现过的信号
+BT_RECENT_SHOW = 10       # 先显示 10 条，其余按「显示全部」(CSS .bt-recent:not(.all) 藏起来)
 BT_DIST_EDGES = (-10, -5, 0, 5, 10)  # 收益分布: < -10%、-10~-5、-5~0、0~5、5~10、> 10%
 EXIT_REASON_LABELS = {
     "stop": "止损 Stop Loss", "swing": "跌破波段低点 Swing-Low Break", "sar": "SAR 转空 SAR Flip",
@@ -1573,6 +1575,22 @@ def display_name(code, name):
     return name_pair(code, name)[0]
 
 
+def info_btn(gloss, label, tip=""):
+    """标题旁边的 ⓘ：点一下弹出说明气泡 (report.js)。gloss = 名词解释里那一条，tip = 这里专用的说明 (可以带当天的数字，\n 分段)"""
+    tip_attr = f' data-tip="{html.escape(tip)}"' if tip else ""
+    return f'<button type="button" class="info-btn" data-gloss="{gloss}"{tip_attr} aria-label="{html.escape(label)}说明" aria-expanded="false">ⓘ</button>'
+
+
+def tip_attrs(gloss="", tip="", cls=""):
+    """名称 / 数字格子点一下弹出说明 (虚线底)：加在元素上的属性 (cls = 元素本来的 class)"""
+    out = f' class="{cls + " " if cls else ""}has-tip" tabindex="0" role="button" aria-expanded="false"'
+    if gloss:
+        out += f' data-gloss="{gloss}"'
+    if tip:
+        out += f' data-tip="{html.escape(tip)}"'
+    return out
+
+
 def pct_text(v, digits=1, plus=True):
     if v is None:
         return "—"
@@ -1715,7 +1733,7 @@ UI_CSS = """
   .dlg-body { padding: 0 1rem 1rem; overflow: auto; flex: 1; min-height: 0; }
   .dlg-foot { display: flex; align-items: center; gap: 0.5rem; padding: 0.7rem 1rem; border-top: 1px solid var(--border); }
   .dlg-foot .grow { flex: 1; }
-  .dlg button:not(.dlg-x):not(.ind-row-main):not(.ind-nav-item):not(.ind-star):not([role="tab"]):not(.rl-btn),
+  .dlg button:not(.dlg-x):not(.ind-row-main):not(.ind-nav-item):not(.ind-star):not([role="tab"]):not(.rl-btn):not(.info-btn),
   .dlg select, .dlg input[type="text"], .dlg input[type="number"], .dlg input[type="search"], .dlg textarea {
     font: inherit; font-size: 0.85rem; color: var(--text-primary);
     background: var(--page); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.65rem;
@@ -2272,6 +2290,7 @@ MARKET_CSS = """
   .mk-bar .down { background: var(--down); }
   .mk-counts { display: flex; justify-content: space-between; margin-top: 0.45rem; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
   .mk-note { margin: 0.4rem 0 0; font-size: 0.72rem; color: var(--muted); line-height: 1.5; }
+  .mk-breadth .mk-note span { display: block; }
   .mk-movers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; margin-top: 0.7rem; }
   .mk-group { min-width: 0; }
   .mk-group h4 { margin: 0 0 0.35rem; font-size: 0.72rem; font-weight: 500; color: var(--text-secondary); }
@@ -2289,13 +2308,21 @@ MARKET_CSS = """
   .bt-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.6rem; }
   .bt-head h4 { margin: 0; font-size: 0.92rem; }
   .bt-sub { font-size: 0.74rem; color: var(--muted); }
-  .bt-head .info-btn { margin-left: auto; }
   .bt-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; margin: 0.6rem 0 0; }
   .bt-tiles > div, .bt-risk > div { background: var(--page); border-radius: 8px; padding: 0.5rem 0.65rem; min-width: 0; }
   .bt-tiles dt, .bt-risk dt { font-size: 0.7rem; color: var(--text-secondary); }
   .bt-tiles dd { margin: 0.1rem 0 0; font-size: 1.2rem; font-weight: 650; font-variant-numeric: tabular-nums; }
   .bt-tiles small, .bt-risk small { display: block; margin-top: 0.1rem; font-size: 0.66rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bt-vs { margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.6; }
+  /* 10 日平均 / 基准 / 超额: 一排三个小数字 */
+  .bt-vs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; margin: 0.6rem 0 0; padding: 0.5rem 0.7rem;
+    background: var(--page); border-radius: 8px; }
+  .bt-vs span { display: block; font-size: 0.68rem; color: var(--text-secondary); }
+  .bt-vs b { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+  .bt-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .bt-recent:not(.all) tbody tr:nth-child(n+11) { display: none; }
+  .bt-all { margin-top: 0.5rem; }
+  .bt-chip { font-size: 0.74rem; padding: 0.18rem 0.55rem; border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary); }
+  .bt-chip b { color: var(--text-primary); margin-left: 0.15rem; font-variant-numeric: tabular-nums; }
   .bt-more { margin-top: 0.6rem; border-top: 1px solid var(--border); padding-top: 0.55rem; }
   .bt-more summary { cursor: pointer; font-size: 0.82rem; font-weight: 500; color: var(--text-primary); }
   .bt-more h5 { margin: 1rem 0 0.4rem; font-size: 0.82rem; }
@@ -2321,11 +2348,8 @@ MARKET_CSS = """
   .bt-bin.neg .bt-bin-bar { background: var(--down); }
   .bt-bin.pos .bt-bin-bar { background: var(--up); }
   .bt-bin small { color: var(--muted); font-size: 0.62rem; white-space: nowrap; }
-  .bt-method { margin-top: 0.9rem; }
   .bt-head h4 i, .bt-tiles dt i, .bt-risk dt i, .cbt h4 i { font-style: normal; font-weight: 400; color: var(--muted); font-size: 0.88em; }
-  .bt-custom { padding: 0.28rem 0.65rem; font-size: 0.76rem; }
-  .bt-rule { margin: 0.45rem 0 0.2rem; font-size: 0.76rem; line-height: 1.6; color: var(--text-secondary); }
-  .bt-rule b { color: var(--text-primary); font-weight: 600; margin-right: 0.25rem; }
+  .bt-custom { padding: 0.28rem 0.65rem; font-size: 0.76rem; margin-left: auto; }
   .bt-win { margin-top: 0.4rem; }
   .bt-win thead th b { display: block; color: var(--text-primary); font-weight: 600; font-size: 0.76rem; }
   .bt-win th small, .bt-win td small { display: block; font-size: 0.66rem; color: var(--muted); font-weight: 400; }
@@ -2369,6 +2393,31 @@ MARKET_CSS = """
     border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); font-size: 0.8rem; line-height: 1;
   }
   .info-btn:hover { color: var(--text-primary); border-color: color-mix(in srgb, var(--text-primary) 30%, transparent); }
+  .info-btn[aria-expanded="true"] { color: var(--surface); background: var(--text-primary); border-color: var(--text-primary); }
+  /* 标题旁边的 ⓘ: 小一号、跟文字同一行 */
+  p .info-btn { width: 1.15rem; height: 1.15rem; font-size: 0.64rem; margin-left: 0.3rem; vertical-align: 0.1em; }
+  h2 .info-btn, h3 .info-btn, h4 .info-btn, h5 .info-btn, .sp-title .info-btn { width: 1.25rem; height: 1.25rem; font-size: 0.7rem; margin-left: 0.35rem; vertical-align: 0.12em; font-weight: 400; }
+  /* 点一下看说明的名称 / 数字格子 (虚线底) */
+  .has-tip { cursor: help; }
+  .has-tip .tl, .quote-grid .has-tip > dt { text-decoration: underline dotted color-mix(in srgb, var(--text-secondary) 60%, transparent); text-underline-offset: 3px; }
+  .has-tip:focus-visible { outline: 2px solid var(--ema); outline-offset: 2px; border-radius: 4px; }
+  /* ⓘ 说明气泡 */
+  .tip-pop {
+    position: fixed; z-index: 65; width: min(320px, calc(100vw - 24px)); box-sizing: border-box; padding: 0.7rem 0.85rem 0.6rem;
+    background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); font-size: 0.8rem; line-height: 1.65;
+  }
+  .tip-body { max-height: calc(100vh - 48px); overflow-y: auto; }
+  .tip-pop::before {
+    content: ""; position: absolute; top: -6px; left: calc(var(--caret, 50%) - 6px); width: 10px; height: 10px; transform: rotate(45deg);
+    background: var(--surface); border-left: 1px solid var(--border); border-top: 1px solid var(--border);
+  }
+  .tip-pop.above::before { top: auto; bottom: -6px; transform: rotate(225deg); }
+  .tip-pop.no-caret::before { display: none; }
+  .tip-pop b { display: block; font-size: 0.84rem; margin-bottom: 0.15rem; }
+  .tip-pop p { margin: 0 0 0.35rem; color: var(--text-secondary); }
+  .tip-pop .tip-extra { color: var(--text-primary); }
+  .tip-more { font: inherit; font-size: 0.74rem; padding: 0; border: 0; background: none; color: var(--ema); cursor: pointer; }
 
   /* ---- 公司公告栏 ---- */
   .ann-filter { display: flex; gap: 0.35rem; overflow-x: auto; scrollbar-width: none; padding: 0 0 0.15rem; margin: 0 0 0.55rem; }
@@ -2547,6 +2596,7 @@ TOOLS_CSS = """
   .calc-out .calc-use { margin: 0.5rem 0 0.4rem; }
   .calc-fees { margin-top: 0.8rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
   .calc-fees summary { cursor: pointer; font-size: 0.82rem; font-weight: 500; margin-bottom: 0.6rem; }
+  .calc-fee-foot { display: flex; align-items: center; gap: 0.5rem; margin: 0.6rem 0 0; }
 
   /* ---- 名词解释 ---- */
   .dlg.dlg-gloss { width: min(620px, 100%); }
@@ -3008,7 +3058,7 @@ def build_dashboard_html(signal_count, stock_count, updated, downloads_html=""):
     因为模板存在浏览器的 localStorage 里，后台不知道；「条件命中」的数字也是 report.js 算完填进 #dash-hits。"""
     markets = []
     for mid, m in MARKETS.items():
-        label = f'<b>{html.escape(m["name"])}</b><small>{html.escape(m["universe"])}</small>'
+        label = f'<b>{html.escape(m["name"])}</b><small>{html.escape(m["universe_short"])}</small>'
         if mid == MARKET_ID:
             markets.append(f'<a class="dash-mkt on" href="./" aria-current="page">{label}</a>')
         elif os.path.exists(os.path.join(m["docs_dir"], "index.html")):
@@ -3028,11 +3078,10 @@ def build_dashboard_html(signal_count, stock_count, updated, downloads_html=""):
     <h2 id="dash-h-ov">概览</h2>
     <dl class="dash-stats">
       <div><dt>后台信号</dt><dd>{signal_count}</dd></div>
-      <div><dt>报告内股票</dt><dd>{stock_count}</dd></div>
+      <div title="{html.escape(MKT["universe"])}，成交量达标的才进报告"><dt>报告内股票</dt><dd>{stock_count}</dd></div>
       <div><dt>条件命中</dt><dd id="dash-hits" title="当前模板的选股条件在报告里命中几支">—</dd></div>
       <div><dt>更新时间</dt><dd class="dash-time">{html.escape(updated)}</dd></div>
     </dl>
-    <p class="dash-note">扫描范围：{html.escape(MKT["universe"])}；成交量达标的股票才会进报告。</p>
     <ul class="dash-links">
       <li><a href="#sec-market">今日市场</a></li>
       <li><a href="#sec-screener">筛选器</a></li>
@@ -3045,8 +3094,8 @@ def build_dashboard_html(signal_count, stock_count, updated, downloads_html=""):
   <section class="dash-sec" aria-labelledby="dash-h-tools">
     <h2 id="dash-h-tools">工具</h2>
     <div class="dash-tools">
-      <button type="button" class="dash-tool" data-dash="calc"><b>股票计算器</b><small>手续费、印花税、保本价、按风险算股数</small></button>
-      <button type="button" class="dash-tool" data-dash="gloss"><b>名词解释</b><small>SAR、T3 形态、相对量、胜率、盈亏比…</small></button>
+      <button type="button" class="dash-tool" data-dash="calc"><b>股票计算器</b></button>
+      <button type="button" class="dash-tool" data-dash="gloss"><b>名词解释</b></button>
     </div>
   </section>
   <section class="dash-sec" aria-labelledby="dash-h-watch">
@@ -3070,13 +3119,13 @@ def market_state(now):
 
 
 def state_badge_html(state, delay):
+    """标题旁的「盘中 / 开市前 / 已收盘」小标签，点一下弹出说明 (报价延迟几分钟也写在说明里)"""
     if state == "live":
-        note = f"，报价约延迟 {delay} 分钟" if delay else ""
-        return (f'<span class="mstate live" title="信号用的是还没收完的日线，收盘前可能变化{note}">'
-                f'盘中 · 未收盘{note}</span>')
+        tip = "信号用的是还没收完的日线，收盘前可能变化" + (f"；报价约延迟 {delay} 分钟" if delay else "")
+        return f'<span{tip_attrs("state", tip, "mstate live")}>盘中</span>'
     if state == "pre":
-        return '<span class="mstate" title="今天还没开市，数字是上一个交易日的">开市前 · 上一交易日数据</span>'
-    return '<span class="mstate closed" title="数字是当天收盘后的">已收盘</span>'
+        return f'<span{tip_attrs("state", "今天还没开市，数字是上一个交易日的", "mstate")}>开市前</span>'
+    return f'<span{tip_attrs("state", "", "mstate closed")}>已收盘</span>'
 
 
 def change_pct_of(data):
@@ -3107,12 +3156,13 @@ def build_market_html(market, stocks):
     <div class="mk-bar" role="img" aria-label="上涨 {b['up']} 家，平盘 {b['flat']} 家，下跌 {b['down']} 家">
       <span class="up" style="width:{w(b['up'])}"></span><span class="flat" style="width:{w(b['flat'])}"></span><span class="down" style="width:{w(b['down'])}"></span></div>
     <div class="mk-counts"><span class="change-up">涨 {b['up']}</span><span class="change-neutral">平 {b['flat']}</span><span class="change-down">跌 {b['down']}</span></div>
-    <p class="mk-note">全市场 {b['total']} 支 · 成交额 {CURRENCY_SYMBOL} {fmt_compact(b['turnover'])} · 52 周新高 {b['highs']} / 新低 {b['lows']}</p>
+    <p class="mk-note"><span>成交额 {CURRENCY_SYMBOL} {fmt_compact(b['turnover'])}</span><span>新高 {b['highs']} · 新低 {b['lows']}</span></p>
   </div>""")
     if tiles:
         parts.append(f'<div class="mk-row">{"".join(tiles)}</div>')
 
     listed = [s for s in stocks if s["data"]]
+    tip = [f"全市场 {b['total']} 支：涨 {b['up']} · 平 {b['flat']} · 跌 {b['down']}"] if b else []
     if listed:
         def chip(s, value, cls):
             code = s["symbol"].split(".")[0]
@@ -3132,21 +3182,23 @@ def build_market_html(market, stocks):
         pairs = [(s["data"]["turnover"], s["data"]["turnover_avg20"]) for s in listed if s["data"].get("turnover_avg20")]
         base_sum = sum(b2 for _, b2 in pairs)
         ratio = sum(a for a, _ in pairs) / base_sum if pairs and base_sum else None
-        note = (f'<p class="mk-note">报告里 {len(listed)} 支股票今天的成交额是前 20 天平均的 {ratio:.2f} 倍；'
-                f'涨跌榜只看成交额 ≥ {CURRENCY_SYMBOL} {fmt_compact(MOVER_MIN_TURNOVER)} 的股票</p>') if ratio else ""
+        if ratio:
+            tip.append(f"报告里 {len(listed)} 支股票今天的成交额是前 20 天平均的 {ratio:.2f} 倍")
+        tip.append(f"涨跌榜只看成交额 ≥ {CURRENCY_SYMBOL} {fmt_compact(MOVER_MIN_TURNOVER)} 的股票")
         if groups:
             parts.append('<div class="mk-movers">' + "".join(f'<div class="mk-group"><h4>{t}</h4><div>{c}</div></div>' for t, c in groups)
-                         + "</div>" + note)
+                         + "</div>")
     if not parts:
         return ""
     return (f'<section class="market" id="sec-market" aria-labelledby="sec-market-h">'
-            f'<h2 class="section" id="sec-market-h">今日市场</h2>{"".join(parts)}</section>')
+            f'<h2 class="section" id="sec-market-h">今日市场{info_btn("market", "今日市场", chr(10).join(tip))}</h2>{"".join(parts)}</section>')
 
 
 def build_backtest_html(bt):
     """"后台信号"下面的策略回测区块 (纯 HTML，不开 JS 也看得到)。
-    上面：上一个完整月份 (基准) / 本月至今 / 合计 三栏；展开：近 6 个月全部数据、月度表现、最近的信号。
-    术语中文 + 英文 (Win Rate、Expectancy、Profit Factor…)。「自定义回测」由 report.js 打开"""
+    上面：上个月 (基准) / 本月至今 / 合计 三栏 + 10 日平均 vs 基准；「详细数据」展开：全部、月度、固定天数涨跌、风险报酬、分布、最近信号。
+    画面上只放数字和名称 (中文 + 英文)，规则、公式都收在 ⓘ / 名称的虚线里 (点一下弹出)。网页「自定义回测」用 report.js
+    backtestResultHtml 画同一套版面，改的话两边一起改"""
     if not bt:
         return ""
 
@@ -3163,56 +3215,69 @@ def build_backtest_html(bt):
         # 最大回撤是"每笔同样本金、收益一笔一笔加起来"的回落，单位是百分点 (单笔本金 = 100 点)，写成 % 会被看成亏超过 100%
         return "—" if v is None else f"{v:.1f} 点"
 
+    def diff(x, y):
+        return None if x is None or y is None else x - y
+
+    def label(zh, gloss):
+        """名称：有名词解释的带虚线，点一下弹出说明"""
+        return f'<span{tip_attrs(gloss)}><span class="tl">{zh}</span></span>' if gloss else zh
+
+    def h5(zh, en, gloss=""):
+        return f'<h5>{label(zh, gloss)} <small>{en}</small></h5>'
+
     a = bt["all"]
     # 三个时间窗口 (上个月 / 本月至今 / 合计)
     rows = [
-        ("信号笔数", "Trades", lambda w: f'{w["n"]}<small>已结算\u00a0{w["closed"]} · 持有中\u00a0{w["open"]}</small>', lambda w: ""),
-        ("胜率", "Win Rate", lambda w: pct(w["win_rate"]), lambda w: ""),
-        ("期望值", "Expectancy", lambda w: pct_text(w["avg"], 2), lambda w: cls(w["avg"])),
-        ("盈亏比", "Payoff Ratio", lambda w: num(w["payoff"]), lambda w: ""),
-        ("获利因子", "Profit Factor", lambda w: num(w["pf"]), lambda w: ""),
-        ("最大回撤", "Max Drawdown", lambda w: pts(w["mdd"]), lambda w: "change-down" if w["mdd"] else ""),
-        ("持有中浮动", "Open P/L", lambda w: pct_text(w["open_avg"], 2) if w["open"] else "—", lambda w: cls(w["open_avg"]) if w["open"] else ""),
+        ("信号笔数", "Trades", "", lambda w: f'{w["n"]}' + (f'<small>持有 {w["open"]}</small>' if w["open"] else ""), lambda w: ""),
+        ("胜率", "Win Rate", "winrate", lambda w: pct(w["win_rate"]), lambda w: ""),
+        ("期望值", "Expectancy", "expectancy", lambda w: pct_text(w["avg"], 2), lambda w: cls(w["avg"])),
+        ("盈亏比", "Payoff Ratio", "payoff", lambda w: num(w["payoff"]), lambda w: ""),
+        ("获利因子", "Profit Factor", "pf", lambda w: num(w["pf"]), lambda w: ""),
+        ("最大回撤", "Max Drawdown", "mdd", lambda w: pts(w["mdd"]), lambda w: "change-down" if w["mdd"] else ""),
+        ("持有中浮动", "Open P/L", "openpl", lambda w: pct_text(w["open_avg"], 2) if w["open"] else "—", lambda w: cls(w["open_avg"]) if w["open"] else ""),
     ]
     heads = "".join(f'<th class="num"><b>{html.escape(w["label"])}</b><small>{w["start"][5:].replace("-", "/")} ~ {w["end"][5:].replace("-", "/")}</small></th>'
                     for w in bt["windows"])
-    body = "".join(f'<tr><th scope="row">{zh}<small>{en}</small></th>' + "".join(f'<td class="num {c(w)}">{f(w)}</td>' for w in bt["windows"]) + "</tr>"
-                   for zh, en, f, c in rows)
-    windows = f'<div class="bt-table-wrap"><table class="bt-table bt-win"><thead><tr><th>指标 Metric</th>{heads}</tr></thead><tbody>{body}</tbody></table></div>'
+    body = "".join(f'<tr><th scope="row">{label(zh, g)}<small>{en}</small></th>' + "".join(f'<td class="num {c(w)}">{f(w)}</td>' for w in bt["windows"]) + "</tr>"
+                   for zh, en, g, f, c in rows)
+    windows = f'<div class="bt-table-wrap"><table class="bt-table bt-win"><thead><tr><th>指标</th>{heads}</tr></thead><tbody>{body}</tbody></table></div>'
 
     h10 = next((h for h in bt["horizons"] if h["h"] == 10), None)
     vs = ""
     if h10 and h10["avg"] is not None and h10["base_avg"] is not None:
-        vs = (f'<p class="bt-vs">信号后 10 个交易日平均 <b class="{cls(h10["avg"])}">{pct_text(h10["avg"], 2)}</b>，'
-              f'同期任意一天买进 (基准 Benchmark) <b class="{cls(h10["base_avg"])}">{pct_text(h10["base_avg"], 2)}</b>，'
-              f'超额 Excess <b class="{cls(h10["avg"] - h10["base_avg"])}">{pct_text(h10["avg"] - h10["base_avg"], 2)}</b> (都没扣成本)</p>')
+        ex = diff(h10["avg"], h10["base_avg"])
+        vs = (f'<div class="bt-vs"{tip_attrs("forward")}>'
+              f'<div><span class="tl">10 日平均</span><b class="{cls(h10["avg"])}">{pct_text(h10["avg"], 2)}</b></div>'
+              f'<div><span>基准 Benchmark</span><b class="{cls(h10["base_avg"])}">{pct_text(h10["base_avg"], 2)}</b></div>'
+              f'<div><span>超额 Excess</span><b class="{cls(ex)}">{pct_text(ex, 2)}</b></div></div>')
 
     tiles = [
-        ("胜率", "Win Rate", pct(a["win_rate"]), "", f'已结算 {a["closed"]} 笔'),
-        ("期望值", "Expectancy", pct_text(a["avg"], 2), cls(a["avg"]), f'中位 Median {pct_text(a["median"], 2)}'),
-        ("盈亏比", "Payoff Ratio", num(a["payoff"]), "", f'赚 {pct_text(a["avg_win"], 1)} / 亏 {pct_text(a["avg_loss"], 1)}'),
-        ("获利因子", "Profit Factor", num(a["pf"]), "", "总赚 ÷ 总亏"),
-        ("最大回撤", "Max Drawdown", pts(a["mdd"]), "change-down" if a["mdd"] else "", "单笔本金 = 100 点"),
-        ("平均持有", "Avg Holding", f'{num(a["avg_days"], 1)} 天' if a["avg_days"] is not None else "—", "", "交易日"),
-        ("系统品质", "SQN", num(a["sqn"]), "", "√n × 平均 ÷ 标准差"),
-        ("最多连亏", "Max Consec. Losses", f'{a["max_streak"]} 笔', "", "按结算日期排"),
+        ("胜率", "Win Rate", "winrate", pct(a["win_rate"]), "", f'已结算 {a["closed"]} 笔'),
+        ("期望值", "Expectancy", "expectancy", pct_text(a["avg"], 2), cls(a["avg"]), f'中位 {pct_text(a["median"], 2)}'),
+        ("盈亏比", "Payoff Ratio", "payoff", num(a["payoff"]), "", f'{pct_text(a["avg_win"], 1)} / {pct_text(a["avg_loss"], 1)}'),
+        ("获利因子", "Profit Factor", "pf", num(a["pf"]), "", ""),
+        ("最大回撤", "Max Drawdown", "mdd", pts(a["mdd"]), "change-down" if a["mdd"] else "", ""),
+        ("平均持有", "Avg Holding", "", f'{num(a["avg_days"], 1)} 天' if a["avg_days"] is not None else "—", "", ""),
+        ("系统品质", "SQN", "sqn", num(a["sqn"]), "", ""),
+        ("最多连亏", "Max Losing Streak", "", f'{a["max_streak"]} 笔', "", ""),
     ]
-    tiles_html = "".join(f'<div><dt>{zh} <i>{en}</i></dt><dd class="{c}">{v}</dd><small>{sub}</small></div>' for zh, en, v, c, sub in tiles)
+    tiles_html = "".join(f'<div{tip_attrs(g) if g else ""}><dt><span class="tl">{zh}</span> <i>{en}</i></dt><dd class="{c}">{v}</dd>'
+                         + (f'<small>{sub}</small>' if sub else "") + "</div>" for zh, en, g, v, c, sub in tiles)
     hz_rows = "".join(
         f'<tr><th scope="row">{h["h"]} 天</th><td class="num {cls(h["avg"])}">{pct_text(h["avg"], 2)}</td><td class="num">{pct(h["win"])}</td>'
-        f'<td class="num {cls(h["base_avg"])}">{pct_text(h["base_avg"], 2)}</td><td class="num">{pct(h["base_win"])}</td>'
-        f'<td class="num {cls(None if h["avg"] is None or h["base_avg"] is None else h["avg"] - h["base_avg"])}">'
-        f'{pct_text(None if h["avg"] is None or h["base_avg"] is None else h["avg"] - h["base_avg"], 2)}</td><td class="num">{h["n"]}</td></tr>'
+        f'<td class="num {cls(h["base_avg"])}">{pct_text(h["base_avg"], 2)}</td>'
+        f'<td class="num {cls(diff(h["avg"], h["base_avg"]))}">{pct_text(diff(h["avg"], h["base_avg"]), 2)}</td><td class="num">{h["n"]}</td></tr>'
         for h in bt["horizons"])
     risk = [
-        ("初始风险", "Initial Risk", pct_text(-a["risk_median"], 1) if a["risk_median"] else "—", "计入价到最近的离场线，中位数"),
-        ("期间最大涨幅", "MFE", pct_text(a["mfe_median"], 1), "Max Favorable Excursion，中位数"),
-        ("期间最大跌幅", "MAE", pct_text(a["mae_median"], 1), "Max Adverse Excursion，中位数"),
-        ("平均 R 倍数", "Avg R-Multiple", num(a["avg_r"]), "每笔收益 ÷ 初始风险"),
-        ("最好 / 最差", "Best / Worst", f'{pct_text(a["best"], 1)} / {pct_text(a["worst"], 1)}', "单笔，已扣成本"),
+        ("初始风险", "Initial Risk", "irisk", pct_text(-a["risk_median"], 1) if a["risk_median"] else "—"),
+        ("最大涨幅", "MFE", "mfe", pct_text(a["mfe_median"], 1)),
+        ("最大跌幅", "MAE", "mfe", pct_text(a["mae_median"], 1)),
+        ("平均 R", "Avg R-Multiple", "r", num(a["avg_r"])),
+        ("最好 / 最差", "Best / Worst", "", f'{pct_text(a["best"], 1)} / {pct_text(a["worst"], 1)}'),
     ]
-    risk_html = "".join(f'<div><dt>{zh} <i>{en}</i></dt><dd>{v}</dd><small>{sub}</small></div>' for zh, en, v, sub in risk)
-    exits = " · ".join(f'{EXIT_REASON_LABELS[k]} {v}' for k, v in sorted(a["exits"].items(), key=lambda kv: -kv[1])) or "—"
+    risk_html = "".join(f'<div{tip_attrs(g) if g else ""}><dt><span class="tl">{zh}</span> <i>{en}</i></dt><dd>{v}</dd></div>' for zh, en, g, v in risk)
+    exits = "".join(f'<span class="bt-chip">{EXIT_REASON_LABELS[k].split(" ")[0]} <b>{v}</b></span>'
+                    for k, v in sorted(a["exits"].items(), key=lambda kv: -kv[1])) or '<span class="hint">—</span>'
     labels = ["< -10%", "-10~-5%", "-5~0%", "0~5%", "5~10%", "> 10%"]
     peak = max(bt["dist"]) or 1
     dist = "".join(f'<div class="bt-bin {"neg" if i < 3 else "pos"}"><b>{c}</b><span class="bt-bin-track"><span class="bt-bin-bar" style="height:{c / peak * 100:.0f}%"></span></span>'
@@ -3229,41 +3294,38 @@ def build_backtest_html(bt):
         f'<td><span class="bt-st {t["reason"]}">{status[t["reason"]]}</span> <small>{t["days"]} 天</small></td></tr>'
         for t in bt["recent"])
     if recent_rows:
-        recent = (f'<h5>最近 {BT_RECENT_BARS} 个交易日的信号现在怎样 <small>Recent Signals (没扣成本；点一行看图表)</small></h5>'
-                  f'<div class="bt-table-wrap"><table class="bt-table bt-recent"><thead><tr><th>股票</th><th>信号日</th><th class="num bt-hide-sm">计入价 Entry</th>'
-                  f'<th class="num" title="还没结算 = 现价；已结算 = 结算那天的收盘价">现价 / 结算</th><th class="num">收益 Return</th>'
-                  f'<th class="num bt-hide-sm">MAE</th><th>状态</th></tr></thead><tbody>{recent_rows}</tbody></table></div>')
+        recent = (h5("最近信号", "Recent Signals", "recent") +
+                  f'<div class="bt-table-wrap"><table class="bt-table bt-recent"><thead><tr><th>股票</th><th>信号日</th><th class="num bt-hide-sm">计入价</th>'
+                  f'<th class="num">现价 / 结算</th><th class="num">收益</th><th class="num bt-hide-sm">MAE</th><th>状态</th></tr></thead><tbody>{recent_rows}</tbody></table></div>'
+                  + (f'<button type="button" class="sp-btn bt-all" data-act="bt-all">显示全部 {len(bt["recent"])} 条</button>' if len(bt["recent"]) > BT_RECENT_SHOW else ""))
     else:
-        recent = f'<p class="hint">最近 {BT_RECENT_BARS} 个交易日没有出现过信号。</p>'
+        recent = h5("最近信号", "Recent Signals", "recent") + f'<p class="hint">最近 {BT_RECENT_BARS} 个交易日没有信号</p>'
     period = f'{bt["from"][5:].replace("-", "/")} ~ {bt["to"][5:].replace("-", "/")}' if bt["from"] else "近 6 个月"
-    rules = "、".join(bt["rules"])
+    rule_tip = "\n".join([f"进场：{'、'.join(bt['rules'])} ({'任一满足' if bt['match'] == 'any' else '全部满足'})",
+                          f"离场：{' / '.join(exit_labels(bt['exit']))}",
+                          f"成本：来回 {bt['cost']:g}% · {period} · {bt['stocks']} 支"])
     return f"""<div class="bt" id="sec-backtest">
-  <div class="bt-head"><h4>策略回测 <i>Backtest</i></h4><span class="bt-sub">{period} · {bt['stocks']} 支 · {a['n']} 笔信号</span>
-    <button type="button" class="info-btn" data-gloss="backtest" aria-label="回测怎么算">ⓘ</button>
+  <div class="bt-head"><h4>策略回测 <i>Backtest</i>{info_btn("backtest", "策略回测", rule_tip)}</h4>
+    <span class="bt-sub">{period} · {a['n']} 笔</span>
     <button type="button" class="sp-btn bt-custom" data-act="custom-backtest">自定义回测 ›</button></div>
-  <p class="bt-rule"><b>进场 Entry</b> {html.escape(rules)} ({'任一满足' if bt['match'] == 'any' else '全部满足'})<br>
-    <b>离场 Exit</b> {html.escape(' / '.join(exit_labels(bt['exit'])))} · 成本 Cost {bt['cost']:g}%</p>
   {windows}
   {vs}
-  <details class="bt-more"><summary>近 6 个月全部数据 · 月度表现 · 最近信号</summary>
-    <h5>全部 <small>All · {period} · 已结算 {a['closed']} 笔，已扣成本</small></h5>
+  <details class="bt-more"><summary>详细数据</summary>
+    {h5("全部", f"All · {period}")}
     <dl class="bt-tiles">{tiles_html}</dl>
-    <h5>月度表现 <small>Monthly Performance (按信号日期分月)</small></h5>
-    <div class="bt-table-wrap"><table class="bt-table"><thead><tr><th>月份 Month</th><th class="num">笔数 Trades</th><th class="num">胜率 Win%</th>
-      <th class="num">期望值 Exp.</th><th class="num">获利因子 PF</th><th class="num">最大回撤 MDD</th></tr></thead><tbody>{month_rows}</tbody></table></div>
-    <h5>信号之后固定天数的涨跌 <small>Forward Returns vs Benchmark (隔天开盘价计入，没扣成本)</small></h5>
-    <div class="bt-table-wrap"><table class="bt-table"><thead><tr><th>持有</th><th class="num">信号平均</th><th class="num">信号胜率</th>
-      <th class="num">基准平均</th><th class="num">基准胜率</th><th class="num">超额 Excess</th><th class="num">笔数</th></tr></thead><tbody>{hz_rows}</tbody></table></div>
-    <h5>风险与报酬 <small>Risk / Reward</small></h5>
+    {h5("月度表现", "Monthly", "monthly")}
+    <div class="bt-table-wrap"><table class="bt-table"><thead><tr><th>月份</th><th class="num">笔数</th><th class="num">胜率</th>
+      <th class="num">期望值</th><th class="num">PF</th><th class="num">回撤</th></tr></thead><tbody>{month_rows}</tbody></table></div>
+    {h5("固定天数涨跌", "Forward Returns", "forward")}
+    <div class="bt-table-wrap"><table class="bt-table"><thead><tr><th>持有</th><th class="num">信号平均</th><th class="num">胜率</th>
+      <th class="num">基准</th><th class="num">超额</th><th class="num">笔数</th></tr></thead><tbody>{hz_rows}</tbody></table></div>
+    {h5("风险与报酬", "Risk / Reward")}
     <dl class="bt-risk">{risk_html}</dl>
-    <p class="hint">离场原因 Exit Reasons：{exits}</p>
-    <h5>每笔收益分布 <small>Return Distribution (已扣成本)</small></h5>
+    {h5("离场原因", "Exit Reasons", "exit")}
+    <div class="bt-chips">{exits}</div>
+    {h5("收益分布", "Distribution", "dist")}
     <div class="bt-dist">{dist}</div>
     {recent}
-    <p class="hint bt-method">规则：条件成立那天收盘后，隔天开盘价计入；之后每天收盘检查离场规则 ({html.escape(' / '.join(exit_labels(bt['exit'])))})，
-      哪一个先发生就按那天收盘价结算。每笔已扣来回交易成本 {bt['cost']:g}%。同一支股票一笔没结算前的新信号不重复算。
-      月份按信号日期分 (上个月的信号到现在还没结算的算"持有")。只统计今天进报告的股票 (成交量达标)，有幸存者偏差；
-      样本只有近 6 个月的日线，历史统计不代表未来，也不是投资建议。进场条件和离场规则可以在「自定义回测」里改，满意了按「设为后台信号」。</p>
   </details>
 </div>"""
 
@@ -3275,8 +3337,7 @@ def build_board_html(board):
     cat_label = dict(ANN_CATS)
     count = ""
     if not board:
-        body = (f'<p class="hint">这次没有抓到公告 (后台每次运行补一批，刚开始要跑几次才会齐)。'
-                f'可以直接到 <a href="{official}" target="_blank" rel="noopener">{source} ↗</a> 看。</p>')
+        body = f'<p class="hint">这次没有抓到公告 · <a href="{official}" target="_blank" rel="noopener">{source} ↗</a></p>'
     else:
         counts = {}
         for it in board:
@@ -3292,11 +3353,10 @@ def build_board_html(board):
             for it in board)
         body = (f'<div class="ann-filter" role="toolbar" aria-label="公告分类">{"".join(chips)}</div>'
                 f'<ul class="ann-board" id="ann-board">{items}</ul>'
-                f'<p class="hint">来源：<a href="{official}" target="_blank" rel="noopener">{source} ↗</a>，点标题看原文；'
-                f'点股票名看图表、财报和这支股票的全部公告。</p>')
+                f'<p class="hint ann-src">来源 <a href="{official}" target="_blank" rel="noopener">{source} ↗</a></p>')
         count = f' <span class="section-count">({len(board)})</span>'
-    return (f'<h2 class="section with-sub" id="sec-ann">公司公告{count}</h2>'
-            f'<p class="sub-note">报告里的股票最近 {ANN_BOARD_DAYS} 天的公告</p>{body}')
+    return (f'<h2 class="section" id="sec-ann">公司公告{count}'
+            f'{info_btn("ann", "公司公告", f"报告里的股票最近 {ANN_BOARD_DAYS} 天的公告 ({source})")}</h2>{body}')
 
 
 # === 7. 生成 HTML 报告 (只有命中信号的股票画 K 线图，其余用表格) ===
@@ -3426,20 +3486,21 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
         risk = (close - stop_ref[0]) / close * 100 if stop_ref and stop_ref[0] < close else None
         rr = mfe_median / risk if mfe_median and risk else None
         sar_pill = sar_pill_html(data["sar_bullish_now"]) + (f' <span class="q-sub">{fmt_price(sar)}</span>' if sar else "")
+        # (名称, 数值, 名词解释, 这支股票专用的说明)：有说明的格子名称带虚线，点一下弹出 (不在卡片上写一大段字)
         quote_items = [
-            ("成交额", fmt_compact(turnover), ""),
-            ("相对量", f"{rel_vol:.2f}×" if rel_vol is not None else "—", ""),
-            ("RSI(14)", fmt_num(data["rsi"], "{:.1f}"), ""),
-            ("EMA20", fmt_num(ema, PRICE_PATTERN), ""),
-            ("50日均线", fmt_num(data["sma50"], PRICE_PATTERN), ""),
-            ("SAR", sar_pill, ""),
-            ("ATR(14)", pct_text(data.get("atr_pct"), 1, plus=False), "近 14 天平均每天波动多少"),
-            (f"风险 (到 {stop_ref[1]})" if stop_ref else "风险", pct_text(-risk, 1) if risk else "—",
-             f"现价跌到最近的离场线 ({stop_ref[1]} {fmt_price(stop_ref[0])}) 要跌多少" if stop_ref else "没有在现价下方的离场线"),
-            ("风险报酬比", f"1 : {rr:.1f}" if rr else "—",
-             f"报酬参考 = 回测里同类信号期间最大涨幅的中位数 {pct_text(mfe_median, 1)}" if mfe_median else "回测样本不够"),
+            ("成交额", fmt_compact(turnover), "", ""),
+            ("相对量", f"{rel_vol:.2f}×" if rel_vol is not None else "—", "relvol", ""),
+            ("RSI(14)", fmt_num(data["rsi"], "{:.1f}"), "", ""),
+            ("EMA20", fmt_num(ema, PRICE_PATTERN), "", ""),
+            ("50日均线", fmt_num(data["sma50"], PRICE_PATTERN), "", ""),
+            ("SAR", sar_pill, "", ""),
+            ("ATR(14)", pct_text(data.get("atr_pct"), 1, plus=False), "atr", ""),
+            ("风险", pct_text(-risk, 1) if risk else "—", "risk",
+             f"最近的离场线：{stop_ref[1]} {fmt_price(stop_ref[0])}" if stop_ref else "现价下方没有离场线"),
+            ("风险报酬比", f"1 : {rr:.1f}" if rr else "—", "rr",
+             f"报酬参考 (回测同类信号期间最大涨幅中位数)：{pct_text(mfe_median, 1)}" if mfe_median else "回测样本不够"),
         ]
-        quote_grid = "".join(f'<div{f" title={chr(34)}{t}{chr(34)}" if t else ""}><dt>{k}</dt><dd>{v}</dd></div>' for k, v, t in quote_items)
+        quote_grid = "".join(f'<div{tip_attrs(g, t) if g or t else ""}><dt>{k}</dt><dd>{v}</dd></div>' for k, v, g, t in quote_items)
         live_badge = '<span class="live-badge" title="盘中信号：用的是还没收完的日线，收盘前可能消失">盘中</span>' if state == "live" else ""
 
         # 图表下方只放数据 (quote)，不放说明文字/图例/符号；AI 点评只保留在下载的 Excel/PDF 里
@@ -3467,7 +3528,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
     # 放进 <script> 里，"</" 转义掉，免得名字里万一有 "</script>" 把脚本截断
     chart_json = json.dumps(chart_payload, separators=(",", ":")).replace("</", "<\\/")
-    no_data_note = f"<p class='no-data'>另有 {no_data_count} 支股票数据不足，未列入。</p>" if no_data_count else ""
+    no_data_note = f"另有 {no_data_count} 支股票数据不足，没有列入" if no_data_count else ""
     downloads_html = build_downloads_html(downloads)
     dashboard_html = build_dashboard_html(len(cards), len(cards) + len(table_rows), f"{now} ({MKT['tz_label']})", downloads_html)
     page_meta = {"stocks": meta, "lot": MKT["lot_size"], "cur": MKT["currency"], "sym": CURRENCY_SYMBOL, "state": state,
@@ -3541,13 +3602,17 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
   h1 {{ margin: 0 0 0.25rem; font-size: 1.5rem; }}
   .updated {{ color: var(--text-secondary); margin: 0 0 1.5rem; }}
   .site-footer {{
-    margin-top: 3rem;
-    padding-top: 1.5rem;
+    margin-top: 2.5rem;
+    padding-top: 1rem;
     border-top: 1px solid var(--border);
     color: var(--muted);
-    font-size: 0.8rem;
+    font-size: 0.72rem;
     line-height: 1.6;
   }}
+  .site-footer p {{ margin: 0 0 0.25rem; }}
+  .site-footer a {{ color: inherit; }}
+  .site-footer .legal summary {{ cursor: pointer; margin-top: 0.3rem; }}
+  .site-footer .legal p {{ margin: 0.4rem 0 0; }}
   .card {{
     background: var(--surface);
     border: 1px solid var(--border);
@@ -3617,14 +3682,13 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 {TEMPLATE_BAR_HTML}
 <div class="strategy-panel" id="strategy-panel"></div>
 
-<h3 class="subsection" id="sec-signals">后台信号 <span class="section-count">({len(cards)})</span></h3>
-<p class="sub-note">{html.escape(strategy_note_text())}</p>
+<h3 class="subsection" id="sec-signals">后台信号 <span class="section-count">({len(cards)})</span>{info_btn("backend", "后台信号", strategy_note_text())}</h3>
 {backtest_html}
 {build_screener_html(cards, chips)}
 
 {board_html}
 
-<h2 class="section" id="sec-table">其余股票 ({len(table_rows)})</h2>
+<h2 class="section" id="sec-table">其余股票 <span class="section-count">({len(table_rows)})</span>{info_btn("table", "其余股票", no_data_note)}</h2>
 <div class="table-toolbar">
   <div class="tf-chips" id="table-chips" role="group" aria-label="快速筛选">
     <button type="button" class="tf-chip" data-f="watch" aria-pressed="false">★ 自选</button>
@@ -3669,13 +3733,17 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
   </tbody>
 </table>
 </div>
-{no_data_note}
 
 <footer class="site-footer">
-  <p>本报告及其筛选策略、代码与分析方法版权所有 © {datetime.now(LOCAL_TZ).year} CJA231，保留一切权利。未经书面授权，禁止复制、转载、二次分发或用于商业用途。</p>
-  <p>K 线图: TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · <a href="https://www.tradingview.com/" target="_blank" rel="noopener">https://www.tradingview.com/</a> (Apache License 2.0)</p>
-  <p>行情数据来自公开渠道 (Yahoo Finance)，可能有延迟或错误，仅供个人研究参考，不构成投资建议。</p>
-  <p>© {datetime.now(LOCAL_TZ).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
+  <p>© {datetime.now(LOCAL_TZ).year} CJA231 · 仅供研究参考，不构成投资建议 · 数据 Yahoo Finance</p>
+  <!-- 图表库 Apache 2.0 NOTICE 要求的署名 + 链接，要放在看得到的地方 -->
+  <p>K 线图 TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · <a href="https://www.tradingview.com/" target="_blank" rel="noopener">tradingview.com</a></p>
+  <details class="legal"><summary>版权与免责声明</summary>
+    <p>本报告及其筛选策略、代码与分析方法版权所有 © {datetime.now(LOCAL_TZ).year} CJA231，保留一切权利。未经书面授权，禁止复制、转载、二次分发或用于商业用途。</p>
+    <p>行情数据来自公开渠道 (Yahoo Finance)，可能有延迟或错误，仅供个人研究参考，不构成投资建议。</p>
+    <p>© {datetime.now(LOCAL_TZ).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
+    <p>K 线图: TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · https://www.tradingview.com/ (Apache License 2.0)</p>
+  </details>
 </footer>
 
 <script id="chart-data" type="application/json">{chart_json}</script>
