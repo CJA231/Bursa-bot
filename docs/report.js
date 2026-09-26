@@ -2,7 +2,8 @@
  * Bursa Bot 报告页脚本 (马股 docs/index.html、美股 docs/us/index.html 共用)
  * 筛选器: 自定义选股条件 (模板里的条件在报告全部股票里筛) + 后台信号卡片轮播、
  * 全局工具栏 (周期 / 图表类型 / 指标 / 模板 / 设置)、主图/副图指标与可调参数、图表左上角图例、模板，
- * 左上角 ☰ 导航，以及"其余股票"表格的排序/搜索、完整图表 + 财报 + 新闻、底部搜索栏。
+ * 左上角 ☰ 导航 (工具、自选、下载)，"其余股票"表格的排序 / 快速筛选、完整图表 + 财报 + 公告 + 新闻、底部搜索栏，
+ * 股票计算器、名词解释、选股条件回测、公告栏，以及返回手势 / #s=代码 深链接。
  * 依赖 vendor/lightweight-charts.js (TradingView Lightweight Charts v5)。
  * 版权所有 CJA231，保留一切权利。
  */
@@ -25,6 +26,15 @@
       searchHint: d.searchHint || '例如 CYPARK / 5184'
     };
   })();
+  // main.py 放在页面里的每支股票基本资料 (市值、市盈率、股息率、52 周高低、成交额、ATR、SAR…)，
+  // 加上一手几股、美元汇率、回测摘要；旧版页面没有这一段 → 空的，用到的地方自己跳过
+  var META = (function () {
+    var el = document.getElementById('report-meta');
+    try { return el ? JSON.parse(el.textContent) : null; } catch (e) { return null; }
+  })() || {};
+  if (!META.stocks) META.stocks = {};
+  var LOT = META.lot || (MARKET.id === 'US' ? 1 : 100);
+  var CUR_SYM = META.sym || (MARKET.id === 'US' ? 'US$' : 'RM');
 
   // ---------- 小工具 ----------
   // localStorage 在隐私模式/被禁用时读写会抛错，一律当成"没有存过"
@@ -65,6 +75,72 @@
     if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
     if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
     return String(v);
+  }
+  // 大数字最多 3 位有效数字 (81.1M、425M、5.72M)，跟 main.py 的 fmt_compact 一样
+  function fmtCompact(v) {
+    if (!isNum(v)) return '—';
+    var units = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K']];
+    for (var i = 0; i < units.length; i++) {
+      if (Math.abs(v) >= units[i][0]) {
+        var x = v / units[i][0];
+        return (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2)) + units[i][1];
+      }
+    }
+    return v.toFixed(0);
+  }
+  function fmtPct(v, digits, plus) {
+    if (!isNum(v)) return '—';
+    return (plus !== false && v > 0 ? '+' : '') + v.toFixed(digits === undefined ? 1 : digits) + '%';
+  }
+  function fmtMoney2(v) { // 金额到仙 / 分: 1,234.56
+    if (!isNum(v)) return '—';
+    return (v < 0 ? '-' : '') + Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  // ---------- 返回键 / 返回手势: 先关对话框 (或 ☰ 导航)，不要直接离开整个页面 ----------
+  // 每打开一层就 history.pushState 一格；按返回 → popstate → 关掉比那一格新的层。
+  // 用 × / Esc / 点遮罩关的时候自己 history.back() 把那一格退掉 (不然要多按一次返回才离开页面)。
+  // history.back() 是异步的：退格还没完成就马上又开一层 (例如关掉导航接着打开计算器) 的话，新的那一格等退完再 push，
+  // 不然会被那次 back 退掉，之后按返回的次数就对不上了
+  var histSeq = 0, histLayers = [], skipPop = 0, pendingPush = [];
+  function doPush(layer) {
+    try { history.pushState({ bbLayer: layer.id }, '', layer.url || location.href); layer.pushed = true; } catch (e) { /* 不支持就算了 */ }
+  }
+  function pushLayer(close, url) {
+    var layer = { id: ++histSeq, close: close, url: url };
+    histLayers.push(layer);
+    if (skipPop) pendingPush.push(layer); else doPush(layer);
+    return layer;
+  }
+  function releaseLayer(layer) {
+    var i = layer ? histLayers.indexOf(layer) : -1;
+    if (i === -1) return;
+    histLayers.splice(i, 1);
+    var q = pendingPush.indexOf(layer);
+    if (q !== -1) { pendingPush.splice(q, 1); return; }
+    if (layer.pushed && history.state && history.state.bbLayer === layer.id) { skipPop++; history.back(); }
+  }
+  function retargetLayer(layer, url) { // 同一格换成另一支股票 (上一支 / 下一支)
+    layer.url = url;
+    if (layer.pushed && history.state && history.state.bbLayer === layer.id) {
+      try { history.replaceState({ bbLayer: layer.id }, '', url || location.href); } catch (e) { /* 忽略 */ }
+    }
+  }
+  window.addEventListener('popstate', function (e) {
+    if (skipPop) {
+      skipPop--;
+      if (!skipPop) { var q = pendingPush; pendingPush = []; q.forEach(doPush); }
+      return;
+    }
+    var cur = (e.state && e.state.bbLayer) || 0;
+    for (var i = histLayers.length - 1; i >= 0; i--) {
+      var layer = histLayers[i];
+      if (layer.id > cur) { histLayers.splice(i, 1); layer.close(true); }
+    }
+  });
+  function stripHash() {
+    if (!location.hash) return;
+    try { history.replaceState(history.state, '', location.pathname + location.search); } catch (e) { /* 忽略 */ }
   }
 
   // ---------- 颜色: 读取/应用/持久化 ----------
@@ -1951,19 +2027,32 @@
     var dlg = overlay.firstChild;
     var body = dlg.querySelector('.dlg-body');
     if (typeof opts.body === 'string') body.innerHTML = opts.body; else if (opts.body) body.appendChild(opts.body);
-    var previousFocus = document.activeElement;
+    var previousFocus = opts.previousFocus || document.activeElement;
+    var layer = null;
     var handle = {
       el: dlg, body: body, foot: dlg.querySelector('.dlg-foot'),
-      close: function () {
-        if (!overlay.parentNode) return;
+      // how: true = 按了返回 (history 已经退回去了)；{ keep: true } = 换下一支股票，history 那一格留给下一个对话框
+      close: function (how) {
+        if (!overlay.parentNode) return null;
+        var fromPop = how === true, keep = !!(how && how.keep);
         overlay.parentNode.removeChild(overlay);
         document.removeEventListener('keydown', onKey, true);
         openDialogs.splice(openDialogs.indexOf(handle), 1);
         if (!openDialogs.length) document.documentElement.classList.remove('dlg-open');
         if (opts.onClose) opts.onClose();
-        if (previousFocus && previousFocus.focus) previousFocus.focus();
+        if (!fromPop && !keep) releaseLayer(layer);
+        if (!keep && opts.deepLinked) stripHash();
+        if (!keep && previousFocus && previousFocus.focus && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
+        return keep ? { layer: layer, previousFocus: previousFocus } : null;
       }
     };
+    if (opts.reuse && opts.reuse.layer && histLayers.indexOf(opts.reuse.layer) !== -1) {
+      layer = opts.reuse.layer;
+      layer.close = handle.close;
+      retargetLayer(layer, opts.url);
+    } else if (!opts.deepLinked) {
+      layer = pushLayer(handle.close, opts.url);
+    }
     function onKey(e) {
       if (openDialogs[openDialogs.length - 1] !== handle) return;
       if (e.key === 'Escape') { e.stopPropagation(); handle.close(); }
@@ -2006,14 +2095,63 @@
   function anyChartHas(tf) {
     return Object.keys(data).some(function (id) { return hasTf(id, tf); });
   }
+  // 周期选择: [分时 ▾] 天 周 月 —— 1 分到 4 小时 9 个周期收进一个选单 (手机上是底部弹出)，
+  // 不再是一整条要左右滑、两头被切掉半个字的按钮条。卡片上方的全局工具栏和完整图表对话框共用
+  function buildTfControl(box, isAvailable, onPick) {
+    var intra = TIMEFRAMES.filter(isIntraday), main = TIMEFRAMES.filter(function (tf) { return !isIntraday(tf); });
+    box.classList.add('tf-compact');
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', 'K线周期');
+    box.innerHTML = '<div class="tb-menu-wrap tf-intra"><button type="button" class="tf-btn tf-intra-btn" aria-haspopup="menu" aria-expanded="false" aria-selected="false">' +
+      '<span class="tf-intra-label">分时</span><span class="tf-caret" aria-hidden="true">▾</span></button>' +
+      '<div class="tb-menu tf-menu" role="menu" aria-label="分钟 / 小时周期" hidden>' + intra.map(function (tf) {
+        var ok = isAvailable(tf);
+        return '<button type="button" role="menuitemradio" class="tb-menu-item" data-tf="' + tf.id + '" aria-checked="false" tabindex="-1"' +
+          (ok ? '' : ' aria-disabled="true"') + '><span>' + tf.label + '</span>' + (ok ? '' : '<small>没有数据</small>') + '</button>';
+      }).join('') + '</div></div>' +
+      main.map(function (tf) {
+        return '<button type="button" class="tf-btn" data-tf="' + tf.id + '" aria-selected="false"' + (isAvailable(tf) ? '' : ' disabled title="没有' + tf.label + '线的数据"') + '>' + tf.label + '</button>';
+      }).join('');
+    var menuBtn = box.querySelector('.tf-intra-btn'), menu = box.querySelector('.tf-menu');
+    menuBtn.addEventListener('click', function () {
+      if (openMenu && openMenu.menu === menu) { closeMenu(); return; }
+      closeMenu();
+      menu.hidden = false;
+      menuBtn.setAttribute('aria-expanded', 'true');
+      openMenu = { menu: menu, button: menuBtn };
+      var cur = menu.querySelector('[aria-checked="true"]') || menu.querySelector('.tb-menu-item:not([aria-disabled])');
+      if (cur) cur.focus();
+    });
+    menu.addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      var items = Array.prototype.slice.call(menu.querySelectorAll('.tb-menu-item:not([aria-disabled])'));
+      var next = items[(items.indexOf(document.activeElement) + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+      if (next) { e.preventDefault(); next.focus(); }
+    });
+    box.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-tf]');
+      if (!b || b.disabled || b.getAttribute('aria-disabled') === 'true') return;
+      if (menu.contains(b)) { closeMenu(); menuBtn.focus({ preventScroll: true }); }
+      onPick(tfById(b.dataset.tf));
+    });
+    return function mark(tf) {
+      var isIntra = !!(tf && isIntraday(tf));
+      box.querySelectorAll('.tf-btn[data-tf]').forEach(function (b) { b.setAttribute('aria-selected', tf && b.dataset.tf === tf.id ? 'true' : 'false'); });
+      menuBtn.setAttribute('aria-selected', isIntra ? 'true' : 'false');
+      box.querySelector('.tf-intra-label').textContent = isIntra ? tf.label : '分时';
+      menu.querySelectorAll('[data-tf]').forEach(function (b) {
+        var on = !!(tf && b.dataset.tf === tf.id);
+        b.setAttribute('aria-checked', on ? 'true' : 'false');
+        b.classList.toggle('on', on);
+      });
+    };
+  }
+  var markToolbarTf = null;
   function buildToolbar() {
     var bar = document.getElementById('chart-toolbar');
     if (!bar) return;
     bar.innerHTML =
-      '<div class="tb-tf">' +
-      '<button type="button" class="tf-arrow" data-dir="-1" aria-label="向左滚动">‹</button>' +
-      '<div class="tf-list" role="tablist" aria-label="K线周期"></div>' +
-      '<button type="button" class="tf-arrow" data-dir="1" aria-label="向右滚动">›</button></div>' +
+      '<div class="tb-tf"></div>' +
       '<div class="tb-tools">' +
       '<div class="tb-menu-wrap"><button type="button" class="tb-btn" id="tb-type" aria-haspopup="menu" aria-expanded="false" title="图表类型"></button>' +
       '<div class="tb-menu" id="tb-type-menu" role="menu" hidden></div></div>' +
@@ -2021,32 +2159,7 @@
       '<button type="button" class="tb-btn" id="tb-tpl" title="指标模板">' + icon('<path d="M3 3h5v5H3zM10 3h5v5h-5zM3 10h5v5H3zM10 10h5v5h-5z"/>') + '<span class="tb-label">模板</span></button>' +
       '<button type="button" class="tb-btn" id="tb-settings" title="图表设置" aria-label="图表设置">' + ICON_GEAR + '</button>' +
       '</div>';
-    var list = bar.querySelector('.tf-list');
-    TIMEFRAMES.forEach(function (tf) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'tf-btn';
-      b.dataset.tf = tf.id;
-      b.textContent = tf.label;
-      b.setAttribute('role', 'tab');
-      if (!anyChartHas(tf)) { b.disabled = true; b.title = '这次没拿到' + tf.label + '的数据'; }
-      b.addEventListener('click', function () { applyTimeframe(tf); });
-      list.appendChild(b);
-    });
-    var arrows = bar.querySelectorAll('.tf-arrow');
-    function updateArrows() {
-      arrows[0].disabled = list.scrollLeft <= 1;
-      arrows[1].disabled = list.scrollLeft + list.clientWidth >= list.scrollWidth - 1;
-    }
-    arrows.forEach(function (a) { a.addEventListener('click', function () { list.scrollBy({ left: +a.dataset.dir * list.clientWidth * 0.7, behavior: 'smooth' }); }); });
-    list.addEventListener('scroll', updateArrows, { passive: true });
-    new ResizeObserver(updateArrows).observe(list);
-    list.addEventListener('keydown', function (e) {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-      var btns = Array.prototype.filter.call(list.querySelectorAll('.tf-btn'), function (b) { return !b.disabled; });
-      var next = btns[btns.indexOf(document.activeElement) + (e.key === 'ArrowRight' ? 1 : -1)];
-      if (next) { e.preventDefault(); next.click(); next.focus(); }
-    });
+    markToolbarTf = buildTfControl(bar.querySelector('.tb-tf'), anyChartHas, applyTimeframe);
 
     var typeBtn = bar.querySelector('#tb-type'), typeMenu = bar.querySelector('#tb-type-menu');
     typeBtn.addEventListener('click', function () {
@@ -2097,15 +2210,7 @@
   function updateToolbar() {
     var bar = document.getElementById('chart-toolbar');
     if (!bar) return;
-    bar.querySelectorAll('.tf-btn').forEach(function (b) {
-      var on = b.dataset.tf === currentTf.id;
-      b.setAttribute('aria-selected', on ? 'true' : 'false');
-      b.tabIndex = on ? 0 : -1;
-      if (on) {
-        var list = b.parentNode; // 只横向滚导航条，不用 scrollIntoView (会连整页一起滚)
-        list.scrollLeft = b.offsetLeft - list.offsetLeft - (list.clientWidth - b.offsetWidth) / 2;
-      }
-    });
+    if (markToolbarTf) markToolbarTf(currentTf);
     var t = chartTypeById(chartType);
     var typeBtn = document.getElementById('tb-type');
     if (typeBtn) {
@@ -2649,11 +2754,21 @@
     var id = 'm' + (++modalSeq) + '-' + opts.code;
     var root = document.createElement('div');
     root.className = 'stock-view';
+    var ctx = opts.ctx && opts.ctx.list && opts.ctx.list.length > 1 && opts.ctx.i >= 0 ? opts.ctx : null;
     root.innerHTML =
       (opts.headHtml ? '<div class="sv-head">' + opts.headHtml + '</div>' : '') +
-      // 电脑: 左边正方形K线图，右边财报，下面新闻；手机: 从上到下排，图表右边留一条滑动页面用的空白
+      // 自选 / 计算器 / 分享 + 上一支、下一支 (按打开时那个列表的顺序：表格、命中列表…)
+      '<div class="sv-bar"><div class="sv-acts">' +
+      '<button type="button" class="sv-act sv-star" data-act="star" aria-pressed="false"></button>' +
+      '<button type="button" class="sv-act" data-act="calc">计算器</button>' +
+      '<button type="button" class="sv-act" data-act="share">分享</button></div>' +
+      (ctx ? '<div class="sv-nav"><button type="button" class="sv-act" data-act="prev" aria-label="上一支"' + (ctx.i <= 0 ? ' disabled' : '') + '>‹</button>' +
+        '<span>' + (ctx.i + 1) + ' / ' + ctx.list.length + '</span>' +
+        '<button type="button" class="sv-act" data-act="next" aria-label="下一支"' + (ctx.i >= ctx.list.length - 1 ? ' disabled' : '') + '>›</button></div>' : '') +
+      '</div>' + stockStatsHtml(opts.code) +
+      // 电脑: 左边正方形K线图，右边财报，下面公告、新闻；手机: 从上到下排，图表右边留一条滑动页面用的空白
       '<div class="sv-grid"><section class="sv-chart" aria-label="K线图">' +
-      '<div class="sv-toolbar"><div class="tf-list sv-tf" role="tablist" aria-label="K线周期"></div>' +
+      '<div class="sv-toolbar"><div class="sv-tf"></div>' +
       '<button type="button" class="tb-btn sv-ind" title="指标"><span class="fx">ƒx</span><span class="tb-label">指标</span></button></div>' +
       '<p class="tf-note" id="' + id + '-tfnote" hidden></p>' +
       '<p class="sv-msg hint">图表载入中…</p>' +
@@ -2664,10 +2779,33 @@
       '<button type="button" role="tab" data-fin="annual" aria-selected="false">近 2 年 (年报)</button></div></div>' +
       '<div class="fin-body"><p class="hint">财报载入中…</p></div>' +
       '<p class="hint fin-foot"></p></section></div>' +
+      '<section class="news ann-sec" aria-label="公司公告"><h4>公司公告</h4><div class="ann-body"><p class="hint">公告载入中…</p></div></section>' +
       '<section class="news" aria-label="最近新闻"><h4>最近新闻</h4><div class="news-body"><p class="hint">新闻载入中…</p></div></section>';
     var dlg = openDialog({
       title: opts.name + '  ' + opts.code, body: root, className: 'dlg-stock', focus: '.dlg-x',
+      url: '#s=' + encodeURIComponent(opts.code), deepLinked: opts.deepLinked, reuse: opts.reuse, previousFocus: opts.previousFocus,
       onClose: function () { destroyChart(id); delete data[id]; }
+    });
+    var star = root.querySelector('.sv-star');
+    function paintStar() {
+      var on = isWatched(opts.code);
+      star.setAttribute('aria-pressed', on ? 'true' : 'false');
+      star.textContent = on ? '★ 已自选' : '☆ 加自选';
+    }
+    paintStar();
+    root.querySelector('.sv-bar').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-act]');
+      if (!b || b.disabled) return;
+      var act = b.dataset.act;
+      if (act === 'star') { toggleWatch(opts.code, opts.name); paintStar(); }
+      else if (act === 'calc') { openCalculator({ code: opts.code, name: opts.name }); }
+      else if (act === 'share') { shareStock(opts.code, opts.name); }
+      else if ((act === 'prev' || act === 'next') && ctx) {
+        var j = ctx.i + (act === 'next' ? 1 : -1);
+        if (j < 0 || j >= ctx.list.length) return;
+        var keep = dlg.close({ keep: true }); // 同一格 history 留给下一支，按返回一次就回到页面
+        openReportStock(ctx.list[j], { list: ctx.list, i: j }, { reuse: keep, previousFocus: keep && keep.previousFocus });
+      }
     });
     // 价格 / 涨跌放进标题那一行 (标题不跟着内容滚动)，往下看财报、新闻时还看得到是哪支股票、现在多少钱
     var svHead = root.querySelector('.sv-head');
@@ -2698,27 +2836,55 @@
       root.querySelector('.sv-toolbar').hidden = true;
     });
     showFinancials(opts.code, detail, root.querySelector('.fin'));
+    showAnnouncements(opts.code, root.querySelector('.ann-body'));
     showNews(opts.code, root.querySelector('.news-body'));
     return dlg;
   }
-  function buildModalTimeframes(root, id) {
-    var list = root.querySelector('.sv-tf');
-    function mark() {
-      var st = charts[id];
-      list.querySelectorAll('.tf-btn').forEach(function (b) { b.setAttribute('aria-selected', st && st.tf && b.dataset.tf === st.tf.id ? 'true' : 'false'); });
+  // 详情顶部一行关键数字 (都来自 main.py 放在页面里的 report-meta)：市值、市盈率、股息率、52 周区间、财报日期…
+  function stockStatsHtml(code) {
+    var m = META.stocks[code];
+    if (!m) return '';
+    var items = [];
+    if (isNum(m.mc)) items.push(['市值', CUR_SYM + ' ' + fmtCompact(m.mc)]);
+    if (isNum(m.pe)) items.push(['市盈率', m.pe.toFixed(1) + ' 倍']);
+    if (isNum(m.dy)) items.push(['股息率', m.dy.toFixed(2) + '%']);
+    if (isNum(m.hi) && isNum(m.lo) && m.hi > m.lo && isNum(m.p)) {
+      var pos = Math.max(0, Math.min(100, (m.p - m.lo) / (m.hi - m.lo) * 100));
+      items.push(['52 周区间', fmtPrice(m.lo) + ' – ' + fmtPrice(m.hi),
+        '<span class="sv-range" title="现价在 52 周区间的 ' + pos.toFixed(0) + '% 位置"><i style="left:' + pos.toFixed(1) + '%"></i></span>']);
     }
-    TIMEFRAMES.forEach(function (tf) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'tf-btn';
-      b.dataset.tf = tf.id;
-      b.textContent = tf.label;
-      b.setAttribute('role', 'tab');
-      if (!hasTf(id, tf)) { b.disabled = true; b.title = '这支股票没有' + tf.label + '的数据'; }
-      b.addEventListener('click', function () { if (charts[id]) { setTimeframe(charts[id], tf); mark(); } });
-      list.appendChild(b);
+    if (m.e && m.e.length) {
+      var now = Date.now() / 1000;
+      var byNum = function (a, b) { return a - b; };
+      var next = m.e.filter(function (t) { return t > now; }).sort(byNum)[0];
+      var last = m.e.filter(function (t) { return t <= now; }).sort(byNum).pop();
+      var md = function (t) { var d = new Date(t * 1000); return (d.getMonth() + 1) + '/' + d.getDate(); };
+      if (next) items.push(['下次财报', md(next) + (next - now < 86400 * 14 ? ' (快到了)' : ''), '', next - now < 86400 * 14 ? 'soon' : '']);
+      else if (last && now - last < 86400 * 60) items.push(['最近财报', md(last)]);
+    }
+    if (isNum(m.a)) items.push(['20 日平均成交额', CUR_SYM + ' ' + fmtCompact(m.a)]);
+    if (isNum(m.atr)) items.push(['ATR(14) 波动', m.atr.toFixed(1) + '% / 天']);
+    if (LOT > 1 && isNum(m.p)) items.push(['一手 ' + LOT + ' 股', CUR_SYM + ' ' + fmtMoney2(m.p * LOT)]);
+    if (!items.length) return '';
+    return '<dl class="sv-stats">' + items.map(function (it) {
+      return '<div' + (it[3] ? ' class="' + it[3] + '"' : '') + '><dt>' + it[0] + '</dt><dd>' + escapeHtml(it[1]) + (it[2] || '') + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+  function shareStock(code, name) {
+    var url = location.origin + location.pathname + '#s=' + encodeURIComponent(code);
+    if (navigator.share && TOUCH_ONLY) {
+      navigator.share({ title: name + ' ' + code, url: url }).catch(function () { /* 用户取消 */ });
+      return;
+    }
+    var done = function () { toast('已复制链接：打开就直接看到 ' + name); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done, function () { window.prompt('复制这个链接', url); });
+    else window.prompt('复制这个链接', url);
+  }
+  function buildModalTimeframes(root, id) {
+    var mark = buildTfControl(root.querySelector('.sv-tf'), function (tf) { return hasTf(id, tf); }, function (tf) {
+      if (charts[id]) { setTimeframe(charts[id], tf); mark(charts[id].tf); }
     });
-    mark();
+    mark(charts[id] && charts[id].tf);
   }
 
   // ---------- 财报: 4 张小柱状图 (一张一个指标，不用双坐标轴) + 完整数字表格 ----------
@@ -2770,7 +2936,28 @@
     return 'M' + x + ',' + y0 + 'V' + e + 'Q' + x + ',' + y1 + ' ' + (x + r) + ',' + y1 + 'H' + (x + w - r) +
       'Q' + (x + w) + ',' + y1 + ' ' + (x + w) + ',' + e + 'V' + y0 + 'Z';
   }
-  function columnChart(def, sec, annual) {
+  // 只显示最近 n 期 (后台留了 8 季，更早的拿来算"同比")
+  function lastN(sec, n) {
+    var k = Math.max(0, (sec.periods || []).length - n), out = {};
+    Object.keys(sec).forEach(function (key) { out[key] = isArr(sec[key]) ? sec[key].slice(k) : sec[key]; });
+    return out;
+  }
+  // 去年同一季在完整资料里的位置 (报告期月份差一个月以内都算)
+  function yoyIndex(full, p) {
+    var y = +p.slice(0, 4) - 1, m = +p.slice(5, 7);
+    for (var i = 0; i < (full.periods || []).length; i++) {
+      var q = full.periods[i];
+      if (+q.slice(0, 4) === y && Math.abs(+q.slice(5, 7) - m) <= 1) return i;
+    }
+    return -1;
+  }
+  function changeText(def, a, b) {
+    if (!isNum(a) || !isNum(b)) return '';
+    return def.pct ? (b - a >= 0 ? '+' : '') + (b - a).toFixed(1) + ' 个百分点'
+      : def.flip && a < 0 && b > 0 ? def.flip[0] : def.flip && a > 0 && b < 0 ? def.flip[1] // 正负号变了，百分比没意义
+        : a !== 0 ? (b - a >= 0 ? '+' : '') + ((b - a) / Math.abs(a) * 100).toFixed(1) + '%' : '';
+  }
+  function columnChart(def, sec, annual, full) {
     var periods = sec.periods, vals = sec[def.key] || [];
     var W = 240, H = 132, top = 20, bottom = 22, plotH = H - top - bottom;
     var nums = vals.filter(isNum);
@@ -2799,15 +2986,18 @@
       svg += '<text class="fc-lbl" x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle">' + periodLabel(p, annual) + '</text></g>';
     });
     svg += '</svg>';
-    var change = '';
+    // 季报: 环比 (较上季) + 同比 (较去年同季，季节性行业看这个才准)；年报: 较上年
+    var changes = [];
     if (lastIdx > 0 && isNum(vals[lastIdx - 1])) {
-      var a = vals[lastIdx - 1], b = vals[lastIdx];
-      var txt = def.pct ? (b - a >= 0 ? '+' : '') + (b - a).toFixed(1) + ' 个百分点'
-        : def.flip && a < 0 && b > 0 ? def.flip[0] : def.flip && a > 0 && b < 0 ? def.flip[1] // 正负号变了，百分比没意义
-          : a !== 0 ? (b - a >= 0 ? '+' : '') + ((b - a) / Math.abs(a) * 100).toFixed(1) + '%' : '';
-      if (txt) change = '<span class="' + (b >= a ? 'change-up' : 'change-down') + '">' + (annual ? '较上年 ' : '较上季 ') + txt + '</span>';
+      var a = vals[lastIdx - 1], b = vals[lastIdx], txt = changeText(def, a, b);
+      if (txt) changes.push('<span class="' + (b >= a ? 'change-up' : 'change-down') + '">' + (annual ? '较上年 ' : '环比 ') + txt + '</span>');
     }
-    return '<div class="fc"><div class="fc-title"><span>' + def.label + '</span>' + change + '</div>' + svg + '</div>';
+    if (!annual && full && lastIdx >= 0) {
+      var yi = yoyIndex(full, periods[lastIdx]), prevYear = yi >= 0 && full[def.key] ? full[def.key][yi] : null;
+      var ytxt = changeText(def, prevYear, vals[lastIdx]);
+      if (ytxt) changes.push('<span class="' + (vals[lastIdx] >= prevYear ? 'change-up' : 'change-down') + '">同比 ' + ytxt + '</span>');
+    }
+    return '<div class="fc"><div class="fc-title"><span>' + def.label + '</span><span class="fc-chg">' + changes.join('') + '</span></div>' + svg + '</div>';
   }
   function finTable(sec, annual) {
     var periods = sec.periods;
@@ -2848,7 +3038,8 @@
           (MARKET.id === 'US' ? ' SEC EDGAR 看年报 (10-K)' : ' Bursa 官网看年报') + '。</p>';
         return;
       }
-      var views = { quarterly: withMargin(fin.quarterly || { periods: [] }), annual: withMargin(fin.annual || { periods: [] }) };
+      var fullQ = withMargin(fin.quarterly || { periods: [] });
+      var views = { quarterly: lastN(fullQ, 4), annual: withMargin(fin.annual || { periods: [] }) };
       function show(kind) {
         var sec = views[kind], annual = kind === 'annual';
         box.querySelectorAll('[data-fin]').forEach(function (t) { t.setAttribute('aria-selected', t.dataset.fin === kind ? 'true' : 'false'); });
@@ -2856,7 +3047,7 @@
           body.innerHTML = '<p class="hint">没有' + (annual ? '年度' : '季度') + '财报数据。</p>';
           return;
         }
-        body.innerHTML = '<div class="fc-grid">' + FIN_CHARTS.map(function (d) { return columnChart(d, sec, annual); }).join('') + '</div>' + finTable(sec, annual);
+        body.innerHTML = '<div class="fc-grid">' + FIN_CHARTS.map(function (d) { return columnChart(d, sec, annual, annual ? null : fullQ); }).join('') + '</div>' + finTable(sec, annual);
       }
       box.querySelectorAll('[data-fin]').forEach(function (t) { t.addEventListener('click', function () { show(t.dataset.fin); }); });
       show(views.quarterly.periods && views.quarterly.periods.length ? 'quarterly' : 'annual');
@@ -2901,6 +3092,52 @@
     });
   }
 
+  // ---------- 公司公告: docs/ann/<代码>.json (后台半天更新一次：马股 Bursa 官网、美股 SEC EDGAR) ----------
+  var ANN_CAT_LABEL = { results: '财报', dividend: '派息·权益', corporate: '企业活动', holding: '持股变动', buyback: '回购',
+    uma: '异常交易', people: '人事', meeting: '会议·年报', other: '其他' };
+  function annOfficialPage(code) {
+    return MARKET.id === 'US' ? 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&owner=include&count=40&CIK=' + encodeURIComponent(code)
+      : 'https://www.bursamalaysia.com/market_information/announcements/company_announcement?company=' + encodeURIComponent(code);
+  }
+  function showAnnouncements(code, box) {
+    var link = '<a href="' + annOfficialPage(code) + '" target="_blank" rel="noopener">' + (MARKET.id === 'US' ? 'SEC EDGAR' : 'Bursa 官网') + '上的全部公告 ↗</a>';
+    fetch('ann/' + encodeURIComponent(code) + '.json', { cache: 'no-cache' }).then(function (r) {
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (a) {
+      if (!a) { box.innerHTML = '<p class="hint">这支股票的公告还没抓到 (后台每次运行补一批)，可以先看' + link + '。</p>'; return; }
+      var when = escapeHtml(String(a.fetched_at || '').slice(0, 16).replace('T', ' '));
+      if (!a.items || !a.items.length) { box.innerHTML = '<p class="hint">最近半年没有公告 (' + when + ' 查过)。' + link + '</p>'; return; }
+      box.innerHTML = '<ul class="ann-list">' + a.items.map(function (it) {
+        return '<li><time datetime="' + escapeHtml(it.date) + '">' + escapeHtml(it.date) + '</time>' +
+          '<span class="ann-cat">' + (ANN_CAT_LABEL[it.cat] || '其他') + '</span>' +
+          '<a href="' + escapeHtml(it.link) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(it.title) + '</a></li>';
+      }).join('') + '</ul><p class="hint news-foot">来源：' + escapeHtml(a.source || '') + '，' + when + ' 更新，点标题看原文；' + link + '</p>';
+    }).catch(function (e) {
+      box.innerHTML = '<p class="hint">公告载入失败：' + escapeHtml(e.message) + '。' + link + '</p>';
+    });
+  }
+
+  // ---------- 自选股: 存在这个浏览器里 (马股、美股分开)，☰ 里有列表，表格可以只看自选 ----------
+  var WATCH_KEY = 'bursa_watch_v1_' + MARKET.id;
+  var watchList = loadJSON(WATCH_KEY, []);
+  if (!isArr(watchList)) watchList = [];
+  watchList = watchList.filter(function (x) { return x && typeof x.code === 'string'; }).slice(0, 200);
+  function isWatched(code) { return watchList.some(function (x) { return x.code === code; }); }
+  var watchListeners = [];
+  function toggleWatch(code, name) {
+    if (isWatched(code)) {
+      watchList = watchList.filter(function (x) { return x.code !== code; });
+      toast('已从自选移除 ' + name);
+    } else {
+      watchList.unshift({ code: code, name: name || code });
+      toast('已加入自选：' + name + ' (☰ → 自选)');
+    }
+    saveJSON(WATCH_KEY, watchList);
+    watchListeners.forEach(function (fn) { fn(); });
+  }
+
   // 筛选器卡片上加一个"完整图表 · 财报"按钮 (卡片里本来就有多周期K线，这里主要是看财报)
   document.querySelectorAll('.card[data-chart]').forEach(function (card) {
     var tags = card.querySelector('.card-tags');
@@ -2911,17 +3148,13 @@
     btn.type = 'button';
     btn.className = 'card-fin';
     btn.textContent = '完整图表 · 财报 ›';
-    btn.addEventListener('click', function () {
-      openStockModal({ code: code, name: h2.firstChild.textContent.trim(), sourceChartId: card.dataset.chart,
-        headHtml: card.querySelector('.card-price') ? card.querySelector('.card-price').outerHTML : '' });
-    });
+    btn.addEventListener('click', function () { openReportStock(entryByCode(code)); });
     tags.appendChild(btn);
   });
 
   buildToolbar();
 
   // ---------- "其余股票"表格: 点表头排序 + 手机上的排序下拉框 + 搜索 ----------
-  var openTableRow = null; // 底部搜索栏也要用
   var table = document.getElementById('watchlist-table');
   if (table) {
     var tbody = table.querySelector('tbody');
@@ -2971,12 +3204,12 @@
     // 点一行 (或用键盘选中后按 Enter) = 打开完整图表 + 财报 + 新闻
     function openRow(tr) {
       if (!tr || !tr.dataset.code) return;
-      var price = tr.querySelector('.col-price'), change = tr.querySelector('.col-change');
-      var head = '<span class="card-price"><b>' + escapeHtml(price ? price.firstChild.textContent : '') + '</b> ' +
-        (change ? '<span class="' + change.className.replace(/\b(num|col-change)\b/g, '').trim() + '">' + escapeHtml(change.textContent) + '</span>' : '') + '</span>';
-      openStockModal({ code: tr.dataset.code, name: tr.dataset.name || tr.dataset.code, headHtml: head });
+      // 上一支 / 下一支 = 表格现在看得到的行 (按现在的排序、筛选)
+      var list = Array.prototype.filter.call(tbody.querySelectorAll('tr[data-code]'), function (r) { return !r.hidden; })
+        .map(function (r) { return entryByCode(r.dataset.code); }).filter(Boolean);
+      var e = entryByCode(tr.dataset.code);
+      openReportStock(e, { list: list, i: list.indexOf(e) });
     }
-    openTableRow = openRow;
     // 手机上页面还在惯性滑动时，手指按下去是想停下来，不是想打开 → 滑动停下 400ms 内的点击不算
     var lastScroll = 0;
     window.addEventListener('scroll', function () { lastScroll = Date.now(); }, { passive: true });
@@ -2989,28 +3222,72 @@
     });
     tbody.addEventListener('keydown', function (e) { if (e.key === 'Enter') openRow(e.target.closest('tr')); });
 
+    // 快速筛选按钮 (可以同时按几个，条件叠加)；旧版页面还有搜索框 (#table-filter) 的话一起算
     var filterInput = document.getElementById('table-filter');
+    var chipBox = document.getElementById('table-chips');
     var countEl = document.getElementById('table-count');
     var allRows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
-    var updateCount = function (shown) {
-      if (countEl) countEl.textContent = shown === allRows.length ? allRows.length + ' 支' : shown + ' / ' + allRows.length + ' 支';
+    var minPrice = MARKET.id === 'US' ? 5 : 0.1;
+    var TABLE_FILTERS = {
+      watch: function (tr) { return isWatched(tr.dataset.code); },
+      sar: function (tr) { return tr.dataset.sar === '1'; },
+      rv: function (tr) { return parseFloat(tr.dataset.rv) >= 2; },
+      rsilo: function (tr) { var v = parseFloat(tr.dataset.rsi); return v >= 0 && v < 30; },
+      rsihi: function (tr) { return parseFloat(tr.dataset.rsi) > 70; },
+      px: function (tr) { return parseFloat(tr.dataset.px) >= minPrice; }
     };
-    updateCount(allRows.length);
-    if (filterInput) {
-      filterInput.addEventListener('input', function () {
-        var q = filterInput.value.trim().toLowerCase();
-        var shown = 0;
-        allRows.forEach(function (row) {
-          var hit = !q || (row.dataset.search || '').indexOf(q) !== -1;
-          row.hidden = !hit;
-          if (hit) shown++;
-        });
-        updateCount(shown);
+    var activeFilters = [];
+    function applyTableFilters() {
+      var q = filterInput ? filterInput.value.trim().toLowerCase() : '';
+      var shown = 0;
+      allRows.forEach(function (row) {
+        var hit = (!q || (row.dataset.search || '').indexOf(q) !== -1) &&
+          activeFilters.every(function (f) { return TABLE_FILTERS[f](row); });
+        row.hidden = !hit;
+        if (hit) shown++;
+      });
+      if (countEl) countEl.textContent = shown === allRows.length ? allRows.length + ' 支' : shown + ' / ' + allRows.length + ' 支';
+      var empty = document.getElementById('table-empty');
+      if (!shown && !empty) {
+        empty = document.createElement('p');
+        empty.id = 'table-empty';
+        empty.className = 'hint';
+        table.parentNode.insertAdjacentElement('afterend', empty);
+      }
+      if (empty) {
+        empty.hidden = !!shown;
+        empty.textContent = activeFilters.indexOf('watch') !== -1 && !watchList.length
+          ? '还没有自选股：打开任何一支股票，按「☆ 加自选」。' : '没有股票符合这些筛选条件。';
+      }
+    }
+    function markWatchedRows() {
+      allRows.forEach(function (row) { row.classList.toggle('is-watched', isWatched(row.dataset.code)); });
+    }
+    markWatchedRows();
+    watchListeners.push(function () { markWatchedRows(); if (activeFilters.indexOf('watch') !== -1) applyTableFilters(); });
+    applyTableFilters();
+    if (filterInput) filterInput.addEventListener('input', applyTableFilters);
+    if (chipBox) {
+      chipBox.addEventListener('click', function (e) {
+        var b = e.target.closest('.tf-chip[data-f]');
+        if (!b || !TABLE_FILTERS[b.dataset.f]) return;
+        var on = b.getAttribute('aria-pressed') !== 'true';
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        activeFilters = Array.prototype.filter.call(chipBox.querySelectorAll('.tf-chip[aria-pressed="true"]'), function (x) { return TABLE_FILTERS[x.dataset.f]; })
+          .map(function (x) { return x.dataset.f; });
+        applyTableFilters();
       });
     }
   }
   // ---------- 报告里的全部股票 (信号卡片 + 表格)：选股条件、底部搜索栏共用 ----------
-  var STOCKS = null;
+  var STOCKS = null, ENTRY_MAP = null;
+  function entryByCode(code) {
+    if (!ENTRY_MAP) {
+      ENTRY_MAP = {};
+      reportStocks().forEach(function (e) { ENTRY_MAP[e.code] = e; });
+    }
+    return ENTRY_MAP[code] || null;
+  }
   function reportStocks() {
     if (STOCKS) return STOCKS;
     STOCKS = [];
@@ -3028,11 +3305,26 @@
     });
     return STOCKS;
   }
-  // 打开某支股票的完整图表 + 财报 + 新闻 (信号股 = 点卡片上的按钮；表格股票 = 跟点表格那一行一样)
-  function openReportStock(e) {
-    if (!e) return;
-    if (e.card) { var btn = e.card.querySelector('.card-fin'); if (btn) btn.click(); }
-    else if (e.tr && openTableRow) openTableRow(e.tr);
+  // 打开某支股票的完整图表 + 财报 + 公告 + 新闻。ctx = 上一支 / 下一支用的列表 (没给就是整份报告的顺序)
+  function stockOptsOf(e) {
+    if (e.card) {
+      var price = e.card.querySelector('.card-price');
+      return { code: e.code, name: e.name, sourceChartId: e.chartId, headHtml: price ? price.outerHTML : '' };
+    }
+    var p = e.tr.querySelector('.col-price'), c = e.tr.querySelector('.col-change');
+    return {
+      code: e.code, name: e.name || e.code,
+      headHtml: '<span class="card-price"><b>' + escapeHtml(p ? p.firstChild.textContent : '') + '</b> ' +
+        (c ? '<span class="' + c.className.replace(/\b(num|col-change)\b/g, '').trim() + '">' + escapeHtml(c.textContent) + '</span>' : '') + '</span>'
+    };
+  }
+  function openReportStock(e, ctx, extra) {
+    if (!e) return null;
+    var opts = stockOptsOf(e);
+    var all = reportStocks();
+    opts.ctx = ctx || { list: all, i: all.indexOf(e) };
+    if (extra) Object.keys(extra).forEach(function (k) { opts[k] = extra[k]; });
+    return openStockModal(opts);
   }
 
   // ---------- 自定义选股条件: 用报告里每支股票的日线，看最新一根符不符合当前模板的条件 ----------
@@ -3070,7 +3362,7 @@
       return c;
     });
   }
-  function lastVolume(item) { var b = item.bars[item.bars.length - 1]; return b && isNum(b.volume) ? b.volume : 0; }
+  function lastTurnover(item) { var b = item.bars[item.bars.length - 1]; return b && isNum(b.volume) && isNum(b.close) ? b.volume * b.close : 0; }
   function evaluateRules(universe, compiled, match) {
     var hits = [];
     universe.items.forEach(function (it) {
@@ -3088,9 +3380,91 @@
       });
       if (match === 'any' ? any : all) hits.push(it);
     });
-    // 跟表格默认一样按成交量从高到低
-    hits.sort(function (a, b) { return lastVolume(b) - lastVolume(a); });
+    // 跟表格默认一样按成交额从高到低
+    hits.sort(function (a, b) { return lastTurnover(b) - lastTurnover(a); });
     return hits;
+  }
+  // 命中列表每一行顺便显示条件里的数值 (例如 RSI(14) 28.3、相对量 2.4)：条件左边那一项在最新一根的值；价格类不重复显示
+  function hitValues(it, compiled) {
+    var out = [];
+    compiled.forEach(function (c) {
+      var r = c.rule;
+      if (out.length >= 2 || c.error || r.formula || !r.a || isBoolOperand(r.a)) return;
+      var def = OPERAND_BY_K[r.a.k];
+      if (!def || def.unit === 'price') return;
+      try {
+        var arr = evalFormula(operandFormula(r.a), it.ctx);
+        var v = isArr(arr) ? arr[arr.length - 1] : arr;
+        if (isNum(v)) out.push(operandLabel(r.a) + ' ' + (def.unit === 'vol' ? fmtVolume(v) : def.unit === 'pct' ? fmtPct(v, 2) : fmtValue(v)));
+      } catch (e) { /* 算不出来就不显示 */ }
+    });
+    return out;
+  }
+  // 回测这组条件：报告里每支股票最近约 6 个月的日线 (表格股票只有 6 个月；信号股有 2 年，也只看最后 6 个月，才比得起来)，
+  // 条件"由不成立变成立"的那一天算一次 (连续几天都成立只算第一天)，隔天开盘价计入，看之后 5 / 10 / 20 天的涨跌；
+  // 跟同期"任意一天买进"比。在浏览器里算，不上传任何东西。
+  var BT_H = [5, 10, 20];
+  function backtestRules(universe, compiled, match) {
+    var acc = BT_H.map(function () { return { n: 0, sum: 0, win: 0, rets: [] }; });
+    var base = BT_H.map(function () { return { n: 0, sum: 0, win: 0 }; });
+    var events = 0, stocks = 0, from = null, to = null;
+    universe.items.forEach(function (it) {
+      if (!it.ctx) it.ctx = makeCtx(it.bars);
+      var bars = it.bars, n = bars.length;
+      if (n < 30) return;
+      var arrs = compiled.map(function (c) {
+        try { var a = evalFormula(c.formula, it.ctx); return isArr(a) ? a : null; } catch (e) { return null; }
+      });
+      var truthAt = function (i) {
+        var any = false, all = true;
+        arrs.forEach(function (a) { var ok = !!a && truthOf(a[i]) === true; any = any || ok; all = all && ok; });
+        return match === 'any' ? any : all;
+      };
+      var start = Math.max(25, n - 126), prev = truthAt(start - 1), hit = false;
+      if (from === null || bars[start].time < from) from = bars[start].time;
+      if (to === null || bars[n - 1].time > to) to = bars[n - 1].time;
+      for (var i = start; i < n - 1; i++) {
+        var entry = bars[i + 1].open, cur = truthAt(i);
+        if (!(entry > 0)) { prev = cur; continue; }
+        BT_H.forEach(function (h, k) {
+          var j = i + h;
+          if (j >= n) return;
+          var r = (bars[j].close / entry - 1) * 100;
+          base[k].n++; base[k].sum += r; base[k].win += r > 0 ? 1 : 0;
+          if (cur && !prev) { acc[k].n++; acc[k].sum += r; acc[k].win += r > 0 ? 1 : 0; acc[k].rets.push(r); }
+        });
+        if (cur && !prev) { events++; hit = true; }
+        prev = cur;
+      }
+      if (hit) stocks++;
+    });
+    function median(xs) {
+      if (!xs.length) return null;
+      xs = xs.slice().sort(function (a, b) { return a - b; });
+      var m = Math.floor(xs.length / 2);
+      return xs.length % 2 ? xs[m] : (xs[m - 1] + xs[m]) / 2;
+    }
+    return {
+      events: events, stocks: stocks, from: from, to: to, total: universe.items.length,
+      rows: BT_H.map(function (h, k) {
+        return { h: h, n: acc[k].n, avg: acc[k].n ? acc[k].sum / acc[k].n : null, med: median(acc[k].rets),
+          win: acc[k].n ? acc[k].win / acc[k].n * 100 : null,
+          baseAvg: base[k].n ? base[k].sum / base[k].n : null, baseWin: base[k].n ? base[k].win / base[k].n * 100 : null };
+      })
+    };
+  }
+  function ymd(t) { var d = new Date(t * 1000); return (d.getUTCMonth() + 1) + '/' + d.getUTCDate(); }
+  function backtestHtml(r) {
+    if (!r.events) return '<div class="sp-bt"><p class="hint">最近 6 个月 (' + ymd(r.from) + ' ~ ' + ymd(r.to) + ') 这组条件在 ' + r.total + ' 支股票里一次都没有出现过。</p></div>';
+    var cls = function (v) { return !isNum(v) ? '' : v > 0 ? 'change-up' : v < 0 ? 'change-down' : ''; };
+    return '<div class="sp-bt"><p class="sp-bt-head"><b>回测</b> ' + ymd(r.from) + ' ~ ' + ymd(r.to) + ' · ' + r.stocks + ' 支股票出现过 · 共 ' + r.events + ' 次' +
+      ' <button type="button" class="info-btn" data-gloss="cbt" aria-label="回测怎么算">ⓘ</button></p>' +
+      '<div class="bt-table-wrap"><table class="bt-table"><thead><tr><th>之后</th><th class="num">平均</th><th class="num">中位</th><th class="num">胜率</th>' +
+      '<th class="num">任意一天买进</th><th class="num">次数</th></tr></thead><tbody>' + r.rows.map(function (x) {
+        return '<tr><th scope="row">' + x.h + ' 天</th><td class="num ' + cls(x.avg) + '">' + fmtPct(x.avg, 2) + '</td><td class="num ' + cls(x.med) + '">' + fmtPct(x.med, 2) + '</td>' +
+          '<td class="num">' + fmtPct(x.win, 0, false) + '</td><td class="num ' + cls(x.baseAvg) + '">' + fmtPct(x.baseAvg, 2) + '</td><td class="num">' + x.n + '</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<p class="hint">条件由不成立变成立的那天算一次，隔天开盘价计入，没扣交易成本；历史统计不代表未来。</p></div>';
   }
 
   var SP_PAGE = 30;
@@ -3138,11 +3512,10 @@
     notifyStrategy(t, compiled);
     if (!panel) return;
     var total = reportStocks().length;
-    if (!t.rules.length) {
-      panel.innerHTML = '<div class="sp-head"><span class="sp-title">选股条件</span>' +
-        '<div class="sp-actions"><button type="button" class="sp-btn primary" data-act="edit">＋ 添加条件</button></div></div>' +
-        '<p class="sp-empty">模板「' + escapeHtml(t.name) + '」还没有选股条件。加上条件后 (例如「RSI(14) &lt; 30」「收盘价 &gt; EMA(20)」)，会在今天报告里的全部 ' + total +
-        ' 支股票中找出符合的；也可以从左上角 ☰ 的「筛选器种类」套用内置策略。</p>';
+    if (!t.rules.length) { // 没有条件时只占一行，不要把下面的信号卡片挤到屏幕外
+      panel.innerHTML = '<div class="sp-head sp-head-empty"><span class="sp-title">选股条件</span>' +
+        '<span class="sp-match">自己在 ' + total + ' 支里筛，或从 ☰ 套用内置策略</span>' +
+        '<div class="sp-actions"><button type="button" class="sp-btn primary" data-act="edit">＋ 添加条件</button></div></div>';
       return;
     }
     var errors = compiled.filter(function (c) { return c.error; });
@@ -3163,18 +3536,22 @@
       panel.innerHTML = html + '<p class="sp-loading">正在用今天报告里的 ' + total + ' 支股票计算…</p>';
       return;
     }
-    var note = '按成交量排序 · 看最新一根日线';
+    var note = '按成交额排序 · 看最新一根日线';
     if (sp.missing) note += ' · ' + sp.missing + ' 支没有K线数据没算' + (sp.tableError ? ' (表格股票的K线下载失败：' + sp.tableError + ')' : '');
     html += '<p class="sp-stat"><span>命中</span> <b>' + sp.hits.length + '</b> <span>/ ' + sp.total + ' 支</span> <small>' + escapeHtml(note) + '</small></p>';
+    var validRules = compiled.filter(function (c) { return !c.error; });
+    html += sp.bt && sp.bt.key === sp.key ? backtestHtml(sp.bt.result)
+      : '<button type="button" class="sp-btn sp-bt-btn" data-act="backtest">回测这组条件 (近 6 个月)</button>';
     if (sp.hits.length) {
       html += '<ol class="sp-hits">' + sp.hits.slice(0, sp.shown).map(function (it, i) {
-        var e = it.stock;
+        var e = it.stock, vals = hitValues(it, validRules);
         return '<li class="sp-hit" data-i="' + i + '" tabindex="0" role="button" aria-label="打开 ' + escapeHtml(e.name + ' ' + e.code) + ' 的完整图表">' +
           '<span class="sp-idx">' + (i + 1) + '</span>' +
-          '<span class="sp-name"><b>' + escapeHtml(e.name) + '</b><span class="sp-code">' + escapeHtml(e.code) + '</span>' + (e.card ? '<span class="sp-sig">信号</span>' : '') + '</span>' +
+          '<span class="sp-name"><b>' + escapeHtml(e.name) + '</b><span class="sp-code">' + escapeHtml(e.code) + '</span>' + (e.card ? '<span class="sp-sig">信号</span>' : '') +
+          (vals.length ? '<small class="sp-vals">' + escapeHtml(vals.join(' · ')) + '</small>' : '') + '</span>' +
           '<span class="sp-price">' + escapeHtml(e.price) + '</span>' +
           '<span class="sp-chg ' + (e.up === true ? 'change-up' : e.up === false ? 'change-down' : 'change-neutral') + '">' + escapeHtml(e.change) + '</span>' +
-          '<span class="sp-vol">' + fmtVolume(lastVolume(it)) + '</span></li>';
+          '<span class="sp-vol">' + fmtCompact(lastTurnover(it)) + '</span></li>';
       }).join('') + '</ol>';
       var left = sp.hits.length - sp.shown;
       if (left > 0) html += '<button type="button" class="sp-btn sp-more" data-act="more">再显示 ' + Math.min(SP_PAGE, left) + ' 支 (还有 ' + left + ' 支)</button>';
@@ -3186,10 +3563,25 @@
   (function initStrategyPanel() {
     var panel = document.getElementById('strategy-panel');
     if (!panel) return;
-    function openHit(li) { if (li && sp.hits && sp.hits[+li.dataset.i]) openReportStock(sp.hits[+li.dataset.i].stock); }
+    function openHit(li) {
+      var i = li ? +li.dataset.i : -1;
+      if (!sp.hits || !sp.hits[i]) return;
+      openReportStock(sp.hits[i].stock, { list: sp.hits.map(function (h) { return h.stock; }), i: i });
+    }
     panel.addEventListener('click', function (e) {
       var btn = e.target.closest('[data-act]');
       if (btn && btn.dataset.act === 'edit') { openRulesDialog(); return; }
+      if (btn && btn.dataset.act === 'backtest') {
+        var t = activeTemplate(), compiled = compileRules(t), key = sp.key;
+        btn.disabled = true;
+        btn.textContent = '回测中…';
+        loadUniverse().then(function (u) {
+          if (sp.key !== key) return;
+          sp.bt = { key: key, result: backtestRules(u, compiled.filter(function (c) { return !c.error; }), t.match) };
+          renderStrategy(t, compiled);
+        });
+        return;
+      }
       if (btn && btn.dataset.act === 'more') { sp.shown += SP_PAGE; renderStrategy(activeTemplate(), compileRules(activeTemplate())); return; }
       openHit(e.target.closest('.sp-hit'));
     });
@@ -3438,6 +3830,28 @@
       '<h3 class="dash-sub">内置策略</h3><div class="dash-list">' + builtins + '</div>' +
       '<p class="dash-note">点一下就切换到那个筛选器；内置策略第一次点会复制一份到「我的模板」，之后再点直接切过去。</p>';
   }
+  var dashCloser = null;
+  // ☰ 里的「自选」：今天报告里有的显示价格、涨跌，点了打开；不在报告里的 (成交量没达标) 灰掉
+  function renderDashWatch() {
+    var box = document.getElementById('dash-watch');
+    if (!box) return;
+    if (!watchList.length) {
+      box.innerHTML = '<p class="dash-note">还没有自选股：打开任何一支股票，按「☆ 加自选」。表格上方的「★ 自选」可以只看自选。</p>';
+      return;
+    }
+    box.innerHTML = '<div class="dash-list dash-watch">' + watchList.map(function (x) {
+      var e = entryByCode(x.code), m = META.stocks[x.code];
+      var chg = m && isNum(m.c) ? m.c : null;
+      return '<div class="dash-witem' + (e ? '' : ' off') + '">' +
+        (e ? '<button type="button" class="dash-wopen" data-dash="watch" data-code="' + escapeHtml(x.code) + '">' : '<span class="dash-wopen">') +
+        '<b>' + escapeHtml(x.name) + '</b><small>' + escapeHtml(x.code) + '</small>' +
+        (e ? '<span class="dash-wpx">' + escapeHtml(e.price) + '</span><span class="' + (chg > 0 ? 'change-up' : chg < 0 ? 'change-down' : 'change-neutral') + '">' +
+          escapeHtml(e.change) + '</span>' : '<span class="dash-wpx muted">今天不在报告里</span>') +
+        (e ? '</button>' : '</span>') +
+        '<button type="button" class="dash-wx" data-dash="unwatch" data-code="' + escapeHtml(x.code) + '" data-name="' + escapeHtml(x.name) + '" aria-label="从自选移除 ' + escapeHtml(x.name) + '">×</button></div>';
+    }).join('') + '</div>';
+  }
+  watchListeners.push(renderDashWatch);
   (function initDash() {
     var btn = document.getElementById('dash-btn'), nav = document.getElementById('dash'), backdrop = document.getElementById('dash-backdrop');
     if (!btn || !nav) return;
@@ -3455,25 +3869,34 @@
         else if (!nav.contains(document.activeElement)) { e.preventDefault(); f[0].focus(); }
       }
     }
+    var layer = null;
     function open() {
       renderDashScreeners();
+      renderDashWatch();
       nav.hidden = false;
       if (backdrop) backdrop.hidden = false;
       document.documentElement.classList.add('dash-open');
       btn.setAttribute('aria-expanded', 'true');
       document.addEventListener('keydown', onKey, true);
+      layer = pushLayer(function () { close(true, true); }); // 按返回 = 关导航
       var x = nav.querySelector('.dash-x');
       if (x) x.focus({ preventScroll: true });
     }
-    function close(restoreFocus) {
-      if (nav.hidden) return;
+    // keep = 接着要打开对话框：导航占的那一格 history 直接交给对话框用 (返回一次就回到页面)，返回 { layer }
+    function close(restoreFocus, fromPop, keep) {
+      if (nav.hidden) return null;
       nav.hidden = true;
       if (backdrop) backdrop.hidden = true;
       document.documentElement.classList.remove('dash-open');
       btn.setAttribute('aria-expanded', 'false');
       document.removeEventListener('keydown', onKey, true);
+      var handed = keep && layer ? { layer: layer, previousFocus: btn } : null;
+      if (!fromPop && !handed) releaseLayer(layer);
+      layer = null;
       if (restoreFocus) btn.focus({ preventScroll: true });
+      return handed;
     }
+    dashCloser = close;
     function goToScreener() {
       var sec = document.getElementById('sec-screener');
       if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3482,10 +3905,37 @@
     if (backdrop) backdrop.addEventListener('click', function () { close(true); });
     nav.addEventListener('click', function (e) {
       if (e.target.closest('.dash-x')) { close(true); return; }
-      if (e.target.closest('a[href]')) { close(false); return; } // 链接照常跳转 (页面里的区块或另一个市场)
+      var link = e.target.closest('a[href]');
+      if (link) {
+        var hash = link.getAttribute('href');
+        // 页面里的区块: 自己滚过去 (不留 #xxx 在网址和历史记录里，按返回不会卡在同一页)；另一个市场、下载文件照常
+        if (/^#[\w-]+$/.test(hash) && document.getElementById(hash.slice(1))) {
+          e.preventDefault();
+          close(false);
+          var target = document.getElementById(hash.slice(1));
+          setTimeout(function () { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
+        } else if (!link.hasAttribute('download')) {
+          close(false);
+        }
+        return;
+      }
       var b = e.target.closest('[data-dash]');
       if (!b) return;
       var act = b.dataset.dash;
+      if (act === 'calc' || act === 'gloss') {
+        var handed = close(false, false, true);
+        if (act === 'calc') openCalculator({}, handed); else openGlossary(null, handed);
+        return;
+      }
+      if (act === 'watch') {
+        var we = entryByCode(b.dataset.code);
+        if (!we) return;
+        var wl = watchList.map(function (x) { return entryByCode(x.code); }).filter(Boolean);
+        var h = close(false, false, true);
+        openReportStock(we, { list: wl, i: wl.indexOf(we) }, { reuse: h, previousFocus: h && h.previousFocus });
+        return;
+      }
+      if (act === 'unwatch') { toggleWatch(b.dataset.code, b.dataset.name); return; }
       if (act === 'tpl') {
         templates.active = b.dataset.id;
         indicatorsChanged();
@@ -3606,7 +4056,316 @@
     });
   })();
 
+  // ---------- 股票计算器: 手续费 / 印花税 / 保本价 + 按风险算股数 ----------
+  // 马股收费 (普通股)：佣金看券商 (常见 0.1%、最低 RM8)；结算费 0.03% 最多 RM1,000；印花税每 RM1,000 (不足也算) RM1、最多 RM1,000
+  // (2023-07-13 到 2028-07-12 的税率)；普通股的佣金、结算费不收 8% SST (ETF / REIT / 权证要)。买、卖各收一次。
+  // 美股：各家券商差很多，默认值只是例子；金额用美元算，另外按汇率换成令吉。收费标准存在这个浏览器里，改一次就记住
+  var CALC_KEY = 'bursa_calc_v1_' + MARKET.id;
+  var CALC_DEFAULTS = MARKET.id === 'US'
+    ? { rate: 0.1, min: 1, fixed: 0, sst: 0, clear: 0, clearCap: 0, stamp: 0, stampCap: 0, spread: 0.5 }
+    : { rate: 0.1, min: 8, fixed: 0, sst: 0, clear: 0.03, clearCap: 1000, stamp: 1, stampCap: 1000, spread: 0 };
+  var CALC_FEE_FIELDS = MARKET.id === 'US'
+    ? [['rate', '佣金 (%)'], ['min', '最低佣金 (US$)'], ['fixed', '每笔平台费 (US$)'], ['spread', '换汇差价 (%)']]
+    : [['rate', '佣金 (%)'], ['min', '最低佣金 (RM)'], ['sst', '佣金服务税 SST (%)'], ['clear', '结算费 (%)'], ['clearCap', '结算费上限 (RM)'],
+      ['stamp', '印花税 (每 RM1,000，RM)'], ['stampCap', '印花税上限 (RM)'], ['fixed', '每笔其他费用 (RM)']];
+  function r2(x) { return Math.round(x * 100) / 100; }
+  function feesFor(value, f) {
+    if (!(value > 0)) return { brok: 0, sst: 0, clear: 0, stamp: 0, fixed: 0, total: 0 };
+    var brok = r2(Math.max(value * (f.rate || 0) / 100, f.min || 0));
+    var sst = r2(brok * (f.sst || 0) / 100);
+    var clear = f.clear ? r2(Math.min(value * f.clear / 100, f.clearCap || Infinity)) : 0;
+    var stamp = f.stamp ? Math.min(Math.ceil(value / 1000 - 1e-9) * f.stamp, f.stampCap || Infinity) : 0;
+    var fixed = f.fixed || 0;
+    return { brok: brok, sst: sst, clear: clear, stamp: stamp, fixed: fixed, total: r2(brok + sst + clear + stamp + fixed) };
+  }
+  function tickOf(p) {
+    if (MARKET.id === 'US') return 0.01;
+    return p < 1 ? 0.005 : p < 10 ? 0.01 : p < 100 ? 0.02 : 0.1;
+  }
+  function roundTick(p, up) {
+    var t = tickOf(p), k = p / t;
+    k = up ? Math.ceil(k - 1e-9) : Math.floor(k + 1e-9);
+    return Math.round(k * t * 1e6) / 1e6;
+  }
+  // 保本卖价: 卖掉之后扣完卖出费用，刚好拿回买入总成本的最低价 (按最小跳动往上取)
+  function breakEvenPrice(cost, shares, f) {
+    if (!(cost > 0) || !(shares > 0)) return null;
+    var p = roundTick(cost / shares, true);
+    for (var k = 0; k < 5000; k++) {
+      var v = p * shares;
+      if (v - feesFor(v, f).total >= cost - 1e-6) return p;
+      p = Math.round((p + tickOf(p)) * 1e6) / 1e6;
+    }
+    return null;
+  }
+  function feeBreakdown(fe) {
+    var parts = [['佣金', fe.brok], ['SST', fe.sst], ['结算费', fe.clear], ['印花税', fe.stamp], ['其他', fe.fixed]]
+      .filter(function (x) { return x[1] > 0; }).map(function (x) { return x[0] + ' ' + fmtMoney2(x[1]); });
+    return parts.join(' · ');
+  }
+  function openCalculator(pre, handed) {
+    pre = pre || {};
+    var saved = loadJSON(CALC_KEY, {}) || {};
+    var fees = {};
+    Object.keys(CALC_DEFAULTS).forEach(function (k) { fees[k] = isNum(saved.fees && saved.fees[k]) ? saved.fees[k] : CALC_DEFAULTS[k]; });
+    var m = pre.code ? META.stocks[pre.code] : null;
+    var price = m && isNum(m.p) ? m.p : null;
+    var us = MARKET.id === 'US';
+    var st = {
+      buy: price, sell: price ? roundTick(price * 1.05, true) : null, qty: us ? 10 : 10, unit: us ? 'share' : 'lot',
+      fx: isNum(META.usd_myr) ? META.usd_myr : (isNum(saved.fx) ? saved.fx : 4.2),
+      capital: isNum(saved.capital) ? saved.capital : (us ? 5000 : 10000), riskAmt: isNum(saved.riskAmt) ? saved.riskAmt : (us ? 50 : 200),
+      entry: price, stop: m && isNum(m.sar) && price && m.sar < price ? m.sar : (price ? roundTick(price * 0.95, false) : null),
+      target: price ? roundTick(price * 1.1, true) : null
+    };
+    var sym = CUR_SYM;
+    function numIn(k, label, val, extra) {
+      return '<label class="cf"><span>' + label + '</span><input type="number" inputmode="decimal" step="any" min="0" data-k="' + k + '"' +
+        (isNum(val) ? ' value="' + val + '"' : '') + (extra || '') + '></label>';
+    }
+    var body = document.createElement('div');
+    body.className = 'calc';
+    body.innerHTML =
+      (pre.code ? '<p class="calc-stock"><b>' + escapeHtml(pre.name || pre.code) + '</b> ' + escapeHtml(pre.code) + (price ? ' · 现价 ' + fmtPrice(price) : '') +
+        (m && isNum(m.sar) ? ' · SAR ' + fmtPrice(m.sar) : '') + '</p>' : '') +
+      '<div class="rl-seg calc-tabs" role="radiogroup" aria-label="计算器">' +
+      '<label><input type="radio" name="calc-pane" value="cost" checked><span>交易成本 · 保本价</span></label>' +
+      '<label><input type="radio" name="calc-pane" value="risk"><span>按风险算股数</span></label></div>' +
+      '<section class="calc-pane" data-pane="cost"><div class="calc-grid">' +
+      numIn('buy', '买入价 (' + sym + ')', st.buy) + numIn('sell', '卖出价 (' + sym + ')', st.sell) +
+      '<label class="cf cf-qty"><span>数量</span><span class="cf-row"><input type="number" inputmode="numeric" step="1" min="0" data-k="qty" value="' + st.qty + '">' +
+      (us ? '<em>股</em>' : '<span class="rl-seg calc-unit" role="radiogroup" aria-label="数量单位"><label><input type="radio" name="calc-unit" value="lot" checked><span>手</span></label>' +
+        '<label><input type="radio" name="calc-unit" value="share"><span>股</span></label></span>') + '</span></label>' +
+      (us ? numIn('fx', '汇率 (1 美元 = ? 令吉)', st.fx) : '') +
+      '</div><div class="calc-out" aria-live="polite"></div>' +
+      '<details class="calc-fees"><summary>收费标准 (按你的券商改，会记住)</summary><div class="calc-grid">' +
+      CALC_FEE_FIELDS.map(function (x) { return numIn('fee-' + x[0], x[1], fees[x[0]]); }).join('') +
+      '</div><p class="hint">' + (us ? '美股各家券商收费差很多 (有的每笔固定几美元、有的按比例)，这里的默认值只是例子。换汇差价 = 令吉换美元时银行 / 券商多收的百分比。'
+        : '默认：佣金 0.1% 最低 RM8 (多数券商网上交易)；结算费 0.03% 最多 RM1,000；印花税每 RM1,000 (不足也算) RM1、最多 RM1,000。买、卖各收一次。' +
+          '普通股的佣金、结算费不收 SST；ETF、REIT、权证要另加 8%，把 SST 填 8。') +
+      '</p><button type="button" class="sp-btn calc-reset">恢复默认</button></details></section>' +
+      '<section class="calc-pane" data-pane="risk" hidden><div class="calc-grid">' +
+      numIn('capital', '本金 (' + sym + ')', st.capital) + numIn('riskAmt', '这一笔最多亏 (' + sym + ')', st.riskAmt) +
+      numIn('entry', '进场价', st.entry) + numIn('stop', '风险价 (跌到这里就认赔，例如 SAR)', st.stop) +
+      numIn('target', '预期卖价', st.target) +
+      '</div><div class="calc-out calc-risk-out" aria-live="polite"></div>' +
+      '<p class="hint">股数 = 愿意亏的金额 ÷ (进场价 − 风险价)，' + (LOT > 1 ? '按一手 ' + LOT + ' 股往下取整，' : '') + '不超过本金；亏损、报酬都已经扣掉买卖费用。只是资金管理的算术，不是买卖建议。</p></section>';
+    var dlg = openDialog({ title: '股票计算器', body: body, className: 'dlg-calc', reuse: handed, previousFocus: handed && handed.previousFocus });
+    function val(k) { var el = body.querySelector('[data-k="' + k + '"]'); var v = el ? parseFloat(el.value) : NaN; return isFinite(v) ? v : null; }
+    function unit() { var el = body.querySelector('input[name="calc-unit"]:checked'); return us ? 'share' : el ? el.value : 'lot'; }
+    function readFees() {
+      var f = {};
+      Object.keys(CALC_DEFAULTS).forEach(function (k) { var v = val('fee-' + k); f[k] = v === null ? (body.querySelector('[data-k="fee-' + k + '"]') ? 0 : CALC_DEFAULTS[k]) : v; });
+      return f;
+    }
+    function row(label, value, cls, sub) {
+      return '<div class="co-row' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + value + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</div>';
+    }
+    function money(v, signed) { return (signed && v > 0 ? '+' : '') + sym + ' ' + fmtMoney2(v); }
+    // 美股: 令吉换美元 (买) 按汇率多付换汇差价，美元换回令吉 (卖) 少拿换汇差价
+    function inMyr(v, f, signed, side) {
+      if (!us || !isNum(v) || !(val('fx') > 0)) return '';
+      var sp = (f.spread || 0) / 100, rate = val('fx') * (side === 'buy' ? 1 + sp : side === 'sell' ? 1 - sp : 1);
+      return '≈ ' + (signed && v > 0 ? '+' : '') + 'RM ' + fmtMoney2(v * rate);
+    }
+    function renderCost() {
+      var f = readFees(), buy = val('buy'), sell = val('sell'), q = val('qty');
+      var shares = q === null ? 0 : Math.floor(q) * (unit() === 'lot' ? LOT : 1);
+      var out = body.querySelector('[data-pane="cost"] .calc-out');
+      if (!(buy > 0) || !(shares > 0)) { out.innerHTML = '<p class="hint">填上买入价和数量就会算出来。</p>'; return; }
+      var bv = buy * shares, bf = feesFor(bv, f), cost = bv + bf.total;
+      var html = row('股数', shares.toLocaleString('en-US') + ' 股' + (unit() === 'lot' ? ' (' + Math.floor(q) + ' 手)' : ''), '') +
+        row('买入金额', money(bv), '', inMyr(bv, f, false, 'buy')) +
+        row('买入费用', money(bf.total), '', feeBreakdown(bf)) +
+        row('买入总成本', money(cost), 'co-strong', inMyr(cost, f, false, 'buy'));
+      var be = breakEvenPrice(cost, shares, f);
+      if (be) html += row('保本卖价', fmtPrice(be), 'co-strong', '比买入价高 ' + fmtPct((be / buy - 1) * 100, 2, false) + ' 才打平 (已扣买卖费用)');
+      if (sell > 0) {
+        var sv = sell * shares, sf = feesFor(sv, f), net = sv - sf.total - cost, netMyr = '';
+        if (us && val('fx') > 0) {
+          var sp = (f.spread || 0) / 100, myr = (sv - sf.total) * val('fx') * (1 - sp) - cost * val('fx') * (1 + sp);
+          netMyr = '换回令吉 ≈ ' + (myr > 0 ? '+' : '') + 'RM ' + fmtMoney2(myr) + (sp ? ' (已扣两次换汇差价)' : '');
+        }
+        html += row('卖出金额', money(sv), '', '') + row('卖出费用', money(sf.total), '', feeBreakdown(sf)) +
+          row(net >= 0 ? '净赚' : '净亏', money(net, true) + ' (' + fmtPct(net / cost * 100, 2) + ')', 'co-strong ' + (net > 0 ? 'co-up' : net < 0 ? 'co-down' : ''), netMyr) +
+          row('来回费用合计', money(bf.total + sf.total), '', '占买入金额 ' + fmtPct((bf.total + sf.total) / bv * 100, 2, false));
+      }
+      out.innerHTML = html;
+    }
+    function renderRisk() {
+      var f = readFees(), cap = val('capital'), risk = val('riskAmt'), e = val('entry'), s = val('stop'), t = val('target');
+      var out = body.querySelector('.calc-risk-out');
+      if (!(e > 0) || !(s > 0) || !(risk > 0)) { out.innerHTML = '<p class="hint">填上进场价、风险价和愿意亏的金额。</p>'; return; }
+      if (s >= e) { out.innerHTML = '<p class="hint change-down">风险价要低于进场价。</p>'; return; }
+      var perShare = e - s;
+      // 跌到风险价时的亏损 (含买、卖两次费用)
+      var lossAt = function (n) { var v = e * n; return s * n - feesFor(s * n, f).total - (v + feesFor(v, f).total); };
+      var shares = Math.floor(risk / perShare / LOT) * LOT;
+      while (shares > 0 && -lossAt(shares) > risk + 1e-9) shares -= LOT; // 连费用一起算也不超过愿意亏的金额
+      var byCap = cap > 0 ? Math.floor(cap / (e * 1.003) / LOT) * LOT : Infinity; // 留一点给费用
+      var capped = byCap < shares;
+      shares = Math.min(shares, byCap);
+      if (!(shares > 0)) { out.innerHTML = '<p class="hint change-down">按这些数字连' + (LOT > 1 ? '一手 (' + LOT + ' 股)' : '一股') + '都买不了：愿意亏的金额太少，或者风险价离进场价太远。</p>'; return; }
+      var bv = e * shares, bf = feesFor(bv, f), cost = bv + bf.total;
+      var sv = s * shares, lossNet = sv - feesFor(sv, f).total - cost;
+      var html = row('可以买', shares.toLocaleString('en-US') + ' 股' + (LOT > 1 ? ' (' + shares / LOT + ' 手)' : ''), 'co-strong', capped ? '受本金限制' : '按愿意亏的金额算') +
+        row('需要资金', money(cost), '', (cap > 0 ? '占本金 ' + fmtPct(cost / cap * 100, 1, false) : '') + (inMyr(cost, f, false, 'buy') ? ' · ' + inMyr(cost, f, false, 'buy') : '')) +
+        row('跌到风险价', money(lossNet, true) + ' (' + fmtPct(lossNet / cost * 100, 2) + ')', 'co-down', '每股风险 ' + fmtPrice(perShare) + ' (' + fmtPct(-perShare / e * 100, 2) + ')，已含买卖费用');
+      if (t > e) {
+        var tv = t * shares, gain = tv - feesFor(tv, f).total - cost;
+        html += row('到预期卖价', money(gain, true) + ' (' + fmtPct(gain / cost * 100, 2) + ')', 'co-up', '已含买卖费用') +
+          row('风险报酬比', '1 : ' + ((t - e) / perShare).toFixed(2), 'co-strong', '扣费用后 1 : ' + (lossNet < 0 ? (gain / -lossNet).toFixed(2) : '—'));
+      }
+      out.innerHTML = html + '<button type="button" class="sp-btn calc-use">用这个股数算交易成本 ›</button>';
+      out.querySelector('.calc-use').dataset.shares = shares;
+    }
+    function save() {
+      saveJSON(CALC_KEY, { fees: readFees(), fx: val('fx'), capital: val('capital'), riskAmt: val('riskAmt') });
+    }
+    function render() { renderCost(); renderRisk(); }
+    body.addEventListener('input', function () { render(); save(); });
+    // 只处理两组单选 (页签、手 / 股)。数字框打字时 input 已经重算过了；这里再算一次会在输入框失焦时把结果区重画，
+    // 手机上刚好按在"用这个股数"按钮上的那一下就不算了
+    body.addEventListener('change', function (e) {
+      if (e.target.name === 'calc-pane') {
+        body.querySelectorAll('.calc-pane').forEach(function (p) { p.hidden = p.dataset.pane !== e.target.value; });
+      } else if (e.target.name === 'calc-unit') {
+        var qEl = body.querySelector('[data-k="qty"]'), q = parseFloat(qEl.value);
+        if (isFinite(q)) qEl.value = e.target.value === 'share' ? q * LOT : Math.floor(q / LOT);
+        render();
+      }
+    });
+    body.addEventListener('click', function (e) {
+      if (e.target.closest('.calc-reset')) {
+        CALC_FEE_FIELDS.forEach(function (x) { body.querySelector('[data-k="fee-' + x[0] + '"]').value = CALC_DEFAULTS[x[0]]; });
+        render();
+        save();
+        return;
+      }
+      var use = e.target.closest('.calc-use');
+      if (use) {
+        var n = +use.dataset.shares;
+        body.querySelector('[data-k="buy"]').value = val('entry');
+        body.querySelector('[data-k="sell"]').value = val('target') || '';
+        var shareRadio = body.querySelector('input[name="calc-unit"][value="share"]');
+        if (shareRadio) shareRadio.checked = true;
+        body.querySelector('[data-k="qty"]').value = n;
+        var costRadio = body.querySelector('input[name="calc-pane"][value="cost"]');
+        costRadio.checked = true;
+        body.querySelectorAll('.calc-pane').forEach(function (p) { p.hidden = p.dataset.pane !== 'cost'; });
+        render();
+      }
+    });
+    render();
+    return dlg;
+  }
+
+  // ---------- 名词解释 (☰ → 名词解释，或页面上的 ⓘ) ----------
+  var GLOSSARY = [
+    ['price', '当前价格', '报告生成时的最新成交价 (盘中会有几分钟延迟)，收盘后就是当天收盘价。'],
+    ['state', '盘中 / 已收盘', '报告在交易时间里生成时标「盘中」：最新一根日线还没收完，信号收盘前可能消失；「已收盘」= 用的是当天收盘价。'],
+    ['turnover', '成交额', '价格 × 成交股数，代表今天有多少钱在买卖这支股票。马股低价股动辄成交几亿股但金额很小，所以表格按成交额排。'],
+    ['relvol', '相对量', '今天成交量 ÷ 前 20 个交易日的平均成交量。2 倍以上 = 明显放量。平时几乎没成交的股票倍数会虚高，超过 20 倍显示「20+」。'],
+    ['rsi', 'RSI (14)', '最近 14 天涨跌力度的比例，0 ~ 100。一般把 70 以上叫超买、30 以下叫超卖，只是描述，不代表一定会回头。'],
+    ['ema', 'EMA20', '20 天指数移动平均线 (近期价格权重大一点)。价格在 EMA20 上面 = 短期趋势向上。卡片上「EMA20多头 +3.0%」= 现价高出 EMA20 3%。'],
+    ['sar', 'SAR (抛物线转向)', '跟着价格移动的一串点。价格在 SAR 上面 = 多头；收盘跌到 SAR 下面就转空。常被当成跟踪式的风险价。'],
+    ['t3', 'T3 形态突破', '2 ~ 5 天前某天放量 (成交量高于前 20 天平均) 创出当天最高价，之后几天都没超过那个价 (回调)，今天收盘再突破它。'],
+    ['atr', 'ATR (14)', '最近 14 天平均每天的波动幅度，这里用占股价的百分比表示。数字越大，股价每天上下跳得越多。'],
+    ['risk', '风险 (到 SAR)', '现价跌到 SAR 要跌多少 %。SAR 是后台策略自己的转空线，所以拿来当"这笔信号的风险"参考。'],
+    ['rr', '风险报酬比', '1 : X = 每冒 1 份风险 (到 SAR 的距离)，历史上同类信号期间最大涨幅的中位数是几份。X 越大越划算，但这是历史统计，不保证。'],
+    ['backtest', '策略回测怎么算', '用近 6 个月的日线，把后台策略 (EMA20 多头 + SAR 多头 + T3 形态突破) 每一天都判断一次：信号当天收盘后，隔天开盘价计入；之后哪天收盘跌到 SAR 以下就按当天收盘价结算，最多拿 20 个交易日。每笔扣掉来回交易成本。另外看信号之后固定 5 / 10 / 20 天的涨跌，跟同期「任意一天买进」的平均比，看信号有没有比随便买好。只统计今天进报告的股票 (有幸存者偏差)，历史统计不代表未来。'],
+    ['winrate', '胜率', '已结算的信号里，扣完成本还赚钱的比例。'],
+    ['payoff', '盈亏比', '平均每笔赚的 ÷ 平均每笔亏的。胜率低但盈亏比高也可能整体赚钱。'],
+    ['pf', '获利因子', '所有赚钱的笔数加起来 ÷ 所有亏钱的加起来。大于 1 = 整体赚钱。'],
+    ['r', 'R 倍数', '每笔收益 ÷ 这笔的初始风险 (计入价到 SAR 的距离)。平均 R 大于 0 = 平均每冒 1 份风险能赚回多于 0 份。'],
+    ['mfe', '期间最大涨幅 / 跌幅', '持有期间最高曾经涨到多少 (MFE)、最低曾经跌到多少 (MAE)，用来看"到过多少"，不是最后结算的收益。'],
+    ['cbt', '回测这组条件', '在浏览器里用报告里每支股票最近约 6 个月的日线，把你的条件每一天都算一次；条件"由不成立变成立"的那天算一次，隔天开盘价计入，看 5 / 10 / 20 天后的涨跌，跟同期任意一天买进比。没扣交易成本。'],
+    ['tick', '跳一格', 'Bursa 的最小价格跳动：1 令吉以下 0.005、1 ~ 10 令吉 0.01、10 ~ 100 令吉 0.02。0.035 的股票跳一格就是 14%，涨跌幅看起来很夸张。'],
+    ['range', '52 周区间', '过去一年的最低价 ~ 最高价，小条上的点 = 现价在这个区间的位置。'],
+    ['pe', '市盈率 / 股息率', '市盈率 = 股价 ÷ 过去 12 个月每股盈利 (亏损公司没有)；股息率 = 过去 12 个月派的股息 ÷ 股价。来自 Yahoo Finance。']
+  ];
+  function openGlossary(focusKey, handed) {
+    var body = '<dl class="gloss">' + GLOSSARY.map(function (g) {
+      return '<div id="gloss-' + g[0] + '"' + (g[0] === focusKey ? ' class="on"' : '') + '><dt>' + g[1] + '</dt><dd>' + g[2] + '</dd></div>';
+    }).join('') + '</dl>';
+    var dlg = openDialog({ title: '名词解释', body: body, className: 'dlg-gloss', reuse: handed, previousFocus: handed && handed.previousFocus });
+    if (focusKey) {
+      var el = dlg.body.querySelector('#gloss-' + focusKey);
+      if (el) setTimeout(function () { el.scrollIntoView({ block: 'start' }); }, 30);
+    }
+    return dlg;
+  }
+
+  // ---------- 页面上各区块里点股票名 (今日市场的榜单、公告栏、回测里最近的信号) = 打开完整图表 ----------
+  function codesIn(container) {
+    var seen = {}, out = [];
+    container.querySelectorAll('[data-code]').forEach(function (el) {
+      if (el.closest('[hidden]') || seen[el.dataset.code]) return;
+      seen[el.dataset.code] = 1;
+      var e = entryByCode(el.dataset.code);
+      if (e) out.push(e);
+    });
+    return out;
+  }
+  function openFromSection(el) {
+    var e = entryByCode(el.dataset.code);
+    if (!e) { toast('今天的报告里没有这支股票的图表'); return; }
+    var list = codesIn(el.closest('.mk-movers, .ann-board, tbody') || document.body);
+    openReportStock(e, { list: list, i: list.indexOf(e) });
+  }
+  document.addEventListener('click', function (e) {
+    var info = e.target.closest('.info-btn[data-gloss]');
+    if (info) { e.preventDefault(); openGlossary(info.dataset.gloss); return; }
+    var el = e.target.closest('#sec-market .mk-chip[data-code], .ann-board .ann-stock[data-code], #sec-backtest tr[data-code]');
+    if (el) openFromSection(el);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    var el = e.target.closest && e.target.closest('#sec-backtest tr[data-code]');
+    if (el) openFromSection(el);
+  });
+
+  // ---------- 公司公告栏: 分类筛选 + 先显示 12 条 ----------
+  (function initBoard() {
+    var board = document.getElementById('ann-board');
+    if (!board) return;
+    var items = Array.prototype.slice.call(board.children), LIMIT = 12, expanded = false, cat = '';
+    var more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'sp-btn ann-more';
+    board.insertAdjacentElement('afterend', more);
+    function apply() {
+      var matched = items.filter(function (li) { return !cat || li.dataset.cat === cat; });
+      items.forEach(function (li) { li.hidden = true; });
+      matched.forEach(function (li, i) { li.hidden = !expanded && i >= LIMIT; });
+      var left = matched.length - LIMIT;
+      more.hidden = expanded || left <= 0;
+      more.textContent = '再显示 ' + left + ' 条';
+    }
+    var filter = document.querySelector('.ann-filter');
+    if (filter) filter.addEventListener('click', function (e) {
+      var b = e.target.closest('.ann-chip');
+      if (!b) return;
+      cat = b.dataset.cat || '';
+      filter.querySelectorAll('.ann-chip').forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+      apply();
+    });
+    more.addEventListener('click', function () { expanded = true; apply(); });
+    apply();
+  })();
+
+  // ---------- 网址 #s=代码 = 一打开就显示那支股票 (分享出去的链接) ----------
+  function openFromHash() {
+    var m = /^#s=([^&]+)$/.exec(location.hash);
+    if (!m || openDialogs.length) return;
+    var e = entryByCode(decodeURIComponent(m[1]));
+    if (e) openReportStock(e, null, { deepLinked: true });
+    else { stripHash(); toast('今天的报告里没有这支股票 (成交量没达标，或者代码打错了)'); }
+  }
+  window.addEventListener('hashchange', openFromHash);
+
   // 页面一打开: 按当前模板的条件算一次 (没有条件就只显示"添加条件")，☰ 导航里的模板列表也先准备好
   refreshStrategy();
   renderDashScreeners();
+  openFromHash();
 })();
