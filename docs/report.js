@@ -4186,8 +4186,8 @@
     return out;
   }
   // 账户模式 (main.py portfolio_trades)：最多同时 slots 笔；按进场日、同一天相对量高的先、再按代码；同一支还拿着不重复买；满了跳过
-  function portfolioTrades(trades, slots) {
-    var held = [], taken = [], skipped = 0;
+  function portfolioTrades(trades, slots, prior) {
+    var held = (prior || []).slice(), taken = [], skipped = 0; // prior = 已经买进、占着仓位的 (模拟账户的起始持股)
     trades.slice().sort(function (a, b) {
       return a.entry_date < b.entry_date ? -1 : a.entry_date > b.entry_date ? 1 : b.rvol - a.rvol || (a.code < b.code ? -1 : a.code > b.code ? 1 : 0);
     }).forEach(function (t) {
@@ -4284,7 +4284,7 @@
   function loadLedger() { // 拿不到 / 策略指纹对不上 (账本还没按新策略重建) → null，退回用报告里的股票重算
     if (!ledgerPromise) {
       ledgerPromise = fetch('backtest_ledger.json', { cache: 'no-cache' }).then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { return j && j.v === 1 && j.sig === (META.strategy && META.strategy.sig) && isArr(j.trades) ? j : null; }, function () { return null; });
+        .then(function (j) { return j && j.v === 2 && j.sig === (META.strategy && META.strategy.sig) && isArr(j.trades) ? j : null; }, function () { return null; });
     }
     return ledgerPromise;
   }
@@ -4308,7 +4308,7 @@
         return m;
       });
       p.rmask = strategies.length === 1 ? ruleMasks(p, strategies[0].maskCompiled || strategies[0].compiled) : null;
-      var bt = backtestStock(p, entry, ex, cost, !!slots);
+      var bt = backtestStock(p, entry, ex, cost, true); // 每个信号日都算一笔，下面再按仓位 / 同一支还拿着不重复买 挑
       nStocks++;
       if (bt.from && (first === null || bt.from < first)) first = bt.from;
       bt.base.forEach(function (b, k) { base[k][0] += b[0]; base[k][1] += b[1]; base[k][2] += b[2]; });
@@ -4318,16 +4318,46 @@
     });
     if (!nStocks || !last) return null;
     var nSignals = sumOf(trades.map(function (t) { return t.fresh === undefined ? 1 : t.fresh; })), skipped = 0; // 连续几天成立算一次
-    if (slots) { var pf = portfolioTrades(trades, slots); trades = pf.trades; skipped = pf.skipped; }
-    return finishBacktest(trades, base, { stocks: nStocks, from: first, to: last, signals: nSignals, skipped: skipped }, ex, cost, position, slots);
+    var allTrades = trades, every = portfolioTrades(allTrades, 1e6).trades; // 策略整体：每个信号都买 (同一支还拿着不重复买)
+    if (slots) { var pf = portfolioTrades(allTrades, slots); trades = pf.trades; skipped = pf.skipped; } else trades = every;
+    var out = finishBacktest(trades, base, { stocks: nStocks, from: first, to: last, signals: nSignals, skipped: skipped }, ex, cost, position, slots);
+    out.every = tradeStats(every);
+    out.allTrades = allTrades; // 模拟账户 (自选开始日 / 起始股票) 用
+    return out;
+  }
+  // 模拟账户：从 start 那天起才买 (之前的信号不算)；picks = 开始那天收盘先买进的股票 (不看进场条件 / 风险上限，占着仓位)，
+  // 之后照后台规则卖出，空出来的仓位按信号换进新股票 (同一天先买相对量高的)
+  function simulateAccount(u, allTrades, ex, cost, slots, start, picks) {
+    var forced = [];
+    picks.forEach(function (code) {
+      var it = u.items.filter(function (x) { return x.stock.code === code; })[0];
+      if (!it) return;
+      var p = btPrep(it), idx = -1;
+      for (var i = 0; i < p.dates.length; i++) if (p.dates[i] >= start) { idx = i; break; }
+      if (idx < 0) return;
+      var keep = p.rmask;
+      p.rmask = null;
+      var bt = backtestStock(p, p.bars.map(function (_, i) { return i === idx ? 1 : 0; }), Object.assign({}, ex, { max_risk: 0, entry_close: true }), cost, true);
+      p.rmask = keep;
+      var t = bt.trades[0];
+      if (t) { t.code = code; t.name = it.stock.name; t.picked = true; forced.push(t); }
+    });
+    var pf = portfolioTrades(allTrades.filter(function (t) { return t.sig >= start; }), slots || 1e6, forced);
+    var trades = forced.concat(pf.trades).sort(function (a, b) { // 按买进顺序；同一天起始股票排前面
+      return a.entry_date < b.entry_date ? -1 : a.entry_date > b.entry_date ? 1 : (b.picked ? 1 : 0) - (a.picked ? 1 : 0) || (a.code < b.code ? -1 : 1);
+    });
+    return { trades: trades, skipped: pf.skipped, stats: tradeStats(trades, slots) };
   }
   // 后台账本 (docs/backtest_ledger.json，main.py summarize_backtest 写的)：交易是固定的，不随报告里的股票变；只有新交易 / 持有中的结算才会让数字变
   function ledgerBacktest(led, ex, cost, position, slots) {
     var base = BT_HORIZONS.map(function (x) { var b = led.base[x] || led.base[String(x)] || [0, 0, 0]; return [b[0], b[1], b[2]]; });
     var codes = {};
     led.trades.forEach(function (t) { codes[t.code] = 1; if (t.h) { var h = {}; BT_HORIZONS.forEach(function (x) { h[x] = t.h[x] === undefined ? t.h[String(x)] : t.h[x]; }); t.h = h; } });
-    return finishBacktest(led.trades.slice(), base, { stocks: Object.keys(codes).length, from: led.from, to: led.last, signals: led.signals, skipped: led.skipped },
+    var out = finishBacktest(led.trades.slice(), base, { stocks: Object.keys(codes).length, from: led.from, to: led.last, signals: led.signals, skipped: led.skipped },
       ex, cost, position, slots);
+    out.every = tradeStats(led.every || []);
+    out.paper = led.paper || null; // 模拟账户 (后台从开始日起真的买进的)
+    return out;
   }
   function finishBacktest(trades, base, meta, ex, cost, position, slots) {
     var nStocks = meta.stocks, first = meta.from, last = meta.to, nSignals = meta.signals, skipped = meta.skipped;
@@ -4364,6 +4394,27 @@
   // 回测结果 (版面跟 main.py build_backtest_html 一样，术语中文 + 英文)
   function namePair(code, name) { return MARKET.id === 'US' ? [code, name] : [name || code, code]; }
   function md(s) { return s.slice(5).replace('-', '/'); }
+  // 一个账户的买卖记录 (后台模拟账户 / 自定义的模拟轮仓 共用)：上面几个数字，下面按买进顺序列出每一笔 (起始股票标「起始」)
+  function accountHtml(trades, stats, slots, pos) {
+    function cls(v) { return !isNum(v) ? '' : v > 0 ? 'change-up' : v < 0 ? 'change-down' : 'change-neutral'; }
+    var held = trades.filter(function (t) { return !isClosedTrade(t); }), done = trades.filter(isClosedTrade);
+    var openSum = sumOf(held.map(function (t) { return t.ret; }));
+    var kpi = '<div class="bt-paper-kpi"><span>买进 <b>' + trades.length + '</b> 笔</span><span>持有中 <b>' + held.length + '</b> / ' + (slots || '不限') + '</span>' +
+      '<span>已卖出合计 <b class="' + cls(stats.total) + '">' + (done.length ? fmtRM(stats.total, pos) : '—') + '</b></span>' +
+      '<span>持有浮动 <b class="' + cls(openSum) + '">' + (held.length ? fmtRM(openSum, pos) : '—') + '</b></span>' +
+      '<span>胜率 <b>' + (isNum(stats.win_rate) ? stats.win_rate.toFixed(1) + '%' : '—') + '</b></span>' +
+      (done.length ? '<span>最大回撤 <b>' + fmtPct(stats.mdd_pct, 1) + '</b></span>' : '') + '</div>';
+    if (!trades.length) return kpi;
+    return kpi + '<div class="bt-table-wrap"><table class="bt-table bt-recent cbt-acct"><thead><tr><th>股票</th><th>买进</th><th>卖出 / 现价</th>' +
+      '<th class="num">收益</th><th>状态</th></tr></thead><tbody>' + trades.map(function (t) {
+        var np = namePair(t.code, t.name), done1 = isClosedTrade(t), v = done1 ? t.net : t.ret;
+        return '<tr data-code="' + escapeHtml(t.code) + '" tabindex="0"><td><b>' + escapeHtml(np[0]) + '</b>' + (t.picked ? ' <em class="cbt-pick">起始</em>' : '') +
+          '<small>' + escapeHtml(np[1]) + '</small></td><td>' + md(t.entry_date) + '<small>' + fmtPrice(t.entry) + '</small></td>' +
+          '<td>' + (done1 ? md(t.exit_date) : '今天') + '<small>' + fmtPrice(t.exit) + '</small></td>' +
+          '<td class="num ' + cls(v) + '">' + fmtPct(v, 1) + '<small>' + fmtRM(v, pos) + '</small></td>' +
+          '<td><span class="bt-st ' + t.reason + '">' + EXIT_REASONS[t.reason][0] + '</span><small>' + t.days + ' 天</small></td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
   function backtestResultHtml(bt) {
     var a = bt.all;
     function cls(v) { return !isNum(v) ? '' : v > 0 ? 'change-up' : v < 0 ? 'change-down' : 'change-neutral'; }
@@ -4395,6 +4446,16 @@
         return '<td class="num ' + r[4](w) + '">' + r[3](w) + '</td>';
       }).join('') + '</tr>';
     }).join('') + '</tbody></table></div>';
+    if (bt.paper) { // 后台模拟账户：从开始日起真的买进的 (持有中 = 这个账户还拿着的)
+      var pt = bt.paper.trades.slice().sort(function (x, y) { return x.entry_date < y.entry_date ? -1 : x.entry_date > y.entry_date ? 1 : 0; });
+      html = '<div class="bt-paper">' + h5('模拟账户', 'Paper Account · 从 ' + md(bt.paper.start) + ' 开始', 'paper') +
+        (pt.length ? accountHtml(pt, tradeStats(pt, bt.slots), bt.slots, pos) : '<p class="hint">' + md(bt.paper.start) + ' 以后出现的信号才会买进，现在还没有交易。</p>') + '</div>' + html;
+    }
+    if (bt.every && bt.every.n) {
+      var ev = bt.every;
+      html += '<p class="bt-every"' + tipAttrs('every') + '><span class="tl">策略整体</span> <small>每个信号都买，不受仓位限制</small><span>' + ev.n + ' 笔 · 胜率 ' + pct(ev.win_rate) +
+        ' · 期望值 <b class="' + cls(ev.avg) + '">' + sp(ev.avg, 2) + '</b> · 合计 <b class="' + cls(ev.total) + '">' + rm(ev.total) + '</b> · 最多同时 ' + ev.peak_open + ' 笔</span></p>';
+    }
     var h10 = bt.horizons.filter(function (x) { return x.h === 10; })[0];
     if (h10 && isNum(h10.avg) && isNum(h10.base_avg)) {
       var ex = h10.avg - h10.base_avg;
@@ -4554,7 +4615,7 @@
         '<th class="num">笔数</th><th class="num">已结算</th></tr></thead><tbody>' + rows.map(function (g, j) {
           var np = namePair(g.code, g.name), t = g.last;
           return '<tr data-code="' + escapeHtml(g.code) + '" tabindex="0"' + (j >= 8 ? ' class="more"' : '') + '><td><b>' + escapeHtml(np[0]) + '</b><small>' + escapeHtml(np[1]) + '</small></td>' +
-            '<td>' + md(t.sig) + rmChips(names, t.rm) + (isClosedTrade(t) ? '' : '<small class="cbt-open">持有中 ' + fmtPct(t.ret, 1) + '</small>') + '</td>' +
+            '<td>' + md(t.sig) + rmChips(names, t.rm) + (isClosedTrade(t) ? '' : '<small class="cbt-open">回测里还拿着 ' + fmtPct(t.ret, 1) + '</small>') + '</td>' +
             '<td class="num">' + g.n + '</td><td class="num ' + btCls(g.n > g.open ? g.net : null) + '">' + (g.n > g.open ? fmtPct(g.net, 1) : '—') + '</td></tr>';
         }).join('') + '</tbody></table></div>';
       if (rows.length > 8) h += '<button type="button" class="sp-btn cbt-more" data-act="card-all">显示全部 ' + rows.length + ' 支</button>';
@@ -5019,6 +5080,55 @@
     }
     function save() { saveJSON(BT_KEY, { src: srcKey, st: st }); }
     var timer = null, runId = 0, last = null, rolls = [];
+    // 模拟账户 · 轮仓：自己选开始日、开始那天先买哪几只 (存在这台设备)
+    var SIM_KEY = 'bursa_sim_v1_' + MARKET.id, simState = loadJSON(SIM_KEY, {}) || {}, simCtx = null;
+    if (!isArr(simState.picks)) simState.picks = [];
+    function saveSim() { saveJSON(SIM_KEY, { start: simState.start || null, picks: simState.picks }); }
+    function monthStart(d, back) {
+      var y = +d.slice(0, 4), m = +d.slice(5, 7) - (back || 0);
+      while (m < 1) { m += 12; y--; }
+      return y + '-' + (m < 10 ? '0' : '') + m + '-01';
+    }
+    function renderSim() {
+      var box = res.querySelector('.cbt-sim'), c = simCtx;
+      if (!box || !c) return;
+      if (!c.all) c.all = (runBacktest(c.u, c.strategies, c.ex, c.cost, c.pos, 0) || {}).allTrades || [];
+      var start = simState.start && simState.start >= c.from && simState.start <= c.to ? simState.start : c.to;
+      var maxPicks = c.slots || 10;
+      var picks = simState.picks.filter(function (code) { return c.u.items.some(function (it) { return it.stock.code === code; }); }).slice(0, maxPicks);
+      var r = simulateAccount(c.u, c.all, c.ex, c.cost, c.slots, start, picks);
+      var quick = [['今天', c.to], ['本月初', monthStart(c.to, 0)], ['上个月初', monthStart(c.to, 1)], ['3 个月前', monthStart(c.to, 3)], ['最早', c.from]]
+        .filter(function (q) { return q[1] >= c.from && q[1] <= c.to; });
+      var nameOf = {};
+      c.u.items.forEach(function (it) { nameOf[it.stock.code] = it.stock.name; });
+      box.innerHTML = '<h5>模拟账户 · 轮仓 <small>Paper Trading · 自己选开始日 / 起始股票</small></h5>' +
+        '<div class="cbt-sim-ctl"><label>从 <input type="date" class="cbt-num cbt-date" data-sim="start" min="' + c.from + '" max="' + c.to + '" value="' + start + '"> 开始</label>' +
+        quick.map(function (q) { return '<button type="button" class="sp-btn cbt-simq' + (q[1] === start ? ' on' : '') + '" data-simq="' + q[1] + '">' + q[0] + '</button>'; }).join('') + '</div>' +
+        '<div class="cbt-sim-picks"><span>开始那天先买</span>' + picks.map(function (code) {
+          return '<span class="cbt-pickchip">' + escapeHtml(namePair(code, nameOf[code])[0]) + '<button type="button" data-simdel="' + escapeHtml(code) + '" aria-label="拿掉 ' + escapeHtml(code) + '">×</button></span>';
+        }).join('') + (picks.length < maxPicks ? '<input class="cbt-num cbt-wide" list="cbt-sim-dl" data-sim="add" placeholder="代码或名称" aria-label="加一支开始那天先买的股票">' +
+          '<datalist id="cbt-sim-dl">' + c.u.items.map(function (it) { return '<option value="' + escapeHtml(it.stock.code + ' ' + it.stock.name) + '">'; }).join('') + '</datalist>' : '') + '</div>' +
+        '<p class="hint">' + md(start) + ' 收盘起才买：先买上面选的股票 (占着仓位)，之后照后台离场规则卖出，空出来的仓位按新信号换进 (最多同时 ' + (c.slots || '不限') + ' 笔' +
+        (r.skipped ? '，满仓跳过 ' + r.skipped + ' 个信号' : '') + ')。用今天报告里的股票算。</p>' + accountHtml(r.trades, r.stats, c.slots, c.pos);
+    }
+    res.addEventListener('change', function (e) {
+      var t = e.target;
+      if (!t.dataset || !t.dataset.sim) return;
+      if (t.dataset.sim === 'start' && t.value) { simState.start = t.value; saveSim(); renderSim(); }
+      if (t.dataset.sim === 'add') {
+        var code = t.value.trim().split(/\s+/)[0].toUpperCase();
+        if (simCtx && simCtx.u.items.some(function (it) { return it.stock.code === code; }) && simState.picks.indexOf(code) === -1) { simState.picks.push(code); saveSim(); }
+        renderSim();
+        var again = res.querySelector('[data-sim="add"]');
+        if (again) again.focus();
+      }
+    });
+    res.addEventListener('click', function (e) {
+      var q = e.target.closest('[data-simq]');
+      if (q) { simState.start = q.dataset.simq; saveSim(); renderSim(); return; }
+      var d = e.target.closest('[data-simdel]');
+      if (d) { simState.picks = simState.picks.filter(function (x) { return x !== d.dataset.simdel; }); saveSim(); renderSim(); }
+    });
     function schedule() { clearTimeout(timer); timer = setTimeout(run, 250); }
     function run() {
       timer = null;
@@ -5074,8 +5184,10 @@
               '\n' + (slots ? '仓位：最多同时 ' + slots + ' 笔，满了新信号跳过 (' + bt.signals + ' 个信号，满仓跳过 ' + bt.skipped + ' 个)；同一天先买相对量高的' : '仓位：不限 (每个信号都买)')) +
             ' <small>' + (bt.from ? md(bt.from) + ' ~ ' + md(bt.to) + ' · ' : '') + bt.all.n + ' 笔' + (slots ? ' · ' + slots + ' 个仓位 · 满仓跳过 ' + bt.skipped : '') +
             (u.missing ? ' · ' + u.missing + ' 支没有K线' : '') + '</small></h4>';
-          res.innerHTML = head + (rolls.length ? rollHtml(rolls, names, pos, led ? '「当前设定」那页用后台固定账本；其他页用今天报告里的股票重算，只作对比。' : '') : '') +
+          simCtx = { u: u, strategies: strategies, ex: ex, cost: cost, pos: pos, slots: slots, from: bt.from, to: bt.to, all: bt.allTrades || null };
+          res.innerHTML = head + '<section class="cbt-sim" aria-label="模拟账户"></section>' + (rolls.length ? rollHtml(rolls, names, pos, led ? '「当前设定」那页用后台固定账本；其他页用今天报告里的股票重算，只作对比。' : '') : '') +
             (bt.all.n ? backtestResultHtml(bt) : '<p class="hint">近 6 个月没有出现过这组条件</p>');
+          renderSim();
           var roll = res.querySelector('.cbt-roll');
           if (roll) roll.addEventListener('scroll', function () {
             var i = Math.round(roll.scrollLeft / Math.max(1, roll.clientWidth));
@@ -6079,6 +6191,8 @@
   // ---------- 名词解释 (☰ → 名词解释，或页面上的 ⓘ) ----------
   var GLOSSARY = [
     ['price', '当前价格', '报告生成时的最新成交价 (盘中会有几分钟延迟)，收盘后就是当天收盘价。'],
+    ['paper', '模拟账户', '从开始那天起才照后台策略买卖 (信号日收盘价买进，最多同时几笔照仓位数，满了新信号跳过)，之前的信号一概不算。「持有中」= 这个账户真的买进、还没卖的；满仓没买到的不算。改了策略 (strategy.json) 会重新开始；想从某天算起，在 strategy.json 写 "paper_start": "YYYY-MM-DD"。'],
+    ['every', '策略整体', '每个信号都买 (同一支还拿着就不重复买)，不受仓位数限制 —— 看信号本身好不好。账户 (最多同时几笔) 的结果还要看满仓时跳过了哪些信号。'],
     ['state', '盘中 / 已收盘', '报告在交易时间里生成时标「盘中」：最新一根日线还没收完，信号收盘前可能消失；「已收盘」= 用的是当天收盘价。'],
     ['turnover', '成交额 / 成交量', '成交量 = 今天成交了多少股；成交额 = 价格 × 成交股数，代表有多少钱在买卖。马股低价股动辄成交几亿股但金额很小，看流动性时成交额更准。表格按成交量排，点开股票的图表可以看到成交额。'],
     ['relvol', '相对量', '今天成交量 ÷ 前 20 个交易日的平均成交量。2 倍以上 = 明显放量。平时几乎没成交的股票倍数会虚高，超过 20 倍显示「20+」。'],
