@@ -281,6 +281,7 @@ RED_LOOKBACK = 10     # 回调红K：信号日前 10 根K线里最近的一根�
 RES_K = 2             # 近期阻力：波段高点 = 比左边 2 根都高、不低于右边 2 根 (跟浮动 HL 一样要等右边走完才确认)
 RES_LOOKBACK = 60     # 近期阻力只看信号日前 60 根K线 (约 3 个月) 里的波段高点
 HL_K_DEFAULT = 2      # 入场风险 = 计入价到最近一次回调低点 (HL)；浮动 HL 没开时用左右 2 根确认的波段低点
+MIN_PRICE_DEFAULT = 0.10  # 后台信号 / 回测不要 RM0.10 以下的股票 (strategy.json 的 min_price 可以改，0 = 不限)
 RVOL_LEN = 20         # 满仓时同一天先买相对量 (当天量 ÷ 前 20 天平均) 最高的
 
 
@@ -394,6 +395,8 @@ def load_strategy():
         "position": _float_in(strat.get("position_rm", POSITION_DEFAULT), 100, 1e8, POSITION_DEFAULT),
         "slots": _int_in(strat.get("slots", SLOTS_DEFAULT), 0, 50, SLOTS_DEFAULT),
         "custom": raw is not None and strat is not DEFAULT_STRATEGY,
+        # 后台信号 / 回测都不要这个价格以下的股票 (信号日收盘价)；0 = 不限
+        "min_price": _float_in(strat.get("min_price", MIN_PRICE_DEFAULT), 0, 1e6, MIN_PRICE_DEFAULT),
     }, note
 
 
@@ -405,7 +408,7 @@ for _s in STRATEGY["strategies"]:
 def strategy_meta():
     """页面 #report-meta 里的后台策略 (网页内置模板、自定义回测、设为后台信号用)"""
     return {"name": STRATEGY["name"], "exit": STRATEGY["exit"], "cost": STRATEGY["cost"], "position": STRATEGY["position"],
-            "sig": strategy_signature(),
+            "sig": strategy_signature(), "min_price": STRATEGY["min_price"],
             "slots": STRATEGY["slots"],
             "strategies": [{"name": s["name"], "match": s["match"], "min": s["min"], "rules": s["rules"]} for s in STRATEGY["strategies"]],
             "file_strategies": STRATEGY["file_strategies"]}
@@ -475,6 +478,7 @@ BT_START = 25             # 前 25 根K线当暖身 (指标还没算出来)，�
 BT_RECENT_BARS = 20       # "最近信号"列出最近 20 个交易日里出现过的信号
 BT_RECENT_SHOW = 10       # 先显示 10 条，其余按「显示全部」(CSS .bt-recent:not(.all) 藏起来)
 BT_DIST_EDGES = (-10, -5, 0, 5, 10)  # 收益分布: < -10%、-10~-5、-5~0、0~5、5~10、> 10%
+CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
 EXIT_REASON_LABELS = {  # (中文, 英文)；网页 report.js EXIT_REASONS 同一份
     "stop": ("止损", "Stop Loss"), "swing": ("浮动 HL", "Trailing HL"), "red": ("回调红K", "Pullback Red Candle"),
     "sar": ("SAR 转空", "SAR Flip"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
@@ -568,10 +572,11 @@ def rel_volume_at(v, i):
     return v[i] / avg if avg > 0 else 0.0
 
 
-def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
+def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rmask=None):
     """一支股票的模拟交易 + 同期基准。返回 {"trades": [...], "base": {天数: [收益总和, 次数, 上涨次数]}}
     entry[i] = 第 i 天哪几套策略命中 (位元，0 = 没有)。every_signal = True：每个信号日都算一笔 (账户模式，
-    后面 portfolio_trades 再按仓位数挑)；False：这支股票一笔没结算前的新信号不算 (不限仓位)"""
+    后面 portfolio_trades 再按仓位数挑)；False：这支股票一笔没结算前的新信号不算 (不限仓位)。
+    rmask[i] = 第 i 天哪几条条件成立 (位元，只有一套策略时才有)，记在每笔的 rm 上"""
     n = len(bars)
     out = {"trades": [], "base": {h: [0.0, 0, 0] for h in BT_HORIZONS}, "from": dates[BT_START] if n > BT_START else None}
     if n < BT_START + 2:
@@ -664,7 +669,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
             "sig": dates[i], "sig_ago": n - 1 - i, "entry_date": dates[e], "entry": entry_px, "exit": c[j], "exit_date": dates[j],
             "days": j - e + (0 if cl else 1), "reason": reason, "ret": _r(ret), "net": _r(ret - cost),
             "mfe": _r((hi / entry_px - 1) * 100), "mae": _r((low_ / entry_px - 1) * 100),
-            "risk": _r(risk) if risk else None, "alert": alert, "h": horizons, "strats": entry[i], "rvol": _r(rel_volume_at(v, i), 4),
+            "risk": _r(risk) if risk else None, "alert": alert, "h": horizons, "strats": entry[i], "rm": rmask[i] if rmask else None, "rvol": _r(rel_volume_at(v, i), 4),
             "fresh": 1 if i == 0 or not entry[i - 1] else 0,  # 新出现的信号 (前一天还没有)；满仓跳过只数这种
         })
         i = i + 1 if every_signal else j + 1
@@ -784,7 +789,7 @@ LEDGER_PATH = os.path.join(DOCS_DIR, "backtest_ledger.json")
 def strategy_signature():
     """账本对应的策略指纹：进场条件、离场规则、成本、仓位数任何一样改了，账本就重新从头建 (只改每笔金额不算)"""
     body = json.dumps({"s": [(s["match"], s["min"], s["rules"]) for s in STRATEGY["strategies"]], "e": STRATEGY["exit"],
-                       "c": STRATEGY["cost"], "n": STRATEGY["slots"]}, sort_keys=True, ensure_ascii=False)
+                       "c": STRATEGY["cost"], "n": STRATEGY["slots"], "p": STRATEGY["min_price"]}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(body.encode("utf-8")).hexdigest()[:12]
 
 
@@ -980,8 +985,10 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             ctx = engine.Ctx(bars)
             # 每套策略各算一次，entry[i] 用位元记第 i 天哪几套命中 (第 k 套 = 1 << k)
             truths = [engine.rules_truth(bars, st["compiled"], st["spec"], ctx) for st in STRATEGY["strategies"]]
-            entry = [sum(1 << k for k, t in enumerate(truths) if t[i]) for i in range(len(bars))]
-            hit_idx = [k for k, t in enumerate(truths) if t and t[-1]]
+            mp = STRATEGY["min_price"]  # 太便宜的 (收盘价 < min_price) 不算信号
+            entry = [sum(1 << k for k, t in enumerate(truths) if t[i]) if bars[i]["close"] >= mp else 0 for i in range(len(bars))]
+            hit_idx = [k for k in range(len(truths)) if entry and entry[-1] & (1 << k)]
+            rmask = engine.rules_masks(bars, STRATEGY["strategies"][0]["compiled"], ctx) if len(STRATEGY["strategies"]) == 1 else None
             ex = STRATEGY["exit"]
             series = exit_series(bars, ex, ctx)
             # 入场风险：现价跌到最近一次回调低点 (HL) 要跌多少；没有 HL 才看其他离场线 (SAR、回调红K、固定止损 %) 里最近的一条
@@ -1026,7 +1033,7 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 "rule_tags": [(STRATEGY["strategies"][k]["name"], rule_tags(ctx, STRATEGY["strategies"][k])) for k in hit_idx] or None,
                 "stop_ref": (round(stop_ref[0], 4), stop_ref[1]) if stop_ref else None,
                 "last_date": bar_dates[-1] if bar_dates else None,
-                "backtest": backtest_stock(bars, bar_dates, entry, ex, STRATEGY["cost"], series, every_signal=True),
+                "backtest": backtest_stock(bars, bar_dates, entry, ex, STRATEGY["cost"], series, every_signal=True, rmask=rmask),
                 "daily_bars": compact_bars(df, intraday=False),  # 点开看完整图表 + 网页上的选股条件用 (只有表格股票会写进 table.json)
                 "candles": candles,
                 "ema20": ema20,
@@ -2303,9 +2310,12 @@ TABLE_CSS = """
 REPORT_JS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "report.js")
 
 
-def report_js_version():
+FOLD_JS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "fold.js")  # 首页收纳 (区块折叠 + 顶部目录)，在 report.js 之前载入
+
+
+def report_js_version(path=REPORT_JS_PATH):
     try:
-        with open(REPORT_JS_PATH, "rb") as f:
+        with open(path, "rb") as f:
             return hashlib.sha1(f.read()).hexdigest()[:10]
     except OSError:
         return "dev"
@@ -2441,6 +2451,74 @@ CARD_CSS = """
   .lg-ctrl button:hover:not(:disabled) { color: var(--text-primary); }
   .lg-ctrl button[data-act="del"]:hover { color: var(--down); }
   .lg-ctrl button:disabled { opacity: 0.3; cursor: default; }
+  /* 图例收起 (TradingView 的 ^) */
+  .lg-foldrow { background: none; padding: 0; }
+  .lg-fold { font: inherit; font-size: 0.72rem; line-height: 1.4; padding: 0.05rem 0.45rem; border-radius: 4px; cursor: pointer;
+    color: var(--text-secondary); background: color-mix(in srgb, var(--surface) 72%, transparent); border: 1px solid var(--border); }
+  .lg-fold:hover { color: var(--text-primary); }
+  /* 进场计划：图表右上角三行，点一下出滚轮 */
+  /* 进场计划：卡片右上角 (翻页按钮下面) 竖排三行，不放在图表里 */
+  .card[data-chart] { position: relative; }
+  .card > .plan-tags { position: absolute; top: 2.9rem; right: 0.8rem; z-index: 3; display: flex; flex-direction: column; align-items: stretch; gap: 0.2rem; }
+  .card.has-plan .card-head, .card.has-plan .card-tags { margin-right: 8.4rem; }
+  .pt-row { display: flex; align-items: baseline; justify-content: flex-end; gap: 0.3rem;
+    font: inherit; font-size: 0.74rem; line-height: 1.45; padding: 0.08rem 0.45rem; border-radius: 6px; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap; }
+  .pt-row i { margin-right: auto; }
+  @media (max-width: 640px) { .card > .plan-tags { top: 2.6rem; right: 0.5rem; } .card.has-plan .card-head, .card.has-plan .card-tags { margin-right: 7.9rem; } }
+  .pt-row i { font-style: normal; font-weight: 700; }
+  .pt-row b { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 600; }
+  .pt-row small { font-size: 0.68rem; font-variant-numeric: tabular-nums; }
+  .pt-e i { color: #e8a33d; } .pt-s i, .pt-s small { color: var(--down); } .pt-t i, .pt-t small { color: var(--up); }
+  .pt-e small { color: #e8a33d; }
+  .pt-row:hover { border-color: var(--text-secondary); }
+  .pt-row:focus-visible { outline: 2px solid var(--ema); outline-offset: 1px; }
+  .plan-mine { font-size: 0.62rem; color: #e8a33d; font-weight: 600; }
+  /* 滚轮 (三列：进场 / 止损 / 目标) */
+  .plan-roller .wheels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
+  .wheel-h { text-align: center; font-size: 0.78rem; font-weight: 600; margin-bottom: 0.3rem; }
+  .w-e .wheel-h { color: #e8a33d; } .w-s .wheel-h { color: var(--down); } .w-t .wheel-h { color: var(--up); }
+  .wheel-box { position: relative; height: 180px; border-radius: 10px; background: var(--page); overflow: hidden;
+    -webkit-mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); }
+  .wheel-band { position: absolute; left: 4px; right: 4px; top: 72px; height: 36px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); pointer-events: none; }
+  .wheel-list { position: relative; list-style: none; margin: 0; padding: 72px 0; height: 100%; overflow-y: auto; scroll-snap-type: y mandatory;
+    overscroll-behavior: contain; scrollbar-width: none; box-sizing: border-box; outline: none; }
+  .wheel-list::-webkit-scrollbar { display: none; }
+  .wheel-list li { height: 36px; line-height: 36px; text-align: center; scroll-snap-align: center; font-variant-numeric: tabular-nums;
+    font-size: 0.95rem; color: var(--muted); cursor: pointer; }
+  .wheel-list li.on { color: var(--text-primary); font-weight: 700; font-size: 1.05rem; }
+  .wheel-list:focus-visible + .wheel-band, .wheel-box:focus-within .wheel-band { border-color: var(--ema); }
+  .pr-out { margin: 0.7rem 0 0.4rem; font-size: 0.82rem; text-align: center; color: var(--text-secondary); }
+  .pr-quick { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; font-size: 0.74rem; color: var(--muted); }
+  .pr-quick span { margin-left: 0.3rem; }
+  .pr-quick button { font: inherit; font-size: 0.74rem; padding: 0.2rem 0.55rem; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); }
+  .pr-quick button:hover { color: var(--text-primary); }
+  /* 首页收纳 (fold.js)：标题下面一行摘要 + 展开 / 收起；顶部目录 */
+  .fold-toc { position: sticky; top: 0; z-index: 30; display: flex; gap: 0.35rem; overflow-x: auto; scrollbar-width: none;
+    margin: 0 -1.5rem 0.6rem; padding: 0.45rem 1.5rem; background: color-mix(in srgb, var(--page) 92%, transparent);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+  .fold-toc::-webkit-scrollbar { display: none; }
+  .fold-toc button { flex: 0 0 auto; font: inherit; font-size: 0.8rem; padding: 0.3rem 0.75rem; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); }
+  .fold-toc button:hover { color: var(--text-primary); }
+  .fold-toc .fold-all { margin-left: auto; border-style: dashed; }
+  .fold-bar { display: flex; align-items: center; gap: 0.5rem 0.9rem; width: 100%; margin: 0.2rem 0 0.9rem; padding: 0.55rem 0.8rem;
+    font: inherit; text-align: left; cursor: pointer; color: var(--text-secondary); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px; }
+  .fold-bar.open { margin: 0 0 0.5rem; padding: 0.2rem 0.1rem; background: none; border-color: transparent; justify-content: flex-end; }
+  .fold-bar:hover .fold-tg { color: var(--text-primary); }
+  .fold-bar:focus-visible { outline: 2px solid var(--ema); outline-offset: 2px; }
+  .fold-sum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 1rem; min-width: 0; flex: 1 1 auto; }
+  .fold-bar.open .fold-sum { display: none; }
+  .fold-kv { display: inline-flex; align-items: baseline; gap: 0.35rem; font-size: 0.82rem; white-space: nowrap; }
+  .fold-kv i { font-style: normal; color: var(--muted); font-size: 0.72rem; }
+  .fold-kv b { color: var(--text-primary); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .fold-kv small { font-size: 0.74rem; margin-left: 0.15rem; }
+  .fold-hint { font-size: 0.74rem; color: var(--muted); }
+  .fold-tg { flex: 0 0 auto; margin-left: auto; font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+  #sec-backtest .fold-bar { margin-top: 0.5rem; }
+  @media (max-width: 640px) { .fold-toc { margin-inline: -1rem; padding-inline: 1rem; } }
   @media (hover: hover) {
     .lg-row .lg-ctrl { display: none; }
     .lg-row:hover .lg-ctrl, .lg-row:focus-within .lg-ctrl { display: inline-flex; }
@@ -2716,6 +2794,38 @@ MARKET_CSS = """
   }
   .cbt-seg small { color: var(--muted); margin-left: 0.15rem; font-weight: 400; }
   .cbt-vsum { font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 0.6rem; }
+  /* 每笔信号日命中了哪几条条件 (①②③ 亮 = 成立) + 按条件满足方式分页的滚动卡片 */
+  .cbt-rm { display: inline-flex; gap: 0.1rem; margin-left: 0.3rem; vertical-align: middle; }
+  .cbt-rm i, .cbt-rm-legend i { font-style: normal; font-size: 0.74rem; line-height: 1; }
+  .cbt-rm i.on, .cbt-rm-legend i.on { color: var(--ema); font-weight: 700; }
+  .cbt-rm i.off { color: var(--muted); opacity: 0.45; }
+  .cbt-rm-legend { display: flex; flex-wrap: wrap; gap: 0.25rem 0.8rem; font-size: 0.74rem; color: var(--text-secondary); margin: 0 0 0.5rem; }
+  .cbt-rm-legend i { margin-right: 0.2rem; }
+  .cbt-rollbox { margin: 0.4rem 0 1rem; }
+  .cbt-roll-h { font-size: 0.84rem; margin: 0 0 0.35rem; }
+  .cbt-roll-h small { color: var(--muted); font-weight: 400; font-size: 0.7rem; margin-left: 0.3rem; }
+  .cbt-roll-nav { display: flex; flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .cbt-roll-nav::-webkit-scrollbar { display: none; }
+  .cbt-roll { display: flex; gap: 0.6rem; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch; scrollbar-width: thin; padding-bottom: 0.3rem; }
+  .cbt-card { flex: 0 0 100%; scroll-snap-align: start; box-sizing: border-box; min-width: 0; border: 1px solid var(--border);
+    border-radius: 12px; padding: 0.65rem 0.75rem; background: var(--surface); }
+  .cbt-card.cur { border-color: color-mix(in srgb, var(--ema) 60%, var(--border)); }
+  .cbt-card h5 { margin: 0; font-size: 0.9rem; }
+  .cbt-card h5 em { font-style: normal; font-size: 0.66rem; font-weight: 600; color: var(--ema); border: 1px solid currentColor;
+    border-radius: 999px; padding: 0 0.4rem; margin-left: 0.3rem; vertical-align: middle; }
+  .cbt-card-sub { margin: 0.15rem 0 0.5rem; font-size: 0.74rem; color: var(--text-secondary); }
+  .cbt-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.3rem; margin: 0 0 0.55rem; }
+  .cbt-kpis div { background: var(--page); border-radius: 8px; padding: 0.35rem 0.4rem; min-width: 0; }
+  .cbt-kpis span { display: block; font-size: 0.66rem; color: var(--muted); }
+  .cbt-kpis b { display: block; font-size: 0.82rem; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cbt-kpis small { display: block; font-size: 0.62rem; color: var(--muted); font-weight: 400; }
+  .cbt-card:not(.all) .cbt-ctable tr.more { display: none; }
+  .cbt-ctable tbody tr { cursor: pointer; }
+  .cbt-ctable tbody tr:hover { background: var(--page); }
+  .cbt-ctable td small { display: block; color: var(--muted); font-size: 0.68rem; }
+  .cbt-ctable .cbt-open { color: var(--ema); }
+  @media (max-width: 640px) { .cbt-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   .cbt-vsum b { color: var(--text-primary); }
   .cbt-log-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
   .cbt-log-bar .cbt-seg { margin-bottom: 0.5rem; }
@@ -3325,19 +3435,22 @@ STRATEGY_CSS = """
   .rl-live b { color: var(--text-primary); font-size: 1.05rem; margin: 0 0.1rem; }
   .rl-live span { color: var(--muted); }
   .rl-list { display: flex; flex-direction: column; gap: 0.6rem; }
+  /* 一条条件一行：编号 · 左边 · 天数 · 比较 · 右边 · 天数 · 删除 (手机也一样，框缩窄)；指标参数 / 提示才另起一行小字 */
   .rl-row {
-    display: grid; align-items: center; gap: 0.5rem;
-    grid-template-columns: 4.6rem minmax(0, 1fr) 6.2rem;
-    grid-template-areas: "no no del" "a a a" "op b b";
-    padding: 0.4rem 0.65rem 0.7rem; border-radius: 12px;
+    display: grid; align-items: center; gap: 0.3rem;
+    grid-template-columns: 1.1rem minmax(0, 1fr) 2.4rem auto minmax(0, 1fr) 2.4rem 1.5rem;
+    grid-template-areas: "no a a op b b del";
+    padding: 0.4rem 0.45rem; border-radius: 10px;
     background: color-mix(in srgb, var(--text-primary) 4%, var(--surface)); border: 1px solid var(--border);
   }
-  .rl-row.has-alen { grid-template-areas: "no no del" "a a alen" "op b b"; }
-  .rl-row.has-blen { grid-template-areas: "no no del" "a a a" "op b blen"; }
-  .rl-row.has-alen.has-blen { grid-template-areas: "no no del" "a a alen" "op b blen"; }
-  .rl-row.is-bool { grid-template-areas: "no no del" "a a a" "op op op"; }
-  .rl-row.is-bool.has-alen { grid-template-areas: "no no del" "a a alen" "op op op"; }
-  .rl-row.is-formula { grid-template-areas: "no no del" "f f f"; }
+  .rl-row.has-alen { grid-template-areas: "no a alen op b b del"; }
+  .rl-row.has-blen { grid-template-areas: "no a a op b blen del"; }
+  .rl-row.has-alen.has-blen { grid-template-areas: "no a alen op b blen del"; }
+  .rl-row.is-bool { grid-template-areas: "no a a op op op del"; }
+  .rl-row.is-bool.has-alen { grid-template-areas: "no a alen op op op del"; }
+  .rl-row.is-formula { grid-template-areas: "no f f f f f del"; }
+  .rl-no-t { display: none; }
+  .rl-warn, .rl-err, .rl-params { grid-column: 2 / -1; }
   .rl-no { grid-area: no; display: flex; align-items: center; gap: 0.45rem; font-size: 0.76rem; color: var(--muted); }
   .rl-no b {
     display: inline-grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 50%;
@@ -3365,6 +3478,19 @@ STRATEGY_CSS = """
     background-repeat: no-repeat; background-position: right 0.75rem center; background-size: 0.68rem;
   }
   .dlg .rl-row select.rl-op { text-align: center; text-align-last: center; padding: 0 1.6rem 0 0.6rem; background-position: right 0.55rem center; }
+  @media (max-width: 640px) {
+    .dlg .rl-row .rl-ctl { height: 2.2rem; padding: 0 0.3rem; border-radius: 8px; }
+    .dlg .rl-row select.rl-ctl { padding: 0 0.3rem; background-image: none; text-align: center; text-align-last: center; } /* 手机上不画下拉箭头，字才放得下 */
+    .dlg .rl-row select.rl-op { padding: 0 0.25rem; min-width: 2.4rem; }
+    .rl-row { padding: 0.35rem 0.35rem; }
+    .dlg .rl-row .rl-num input { padding-right: 0.4rem; }
+    .dlg .rl-row .rl-suf { display: none; }
+    .dlg .rl-row .rl-pnum input.rl-ctl { width: 3.6rem; height: 1.9rem; }
+    .rl-params { font-size: 0.72rem; gap: 0.2rem 0.5rem; }
+    .rl-params-t { display: none; }
+    .rl-del { width: 1.7rem; height: 1.7rem; }
+    .rl-no b { width: 1.2rem; height: 1.2rem; font-size: 0.66rem; }
+  }
   .dlg .rl-row .rl-ctl:hover { border-color: color-mix(in srgb, var(--text-primary) 28%, transparent); }
   .dlg .rl-row .rl-ctl:focus { outline: none; border-color: var(--ema); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ema) 25%, transparent); }
   .dlg .rl-row textarea.rl-ctl {
@@ -3386,7 +3512,7 @@ STRATEGY_CSS = """
   /* 指标参数 (Supertrend 的 ATR / 倍数、SAR、MACD)：条件卡片里多一行小框 */
   .rl-params { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.7rem; font-size: 0.76rem; color: var(--text-secondary); }
   .rl-params-t { color: var(--muted); }
-  .rl-pnum { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; }
+  .dlg .rl-pnum { display: inline-flex; flex-direction: row; align-items: center; gap: 0.35rem; margin: 0; } /* 参数名放在框左边，同一行 */
   .dlg .rl-row .rl-pnum input.rl-ctl { width: 4.8rem; text-align: right; padding: 0 0.6rem; font-variant-numeric: tabular-nums; -moz-appearance: textfield; } /* 跟其他框一样 40px 高 */
   .rl-pnum input::-webkit-outer-spin-button, .rl-pnum input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .rl-warn, .rl-err { grid-column: 1 / -1; margin: 0; font-size: 0.76rem; line-height: 1.5; }
@@ -3413,21 +3539,9 @@ STRATEGY_CSS = """
     background: color-mix(in srgb, var(--text-primary) 7%, transparent); padding: 0.05rem 0.3rem; border-radius: 4px;
   }
   .rl-empty { font-size: 0.84rem; color: var(--muted); margin: 0; padding: 1rem; text-align: center; border: 1px dashed var(--border); border-radius: 12px; }
-  /* 电脑: 一条条件一行排完 */
+  /* 电脑: 框宽一点 */
   @media (min-width: 641px) {
-    .rl-row {
-      grid-template-columns: 1.5rem minmax(0, 1fr) 5.6rem 4.8rem minmax(0, 1fr) 6.4rem 2.1rem;
-      grid-template-areas: "no a a op b b del";
-      padding: 0.55rem 0.6rem;
-    }
-    .rl-row.has-alen { grid-template-areas: "no a alen op b b del"; }
-    .rl-row.has-blen { grid-template-areas: "no a a op b blen del"; }
-    .rl-row.has-alen.has-blen { grid-template-areas: "no a alen op b blen del"; }
-    .rl-row.is-bool { grid-template-areas: "no a a op op op del"; }
-    .rl-row.is-bool.has-alen { grid-template-areas: "no a alen op op op del"; }
-    .rl-row.is-formula { grid-template-areas: "no f f f f f del"; }
-    .rl-no-t { display: none; }
-    .rl-warn, .rl-err, .rl-params { grid-column: 2 / -1; }
+    .rl-row { grid-template-columns: 1.5rem minmax(0, 1fr) 5.6rem 4.8rem minmax(0, 1fr) 6.4rem 2.1rem; gap: 0.5rem; padding: 0.55rem 0.6rem; }
   }
   /* 没有鼠标的设备 (手机 / 平板)：字号 16px，iPhone 点进去才不会自动放大整页 */
   @media (hover: none) {
@@ -3683,14 +3797,25 @@ def build_backtest_html(bt):
         f'<td class="num {cls(m["avg"])}">{pct_text(m["avg"], 2)}</td><td class="num">{num(m["pf"])}</td>'
         f'<td class="num">{pct_text(m["mdd_pct"], 1)}</td></tr>' for m in reversed(bt["monthly"]))
     status = {k: v[0] for k, v in EXIT_REASON_LABELS.items()}
+    rule_names = STRATEGY["strategies"][0]["labels"] if len(STRATEGY["strategies"]) == 1 else []
+
+    def rm_chips(rm):
+        """信号日命中了哪几条：①②③ 亮的 = 成立 (悬停看条件全名)"""
+        if rm is None or len(rule_names) < 2:
+            return ""
+        return '<span class="cbt-rm">' + "".join(
+            f'<i class="{"on" if rm & (1 << k) else "off"}" title="{html.escape(nm)}">{CIRCLED[k] if k < len(CIRCLED) else k + 1}</i>'
+            for k, nm in enumerate(rule_names)) + "</span>"
+    rule_legend = ('<p class="cbt-rm-legend">' + " ".join(f'<span><i class="on">{CIRCLED[k]}</i>{html.escape(nm)}</span>'
+                                                          for k, nm in enumerate(rule_names[:len(CIRCLED)])) + "</p>") if len(rule_names) > 1 else ""
     recent_rows = "".join(
         f'<tr data-code="{html.escape(t["code"])}" tabindex="0"><td><b>{html.escape(name_pair(t["code"], t["name"])[0])}</b> <small>{html.escape(name_pair(t["code"], t["name"])[1])}</small></td>'
         f'<td>{t["sig"][5:].replace("-", "/")}</td><td class="num bt-hide-sm">{fmt_price(t["entry"])}</td><td class="num">{fmt_price(t["exit"])}</td>'
         f'<td class="num {cls(t["ret"])}">{pct_text(t["ret"], 1)}</td><td class="num bt-hide-sm">{pct_text(t["mae"], 1)}</td>'
-        f'<td><span class="bt-st {t["reason"]}">{status[t["reason"]]}</span> <small>{t["days"]} 天</small></td></tr>'
+        f'<td><span class="bt-st {t["reason"]}">{status[t["reason"]]}</span> <small>{t["days"]} 天</small>{rm_chips(t.get("rm"))}</td></tr>'
         for t in bt["recent"])
     if recent_rows:
-        recent = (h5("最近信号", "Recent Signals", "recent") +
+        recent = (h5("最近信号", "Recent Signals", "recent") + rule_legend +
                   f'<div class="bt-table-wrap"><table class="bt-table bt-recent"><thead><tr><th>股票</th><th>信号日</th><th class="num bt-hide-sm">计入价</th>'
                   f'<th class="num">现价 / 结算</th><th class="num">收益</th><th class="num bt-hide-sm">MAE</th><th>状态</th></tr></thead><tbody>{recent_rows}</tbody></table></div>'
                   + (f'<button type="button" class="sp-btn bt-all" data-act="bt-all">显示全部 {len(bt["recent"])} 条</button>' if len(bt["recent"]) > BT_RECENT_SHOW else ""))
@@ -4154,6 +4279,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
 <script id="chart-data" type="application/json">{chart_json}</script>
 <script id="report-meta" type="application/json">{meta_json}</script>
+<script src="{ASSET_PREFIX}fold.js?v={report_js_version(FOLD_JS_PATH)}"></script>
 <script src="{ASSET_PREFIX}report.js?v={report_js_version()}"></script>
 </body>
 </html>"""

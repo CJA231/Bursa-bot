@@ -915,6 +915,27 @@ def match_pass(n_ok, n_all, spec):
     return n_ok == n_all
 
 
+def rules_masks(bars, compiled, ctx=None):
+    """每一根K线上哪几条 (没写错的) 条件成立 → 位元 (第 k 条 = 1 << k)，回测每笔记下信号日命中了哪几条 (网页 ruleMasks 同一套)"""
+    ctx = ctx or Ctx(bars)
+    n = len(bars)
+    out = [0] * n
+    k = 0
+    for _, f, err in compiled:
+        if err:
+            continue
+        try:
+            v = eval_formula(f, ctx)
+            a = v if isinstance(v, list) else [v] * n
+            for i in range(n):
+                if truth_of(a[i]) is True:
+                    out[i] |= 1 << k
+        except (FormulaError, ZeroDivisionError, OverflowError, TypeError, ValueError):
+            pass
+        k += 1
+    return out
+
+
 def rules_truth(bars, compiled, match="all", ctx=None):
     """一组 (已经 compile_rules 过的) 条件在每一根K线上成不成立 → list of True / False。
     match = match_spec 的写法 (all / any / atleast:N)。
