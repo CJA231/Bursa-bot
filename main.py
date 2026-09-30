@@ -270,7 +270,8 @@ DEFAULT_STRATEGY = {
     #   止盈：固定 % (take_pct)、历史高点 (prior_high)、近期阻力 (resistance)
     #   趋势 / 时间：SAR 转空、EMA 快线下穿慢线、最多持有几天 (0 / false = 不用那一条)
     "exit": {"sar": True, "ema_cross": [5, 20], "swing_low": 2, "max_hold": 30, "stop_pct": 0, "take_pct": 0,
-             "red_candle": False, "prior_high": False, "resistance": False, "swing_alert": False},
+             "red_candle": False, "prior_high": False, "resistance": False, "swing_alert": False,
+             "entry_close": False, "max_risk": 0},
     "slots": 3,
 }
 EXIT_DEFAULT = DEFAULT_STRATEGY["exit"]
@@ -320,6 +321,8 @@ def clean_exit(ex):
         "red_candle": bool(ex.get("red_candle", False)),
         "prior_high": bool(ex.get("prior_high", False)),
         "resistance": bool(ex.get("resistance", False)),
+        "entry_close": bool(ex.get("entry_close", False)),  # True = 信号日收盘价进场 (False = 隔天开盘价)
+        "max_risk": _float_in(ex.get("max_risk", 0), 0, 90, 0),  # 入场风险 (进场价到最近回调低点) 超过这个 % 就不进；0 = 不限
         "swing_alert": bool(ex.get("swing_alert", False)),  # True = 跌破浮动 HL 只发 alert (记在交易上)，不离场；离场交给 SAR / EMA 死叉
     }
 
@@ -583,8 +586,9 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
     def bull(i):
         return sar[i] is not None and engine.js_round(c[i], 3) > engine.js_round(sar[i], 3)
 
+    cl = ex["entry_close"]
     for i in range(BT_START, n - 1):
-        entry_px = o[i + 1]
+        entry_px = c[i] if cl else o[i + 1]
         if not entry_px or entry_px <= 0:
             continue
         for hz in BT_HORIZONS:
@@ -597,12 +601,12 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
                 b[2] += r > 0
 
     i = BT_START
-    while i < n - 1:  # 最后一天的信号 = 今天的信号，还没有"隔天开盘"，不算进回测
-        if not entry[i] or not o[i + 1] or o[i + 1] <= 0:
+    while i < (n if cl else n - 1):  # 隔天开盘进场：最后一天的信号还没有"隔天开盘"，不算进回测；收盘价进场：今天的信号也算
+        if not entry[i] or not (c[i] if cl else o[i + 1]) or (c[i] if cl else o[i + 1]) <= 0:
             i += 1
             continue
-        e = i + 1
-        entry_px = o[e]
+        e = i if cl else i + 1
+        entry_px = c[e] if cl else o[e]
         swing_p = latest_pivot(piv, k, i) if piv else None
         swing = lo[swing_p] if swing_p is not None else None
         red = red_candle_low(o, c, lo, i) if ex["red_candle"] else None
@@ -612,9 +616,16 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
                              entry_px * (1 - ex["stop_pct"] / 100) if ex["stop_pct"] else None) if x is not None and x < entry_px]
         risk_line = swing if swing is not None and swing < entry_px else max(stops) if stops else None
         risk = (entry_px - risk_line) / entry_px * 100 if risk_line is not None else None
-        hi, low_ = h[e], lo[e]
+        if ex["max_risk"] and risk is not None and risk > ex["max_risk"]:  # 风险太大：这个信号不进
+            i += 1
+            continue
+        hi, low_ = (entry_px, entry_px) if cl else (h[e], lo[e])
         j, reason, alert = e, "open", None
-        while True:
+        while j < n:
+            if cl and j == e:  # 收盘价进场：进场那天不检查离场，从隔天起
+                if e == n - 1:
+                    break
+                j += 1
             hi, low_ = max(hi, h[j]), min(low_, lo[j])
             if piv and j - 1 - k > (swing_p if swing_p is not None else -1) and j - 1 - k >= 0 and piv[j - 1 - k]:
                 swing_p = j - 1 - k
@@ -636,7 +647,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
                 reason = "high"
             elif res_t is not None and c[j] >= res_t:
                 reason = "res"
-            elif ex["max_hold"] and j - e + 1 >= ex["max_hold"]:
+            elif ex["max_hold"] and j - e + (0 if cl else 1) >= ex["max_hold"]:
                 reason = "time"
             if ex["swing_alert"] and ex["swing_low"] and swing is not None and c[j] < swing and alert is None:
                 alert = {"date": dates[j], "price": c[j], "hl": swing}  # 跌破最近回调低点：提醒，等 SAR / EMA 确认才离场
@@ -645,12 +656,12 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
             j += 1
         horizons = {}
         for hz in BT_HORIZONS:
-            q = e + hz - 1
+            q = e + hz - (0 if cl else 1)
             horizons[hz] = _r((c[q] / entry_px - 1) * 100) if q < n else None
         ret = (c[j] / entry_px - 1) * 100
         out["trades"].append({
             "sig": dates[i], "sig_ago": n - 1 - i, "entry_date": dates[e], "entry": entry_px, "exit": c[j], "exit_date": dates[j],
-            "days": j - e + 1, "reason": reason, "ret": _r(ret), "net": _r(ret - cost),
+            "days": j - e + (0 if cl else 1), "reason": reason, "ret": _r(ret), "net": _r(ret - cost),
             "mfe": _r((hi / entry_px - 1) * 100), "mae": _r((low_ / entry_px - 1) * 100),
             "risk": _r(risk) if risk else None, "alert": alert, "h": horizons, "strats": entry[i], "rvol": _r(rel_volume_at(v, i), 4),
             "fresh": 1 if i == 0 or not entry[i - 1] else 0,  # 新出现的信号 (前一天还没有)；满仓跳过只数这种

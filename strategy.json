@@ -1,13 +1,12 @@
 {
-  "说明": "网页「自定义回测」按「设为后台信号」产生 (2026-09-26)。写法见仓库 README；写错会退回默认策略，运行日志第一行会写原因。",
+  "说明": "入场：EMA5 上穿 EMA20、SAR 在价格下方、Supertrend(3,1.4) 下穿价格 (转多)、成交量达标；信号日收盘价进场；入场风险超过 max_risk % 不进。离场：SAR 转空 / EMA5x20 死叉，跌破浮动 HL 只提醒 (swing_alert)。",
   "name": "EMA",
   "match": "all",
   "rules": [
-    {"a":{"k":"ema","n":5},"op":">=","b":{"k":"ema","n":20}},
+    {"a":{"k":"ema","n":5},"op":"crossup","b":{"k":"ema","n":20}},
     {"a":{"k":"sar"},"op":"<","b":{"k":"close"}},
-    {"a":{"k":"st","n":3,"m":1.4},"op":"<","b":{"k":"close"}},
-    {"a":{"k":"rsi","n":14},"op":"crossup","b":{"k":"num","v":70}},
+    {"a":{"k":"st","n":3,"m":1.4},"op":"crossdown","b":{"k":"close"}},
     {"a":{"k":"vol"},"op":">","b":{"k":"num","v":5000000}}
   ],
-  "exit": {"sar": true, "ema_cross": [5,20], "swing_low": 2, "swing_alert": true, "max_hold": 90, "stop_pct": 15, "take_pct": 0}
+  "exit": {"sar": true, "ema_cross": [5,20], "swing_low": 2, "swing_alert": true, "entry_close": true, "max_risk": 10, "max_hold": 90, "stop_pct": 15, "take_pct": 0}
 }
