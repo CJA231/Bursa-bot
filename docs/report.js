@@ -3875,6 +3875,15 @@
   var RED_LOOKBACK = 10, RES_K = 2, RES_LOOKBACK = 60, HL_K_DEFAULT = 2, RVOL_LEN = 20; // main.py 同名常数
   var SLOTS_DEFAULT = 3;
   var MIN_PRICE = META.strategy && isNum(META.strategy.min_price) ? META.strategy.min_price : 0.1; // 后台信号 / 回测不要这个价格以下的
+  // 横盘太窄的不算信号 (main.py min_range / narrow_days)：最近 days 根收盘价最高 - 最低 ≤ rm
+  var MIN_RANGE = (function (v) { return v && isNum(v.rm) && v.rm > 0 ? { days: Math.max(2, Math.min(250, Math.round(v.days) || 40)), rm: v.rm } : null; })(META.strategy && META.strategy.min_range);
+  function narrowDays(close) {
+    return close.map(function (_, i) {
+      if (!MIN_RANGE) return false;
+      var w = close.slice(Math.max(0, i - MIN_RANGE.days + 1), i + 1);
+      return Math.max.apply(null, w) - Math.min.apply(null, w) <= MIN_RANGE.rm + 1e-9;
+    });
+  }
   var MAX_MCAP = META.strategy && isNum(META.strategy.max_mcap) ? META.strategy.max_mcap : 0; // 后台信号 / 回测不要市值超过这个的 (0 = 不限)
   var SLOTS_BACKEND = META.strategy && isNum(META.strategy.slots) ? META.strategy.slots : SLOTS_DEFAULT;
   // Python 的 float(v)：null / 空字符串 / 不是数字 → NaN (后台 _int_in / _float_in 退回默认值)
@@ -4280,10 +4289,10 @@
       if (!p.bars.length) return;
       var truths = strategies.map(function (s) { return rulesTruth(p, s.compiled, s.spec); });
       var close = p.ctx.series.close, mcap = META.stocks && META.stocks[it.stock.code] && META.stocks[it.stock.code].mc;
-      var tooBig = MAX_MCAP > 0 && isNum(mcap) && mcap > MAX_MCAP;
+      var tooBig = MAX_MCAP > 0 && isNum(mcap) && mcap > MAX_MCAP, narrow = narrowDays(close);
       var entry = p.bars.map(function (_, i) {
         var m = 0;
-        if (close[i] < MIN_PRICE || tooBig) return 0; // 太便宜 / 市值太大的不算信号 (main.py min_price / max_mcap)
+        if (close[i] < MIN_PRICE || tooBig || narrow[i]) return 0; // 太便宜 / 市值太大的不算信号 (main.py min_price / max_mcap)
         truths.forEach(function (t, k) { if (t[i]) m += 1 << k; });
         return m;
       });

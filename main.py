@@ -353,6 +353,25 @@ def clean_exit(ex):
     }
 
 
+def clean_min_range(v):
+    """{"days": 40, "rm": 0.05} → 同样格式；写错 / 没写 = None (网页 cleanMinRange 同一套)"""
+    if not isinstance(v, dict):
+        return None
+    rm = _float_in(v.get("rm", 0), 0, 1e6, 0)
+    return {"days": _int_in(v.get("days", 40), 2, 250, 40), "rm": rm} if rm > 0 else None
+
+
+def narrow_days(close, mr):
+    """每一根：最近 days 根 (含当天) 收盘价的最高 - 最低 ≤ rm → True (横盘太窄，不算信号)"""
+    if not mr:
+        return [False] * len(close)
+    d, out = mr["days"], []
+    for i in range(len(close)):
+        w = close[max(0, i - d + 1):i + 1]
+        out.append(max(w) - min(w) <= mr["rm"] + 1e-9)
+    return out
+
+
 def clean_strategy(st, fallback_name):
     """一套策略清洗一遍 → {name, match, min, spec, rules, compiled}；没有能用的条件返回 None"""
     if not isinstance(st, dict):
@@ -422,6 +441,8 @@ def load_strategy():
         "custom": raw is not None and strat is not DEFAULT_STRATEGY,
         # 后台信号 / 回测都不要这个价格以下的股票 (信号日收盘价)；0 = 不限
         "min_price": _float_in(strat.get("min_price", MIN_PRICE_DEFAULT), 0, 1e6, MIN_PRICE_DEFAULT),
+        # 横盘太久的不要：最近 days 根收盘价的最高 - 最低 ≤ rm (当地货币) 就不算信号；不写 = 不限
+        "min_range": clean_min_range(strat.get("min_range")),
         # 市值上限 (当地货币)：超过的股票不出后台信号、不进回测；可以按市场写 {"MY": 3000000000}，0 / 不写 = 不限
         "max_mcap": _float_in((strat.get("max_mcap") or {}).get(MARKET_ID, 0) if isinstance(strat.get("max_mcap"), dict)
                               else strat.get("max_mcap", 0), 0, 1e15, 0),
@@ -436,7 +457,7 @@ for _s in STRATEGY["strategies"]:
 def strategy_meta():
     """页面 #report-meta 里的后台策略 (网页内置模板、自定义回测、设为后台信号用)"""
     return {"name": STRATEGY["name"], "exit": STRATEGY["exit"], "cost": STRATEGY["cost"], "position": STRATEGY["position"],
-            "sig": strategy_signature(), "min_price": STRATEGY["min_price"], "max_mcap": STRATEGY["max_mcap"],
+            "sig": strategy_signature(), "min_price": STRATEGY["min_price"], "max_mcap": STRATEGY["max_mcap"], "min_range": STRATEGY["min_range"],
             "slots": STRATEGY["slots"],
             "strategies": [{"name": s["name"], "match": s["match"], "min": s["min"], "rules": s["rules"]} for s in STRATEGY["strategies"]],
             "file_strategies": STRATEGY["file_strategies"]}
@@ -870,7 +891,7 @@ LEDGER_PATH = os.path.join(DOCS_DIR, "backtest_ledger.json")
 def strategy_signature():
     """账本对应的策略指纹：进场条件、离场规则、成本、仓位数任何一样改了，账本就重新从头建 (只改每笔金额不算)"""
     body = json.dumps({"s": [(s["match"], s["min"], s["rules"]) for s in STRATEGY["strategies"]], "e": STRATEGY["exit"],
-                       "c": STRATEGY["cost"], "n": STRATEGY["slots"], "p": STRATEGY["min_price"], "mc": STRATEGY["max_mcap"]}, sort_keys=True, ensure_ascii=False)
+                       "c": STRATEGY["cost"], "n": STRATEGY["slots"], "p": STRATEGY["min_price"], "mc": STRATEGY["max_mcap"], "r": STRATEGY["min_range"]}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(body.encode("utf-8")).hexdigest()[:12]
 
 
@@ -1069,7 +1090,9 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             mp = STRATEGY["min_price"]  # 太便宜的 (收盘价 < min_price) 不算信号
             mcap = (QUOTE_META.get(symbol) or {}).get("mcap")  # 市值太大的 (> max_mcap) 也不算 (用今天的市值)
             too_big = bool(STRATEGY["max_mcap"] and mcap and mcap > STRATEGY["max_mcap"])
-            entry = [sum(1 << k for k, t in enumerate(truths) if t[i]) if bars[i]["close"] >= mp and not too_big else 0 for i in range(len(bars))]
+            narrow = narrow_days([b["close"] for b in bars], STRATEGY["min_range"])  # 近 1–2 个月横盘太窄的不算
+            entry = [sum(1 << k for k, t in enumerate(truths) if t[i]) if bars[i]["close"] >= mp and not too_big and not narrow[i] else 0
+                     for i in range(len(bars))]
             hit_idx = [k for k in range(len(truths)) if entry and entry[-1] & (1 << k)]
             rmask = engine.rules_masks(bars, STRATEGY["strategies"][0]["compiled"], ctx) if len(STRATEGY["strategies"]) == 1 else None
             ex = STRATEGY["exit"]
