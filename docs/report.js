@@ -2288,10 +2288,11 @@
       if (!('planOrig' in el.dataset)) { el.dataset.planOrig = dd.innerHTML; el.dataset.planTip = el.getAttribute('data-tip') || ''; }
       if (!pl.mine) { dd.innerHTML = el.dataset.planOrig; el.setAttribute('data-tip', el.dataset.planTip); }
     });
+    var c = planCalc(pl), tip = (pl.mine ? '按你的计划：' : '默认计划：') + '进场 ' + fmtPrice(pl.entry) + ' · 止损 ' + fmtPrice(pl.stop) + ' · 目标 ' + fmtPrice(pl.target) + ' · R/R = (目标 − 进场) ÷ (进场 − 止损)';
+    var tag = pl.mine ? ' <small class="plan-mine">自设</small>' : '';
+    if (q) { q.querySelector('dd').innerHTML = (c.ok ? c.rr.toFixed(1) : '—') + tag; q.setAttribute('data-tip', tip + '。' + (q.dataset.planTip || '').replace(/^默认计划[^。]*。?/, '')); }
     if (!pl.mine) return;
-    var c = planCalc(pl), tip = '按你的计划：进场 ' + fmtPrice(pl.entry) + ' · 止损 ' + fmtPrice(pl.stop) + ' · 目标 ' + fmtPrice(pl.target);
-    if (r) { r.querySelector('dd').innerHTML = (c.ok ? pctTxt(-c.risk) : '—') + ' <small class="plan-mine">自设</small>'; r.setAttribute('data-tip', tip); }
-    if (q) { q.querySelector('dd').innerHTML = (c.ok ? '1 : ' + c.rr.toFixed(1) : '—') + ' <small class="plan-mine">自设</small>'; q.setAttribute('data-tip', tip); }
+    if (r) { r.querySelector('dd').innerHTML = (c.ok ? pctTxt(-c.risk) : '—') + tag; r.setAttribute('data-tip', tip); }
   }
   // 滚轮：一列一个价，一格 = 一个跳动价位；上面高、下面低 (跟价格轴一样)
   function makeWheel(values, idx, label, cls, onChange) {
@@ -2336,7 +2337,7 @@
     function out() {
       var c = planCalc(draft);
       root.querySelector('.pr-out').innerHTML = c.ok ? '风险 <b class="change-down">' + pctTxt(-c.risk) + '</b> · 每股 ' + fmtPrice(draft.entry - draft.stop) +
-        ' · 目标 <b class="change-up">' + pctTxt((draft.target / draft.entry - 1) * 100) + '</b> · 风险报酬比 <b>1 : ' + c.rr.toFixed(1) + '</b>' : '<b class="change-down">止损要低于进场价</b>';
+        ' · 目标 <b class="change-up">' + pctTxt((draft.target / draft.entry - 1) * 100) + '</b> · R/R <b>' + c.rr.toFixed(1) + '</b>' : '<b class="change-down">止损要低于进场价</b>';
     }
     root.querySelector('.pr-quick').addEventListener('click', function (e) {
       var b = e.target.closest('[data-q]'); if (!b) return;
@@ -3598,7 +3599,7 @@
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'card-fin';
-    btn.textContent = '完整图表 · 财报 ›';
+    btn.textContent = '详情 ↗';
     btn.addEventListener('click', function () { // 上一支 / 下一支 = 现在看得到的信号卡片 (不是整份 267 支)
       var list = [].slice.call(document.querySelectorAll('.card[data-chart]')).filter(function (c) { return !c.hidden; })
         .map(function (c) { return entryByCode(c.dataset.chart.replace(/^chart-/, '')); }).filter(Boolean);
@@ -4454,7 +4455,7 @@
         // 自选股票：停损 / 目标 / 风险报酬比 / 备注另起一行
         var plan = pl ? '<tr class="cbt-plan"><td colspan="5">' + [
           pl.stop ? '停损 <b>' + fmtPrice(pl.stop) + '</b>' : '', pl.target ? '目标 <b>' + fmtPrice(pl.target) + '</b>' : '',
-          pl.rr !== null ? '风险报酬比 <b>1 : ' + pl.rr.toFixed(1) + '</b>' : '', pl.mode === 'mine' ? '只看我的价位' : '',
+          pl.rr !== null ? 'R/R <b>' + pl.rr.toFixed(1) + '</b>' : '', pl.mode === 'mine' ? '只看我的价位' : '',
           pl.note_in ? '进场：' + escapeHtml(pl.note_in) : '', pl.note_out ? '出场：' + escapeHtml(pl.note_out) : ''
         ].filter(Boolean).join('<i>·</i>') + '</td></tr>' : '';
         if (plan === '<tr class="cbt-plan"><td colspan="5"></td></tr>') plan = '';
@@ -5180,7 +5181,7 @@
       }
       var risk = px && pk.stop > 0 && pk.stop < px ? (pk.stop / px - 1) * 100 : null, gain = px && pk.target > px ? (pk.target / px - 1) * 100 : null;
       return '<div class="cbt-pk" data-k="' + k + '"><div class="cbt-pk-h"><b>' + escapeHtml(np[0]) + '</b><small>' + escapeHtml(np[1]) + '</small>' +
-        '<span class="cbt-pk-rr' + (rr === null ? '' : rr >= 2 ? ' good' : rr < 1 ? ' bad' : '') + '">' + (rr === null ? '风险报酬比 —' : '风险报酬比 1 : ' + rr.toFixed(1)) + '</span>' +
+        '<span class="cbt-pk-rr' + (rr === null ? '' : rr >= 2 ? ' good' : rr < 1 ? ' bad' : '') + '">' + (rr === null ? 'R/R —' : 'R/R ' + rr.toFixed(1)) + '</span>' +
         '<button type="button" class="cbt-pk-del" data-simdel="' + k + '" aria-label="拿掉 ' + escapeHtml(np[0]) + '">×</button></div>' +
         '<div class="cbt-pk-g"><label><span>买入日</span><input class="cbt-num cbt-date" type="date" data-pk="date" min="' + c.from + '" max="' + c.to + '" value="' + day + '"></label>' +
           num('px', pk.px, cl ? fmtPrice(cl.close) + ' 收盘' : '收盘价', '买入价') +
@@ -6319,7 +6320,7 @@
     ['t3', 'T3 形态突破', '2 ~ 5 天前某天放量 (成交量高于前 20 天平均) 创出当天最高价，之后几天都没超过那个价 (回调)，今天收盘再突破它。'],
     ['atr', 'ATR (14)', '最近 14 天平均每天的波动幅度，这里用占股价的百分比表示。数字越大，股价每天上下跳得越多。'],
     ['risk', '风险 (到离场线)', '现价跌到最近的离场线要跌多少 %。离场线 = 后台策略 (strategy.json) 开着的 SAR、浮动 HL、回调红K 低点、固定止损 % 里，在现价下方最近的那一条。'],
-    ['rr', '风险报酬比', '1 : X = 每冒 1 份风险 (到离场线的距离)，历史上同类信号期间最大涨幅的中位数是几份。X 越大越划算，但这是历史统计，不保证。'],
+    ['rr', '计划 R/R', 'R/R = 预期盈利 ÷ 承担风险 = (目标 − 进场) ÷ (进场 − 止损)。默认目标是 2 倍风险，所以是 2.0；自己改了进 / 损 / 标就按你的算。回测里同类信号的历史表现 (最大涨幅中位数 ÷ 风险) 是另一回事，只是参考，写在提示和详情里，不保证。'],
     ['market', '今日市场', '大盘指数和全市场 (全部上市股票，不只是进报告的) 的上涨 / 平盘 / 下跌家数；新高 / 新低 = 创 52 周新高 / 新低的家数。涨幅榜、跌幅榜、成交额榜只看报告里的股票，点一下打开图表。'],
     ['screener', '选股条件', '自己组合条件 (例如「RSI(14) 上穿 30」)，在今天报告里的全部股票中筛：看每支股票最新一根日线，命中的按成交量排。可以从 ☰ 套用内置策略；条件存在这个浏览器的模板里。'],
     ['template', '模板', '一个模板 = 选股条件 + 图表上的指标。筛选器标题下面那行就是正在使用的模板，点一下可以改名；加、删、调整都会自动存进正在使用的模板。模板只存在这个浏览器里，换手机 / 电脑前可以先导出备份。'],
@@ -6530,7 +6531,7 @@
     return pl;
   }
   function byText(pl) { return String(pl.by || '').replace(/\s*\(.*\)/, ''); } // 「最近回调低点 (收盘价)」→「最近回调低点」
-  function rrText(v) { return isNum(v) ? (v >= 10 ? Math.round(v) : v.toFixed(1).replace(/\.0$/, '')) + ' : 1' : '—'; } // 计划报酬风险比：赚 / 亏
+  function rrText(v) { return isNum(v) ? 'R/R ' + v.toFixed(1) : '—'; } // 计划 R/R = 预期盈利 ÷ 承担风险
   function planLine(pl) {
     return '进 <b>' + fmtPrice(pl.entry) + '</b> · 损 <b>' + fmtPrice(pl.stop) + '</b>' + (pl.risk !== null ? ' <small>(' + pctShort(-pl.risk) + ')</small>' : '') +
       ' · 标 <b>' + fmtPrice(pl.target) + '</b> <small>(' + pctShort(pl.gain) + ')</small>' + (pl.rr !== null ? ' · <b class="nw">' + rrText(pl.rr) + '</b>' : '');
@@ -6596,8 +6597,8 @@
     var help = { new: '今天收盘新出现的策略信号', hold: '最近出现过信号、趋势还健康、离止损线还远', out: '最近 ' + 3 + ' 天内触发了离场规则', near: '离止损线不到 3%，或已经有趋势检查坏掉', mine: '你存的进场计划，用今天收盘价对照' };
     sec.querySelector('.fc-date').textContent = FOCUS && FOCUS.date ? md(FOCUS.date) + (FOCUS.confirmed ? ' 收盘' : ' 盘中') : '';
     body.innerHTML = '<div class="fc-tabs" role="tablist" aria-label="今天关注">' + order.map(function (k) {
-      return '<button type="button" role="tab" class="fc-tab' + (k === 'near' && g[k].length ? ' warn' : '') + '" data-g="' + k + '" aria-selected="' + (k === focusTab) + '">' + labels[k] + ' <b>' + g[k].length + '</b></button>';
-    }).join('') + '</div><p class="fc-help">' + help[focusTab] + (FOCUS && FOCUS.strategies && focusTab === 'new' ? ' · 策略「' + escapeHtml(FOCUS.strategies.map(function (x) { return x.name; }).join('、')) + '」' : '') + '</p>' +
+      return '<button type="button" role="tab" class="fc-tab' + (k === 'near' && g[k].length ? ' warn' : '') + '" data-g="' + k + '" title="' + help[k] + '" aria-selected="' + (k === focusTab) + '">' + labels[k] + ' <b>' + g[k].length + '</b></button>';
+    }).join('') + '</div>' +
       (g[focusTab].length ? '<ol class="fc-list">' + g[focusTab].map(focusRowHtml).join('') + '</ol>' : '<p class="hint">' + empty[focusTab] + '</p>');
     if (!body.dataset.bound) {
       body.dataset.bound = '1';

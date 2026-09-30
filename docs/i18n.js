@@ -97,7 +97,7 @@
 
 
   Object.assign(EXACT, {
-    '笔': 'trades', '停损': 'Stop', '全部名词解释 ›': 'Full glossary ›', '合计': 'Total', '指标': 'Indicators', '我的筛选器': 'My screener', '点一下改名，自动保存': 'Tap to rename; auto-saved', '选股条件说明': 'About screen rules', '后台信号说明': 'About strategy signals',
+    '笔': 'trades', '详情 ↗': 'Details ↗', '编辑': 'Edit', '筛选　排序　☆': 'Filter · Sort · ☆', '股票池': 'Universe', '计划 R/R': 'Plan R/R', '命中': 'Matches', '停损': 'Stop', '全部名词解释 ›': 'Full glossary ›', '合计': 'Total', '指标': 'Indicators', '我的筛选器': 'My screener', '点一下改名，自动保存': 'Tap to rename; auto-saved', '选股条件说明': 'About screen rules', '后台信号说明': 'About strategy signals',
     '策略回测说明': 'About the strategy backtest', '公司公告说明': 'About company filings', '其余股票说明': 'About other stocks', '今日走势 (虚线=昨收)': "Today's move (dashed = prev close)",
     '累计盈亏说明': 'About cumulative P/L', '月度表现说明': 'About monthly performance', '版权与免责声明': 'Copyright & disclaimer', '图表类型': 'Chart type',
     '导航：市场、概览、工具、自选、筛选器种类、下载': 'Menu: market, overview, tools, watchlist, screeners, downloads', '盘中信号：用的是还没收完的日线，收盘前可能消失': 'Intraday signal: uses the unfinished daily bar — may disappear before the close',
@@ -129,6 +129,8 @@
   // ---------- 2. 带数字的句型 (按顺序全部套用) ----------
   var PATTERNS = [
     // --- 整句 / 句首 (先套用) ---
+    [/^默认计划：/, 'Default plan: '], [/^按你的计划：/, 'Your plan: '], [/R\/R = \(目标 − 进场\) ÷ \(进场 − 止损\)/, 'R/R = (target − entry) ÷ (entry − stop)'],
+    [/默认计划：目标 = 2 倍风险。历史参考 \(回测同类信号期间最大涨幅中位数 ([^)]*)\) = 1 : ([\d.]+)，不是计划/, 'Default plan: target = 2× risk. Historical reference (median MFE of similar backtested signals $1) = 1 : $2 — not the plan'],
     [/现价在 52 周区间的 (\d+)% 位置/, 'Price at $1% of the 52w range'], [/跳一格 (\d+)%/, 'One tick = $1%'], [/最小跳动 ([\d.]+)，跳一格就是 (\d+)%/, 'Min tick $1 — one tick = $2%'],
     [/标 = 2 倍风险/, 'Target = 2R'], [/损 = /, 'Stop = '], [/(\d+) 支没有K线/, '$1 without candles'], [/^信号 (\d+ \/ \d+)$/, 'Signals $1'], [/^(新增信号|持续符合|条件失效|接近风险线|我的计划) (\d+ \/ \d+)$/, function (m, g, n) { return EXACT[g] + ' ' + n; }],
     [/(^|[\s·(])量 ([\d.]+)×/g, '$1Vol $2×'],

@@ -55,7 +55,7 @@
   var scrH = $('#sec-screener');
   if (scrH) fold('screener', '筛选器', scrH, [$('#tpl-bar'), $('#strategy-panel')], function () {
     var name = $('#tpl-name'), hits = $('#dash-hits');
-    return chip('模板', (name && name.value) || '—') + (hits && /\d/.test(txt(hits)) ? chip('今天命中', txt(hits)) : '') + '<span class="fold-hint">点开改条件、看命中的股票</span>';
+    return chip('', (name && name.value) || '—') + (hits && /\d/.test(txt(hits)) ? chip('命中', txt(hits)) : '') + '<span class="fold-hint">编辑</span>';
   }, false);
 
   // 3. 信号卡片 (图表) 放到后台信号标题正下方，回测折起来
@@ -92,7 +92,7 @@
     fold('table', '股票', tbl, tNodes, function () {
       var names = [].slice.call(document.querySelectorAll('#watchlist-table tbody tr[data-name]')).filter(function (r) { return !r.hidden && r.style.display !== 'none'; })
         .slice(0, 3).map(function (r) { return r.dataset.name; });
-      var sel = document.getElementById('table-sort'); return chip(sel ? txt(sel.options[sel.selectedIndex]) : '排序', names.length ? names.join(' · ') : '—') + '<span class="fold-hint">点开筛选 / 排序 / 自选</span>';
+      var sel = document.getElementById('table-sort'); return chip(sel ? txt(sel.options[sel.selectedIndex]) : '排序', names.length ? names.join(' · ') : '—') + '<span class="fold-hint">筛选　排序　☆</span>';
     }, false);
   }
 

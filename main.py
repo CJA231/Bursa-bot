@@ -4393,8 +4393,8 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
             ("ATR(14)", pct_text(data.get("atr_pct"), 1, plus=False), "atr", ""),
             ("风险", pct_text(-risk, 1) if risk else "—", "risk",
              f"最近的离场线：{stop_ref[1]} {fmt_price(stop_ref[0])}" if stop_ref else "现价下方没有离场线"),
-            ("风险报酬比", f"1 : {rr:.1f}" if rr else "—", "rr",
-             f"报酬参考 (回测同类信号期间最大涨幅中位数)：{pct_text(mfe_median, 1)}" if mfe_median else "回测样本不够"),
+            ("计划 R/R", "2.0" if risk else "—", "rr",
+             (f"默认计划：目标 = 2 倍风险。历史参考 (回测同类信号期间最大涨幅中位数 {pct_text(mfe_median, 1)}) = 1 : {rr:.1f}，不是计划" if mfe_median and rr else "默认计划：目标 = 2 倍风险")),
         ]
         quote_grid = "".join(f'<div{tip_attrs(g, t) if g or t else ""}><dt>{k}</dt><dd>{v}</dd></div>' for k, v, g, t in quote_items)
         focus_new.append({
@@ -4593,13 +4593,13 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 {TEMPLATE_BAR_HTML}
 <div class="strategy-panel" id="strategy-panel"></div>
 
-<h3 class="subsection" id="sec-signals">后台信号 <span class="section-count">({len(cards)})</span>{info_btn("backend", "后台信号", strategy_note_text())}</h3>
+<h3 class="subsection" id="sec-signals">{html.escape(" / ".join(st["name"] for st in STRATEGY["strategies"]))} <span class="section-count">· {len(cards)}</span>{info_btn("backend", "后台信号", strategy_note_text())}</h3>
 {backtest_html}
 {build_screener_html(cards, chips)}
 
 {board_html}
 
-<h2 class="section" id="sec-table">其余股票 <span class="section-count">({len(table_rows)})</span>{info_btn("table", "其余股票", no_data_note)}</h2>
+<h2 class="section" id="sec-table">股票池 <span class="section-count">· {len(table_rows)}</span>{info_btn("table", "其余股票", no_data_note)}</h2>
 <div class="table-toolbar">
   <div class="tf-chips" id="table-chips" role="group" aria-label="快速筛选">
     <button type="button" class="tf-chip" data-f="watch" aria-pressed="false">★ 自选</button>
