@@ -400,6 +400,9 @@ def load_strategy():
         "custom": raw is not None and strat is not DEFAULT_STRATEGY,
         # 后台信号 / 回测都不要这个价格以下的股票 (信号日收盘价)；0 = 不限
         "min_price": _float_in(strat.get("min_price", MIN_PRICE_DEFAULT), 0, 1e6, MIN_PRICE_DEFAULT),
+        # 市值上限 (当地货币)：超过的股票不出后台信号、不进回测；可以按市场写 {"MY": 3000000000}，0 / 不写 = 不限
+        "max_mcap": _float_in((strat.get("max_mcap") or {}).get(MARKET_ID, 0) if isinstance(strat.get("max_mcap"), dict)
+                              else strat.get("max_mcap", 0), 0, 1e15, 0),
     }, note
 
 
@@ -411,7 +414,7 @@ for _s in STRATEGY["strategies"]:
 def strategy_meta():
     """页面 #report-meta 里的后台策略 (网页内置模板、自定义回测、设为后台信号用)"""
     return {"name": STRATEGY["name"], "exit": STRATEGY["exit"], "cost": STRATEGY["cost"], "position": STRATEGY["position"],
-            "sig": strategy_signature(), "min_price": STRATEGY["min_price"],
+            "sig": strategy_signature(), "min_price": STRATEGY["min_price"], "max_mcap": STRATEGY["max_mcap"],
             "slots": STRATEGY["slots"],
             "strategies": [{"name": s["name"], "match": s["match"], "min": s["min"], "rules": s["rules"]} for s in STRATEGY["strategies"]],
             "file_strategies": STRATEGY["file_strategies"]}
@@ -816,7 +819,7 @@ LEDGER_PATH = os.path.join(DOCS_DIR, "backtest_ledger.json")
 def strategy_signature():
     """账本对应的策略指纹：进场条件、离场规则、成本、仓位数任何一样改了，账本就重新从头建 (只改每笔金额不算)"""
     body = json.dumps({"s": [(s["match"], s["min"], s["rules"]) for s in STRATEGY["strategies"]], "e": STRATEGY["exit"],
-                       "c": STRATEGY["cost"], "n": STRATEGY["slots"], "p": STRATEGY["min_price"]}, sort_keys=True, ensure_ascii=False)
+                       "c": STRATEGY["cost"], "n": STRATEGY["slots"], "p": STRATEGY["min_price"], "mc": STRATEGY["max_mcap"]}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(body.encode("utf-8")).hexdigest()[:12]
 
 
@@ -1013,7 +1016,9 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             # 每套策略各算一次，entry[i] 用位元记第 i 天哪几套命中 (第 k 套 = 1 << k)
             truths = [engine.rules_truth(bars, st["compiled"], st["spec"], ctx) for st in STRATEGY["strategies"]]
             mp = STRATEGY["min_price"]  # 太便宜的 (收盘价 < min_price) 不算信号
-            entry = [sum(1 << k for k, t in enumerate(truths) if t[i]) if bars[i]["close"] >= mp else 0 for i in range(len(bars))]
+            mcap = (QUOTE_META.get(symbol) or {}).get("mcap")  # 市值太大的 (> max_mcap) 也不算 (用今天的市值)
+            too_big = bool(STRATEGY["max_mcap"] and mcap and mcap > STRATEGY["max_mcap"])
+            entry = [sum(1 << k for k, t in enumerate(truths) if t[i]) if bars[i]["close"] >= mp and not too_big else 0 for i in range(len(bars))]
             hit_idx = [k for k in range(len(truths)) if entry and entry[-1] & (1 << k)]
             rmask = engine.rules_masks(bars, STRATEGY["strategies"][0]["compiled"], ctx) if len(STRATEGY["strategies"]) == 1 else None
             ex = STRATEGY["exit"]
@@ -3465,7 +3470,7 @@ STRATEGY_CSS = """
   /* 一条条件一行：编号 · 左边 · 天数 · 比较 · 右边 · 天数 · 删除 (手机也一样，框缩窄)；指标参数 / 提示才另起一行小字 */
   .rl-row {
     display: grid; align-items: center; gap: 0.3rem;
-    grid-template-columns: 1.1rem minmax(0, 1fr) 2.4rem auto minmax(0, 1fr) 2.4rem 1.5rem;
+    grid-template-columns: 1.1rem minmax(0, 1fr) 2.8rem auto minmax(0, 1fr) 3.2rem 1.5rem;
     grid-template-areas: "no a a op b b del";
     padding: 0.4rem 0.45rem; border-radius: 10px;
     background: color-mix(in srgb, var(--text-primary) 4%, var(--surface)); border: 1px solid var(--border);
@@ -3510,7 +3515,6 @@ STRATEGY_CSS = """
     .dlg .rl-row select.rl-ctl { padding: 0 0.3rem; background-image: none; text-align: center; text-align-last: center; } /* 手机上不画下拉箭头，字才放得下 */
     .dlg .rl-row select.rl-op { padding: 0 0.25rem; min-width: 2.4rem; }
     .rl-row { padding: 0.35rem 0.35rem; }
-    .dlg .rl-row .rl-num input { padding-right: 0.4rem; }
     .dlg .rl-row .rl-suf { display: none; }
     .dlg .rl-row .rl-pnum input.rl-ctl { width: 3.6rem; height: 1.9rem; }
     .rl-params { font-size: 0.72rem; gap: 0.2rem 0.5rem; }
@@ -3528,6 +3532,11 @@ STRATEGY_CSS = """
   .dlg .rl-row .rl-num input { text-align: right; padding-right: 2.1rem; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
   .dlg .rl-row .rl-num.no-suf input { padding-right: 0.75rem; }
   .rl-num input::-webkit-outer-spin-button, .rl-num input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  @media (max-width: 640px) { /* 手机：天数 / 数字框不留单位的位置 (不然数字被挤出框外看不到)；成交量的 M 保留 */
+    .dlg .rl-row .rl-num input.rl-ctl { padding: 0 0.3rem; text-align: center; }
+    .dlg .rl-row .rl-num.suf-m input.rl-ctl { padding-right: 1.1rem; }
+    .dlg .rl-row .rl-num.suf-m .rl-suf { display: block; right: 0.35rem; }
+  }
   .rl-suf { position: absolute; right: 0.7rem; top: 50%; transform: translateY(-50%); font-size: 0.74rem; color: var(--muted); pointer-events: none; }
   .rl-btn { font: inherit; cursor: pointer; }
   .rl-del {
@@ -4254,7 +4263,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
     <button type="button" class="tf-chip" data-f="rv" aria-pressed="false">放量 ≥ 2×</button>
     <button type="button" class="tf-chip" data-f="rsilo" aria-pressed="false">RSI &lt; 30</button>
     <button type="button" class="tf-chip" data-f="rsihi" aria-pressed="false">RSI &gt; 70</button>
-    <button type="button" class="tf-chip" data-f="px" aria-pressed="false">{"排除 RM0.10 以下" if MARKET_ID == "MY" else "排除 $5 以下"}</button>
+    <button type="button" class="tf-chip" data-f="px" aria-pressed="false">{"排除 RM0.10 以下" if MARKET_ID == "MY" else "排除 $5 以下"}</button>{f'<button type="button" class="tf-chip" data-f="mc" aria-pressed="false">市值 ≤ {fmt_compact(STRATEGY["max_mcap"])}</button>' if STRATEGY["max_mcap"] else ""}
   </div>
   <select id="table-sort" class="table-sort" aria-label="排序">
     <option value="5:desc" selected>成交量 ↓</option>

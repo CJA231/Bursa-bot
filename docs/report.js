@@ -1262,7 +1262,8 @@
     if (r.formula !== undefined) return r.label || '公式：' + (r.formula.trim() || '(空)');
     var a = operandLabel(r.a);
     if (isBoolOperand(r.a)) return r.op === 'not' ? a + ' 不成立' : a;
-    return a + ' ' + RULE_OP_LABEL[r.op] + ' ' + operandLabel(r.b);
+    var b = r.b.k === 'num' && OPERAND_BY_K[r.a.k] && OPERAND_BY_K[r.a.k].unit === 'vol' ? numLiteral(r.b.v / 1e6) + 'M' : operandLabel(r.b); // 成交量写成 5M
+    return a + ' ' + RULE_OP_LABEL[r.op] + ' ' + b;
   }
   function unitWarning(r) {
     if (r.formula !== undefined || isBoolOperand(r.a) || !r.b || r.b.k === 'num') return '';
@@ -3691,7 +3692,8 @@
       rv: function (tr) { return parseFloat(tr.dataset.rv) >= 2; },
       rsilo: function (tr) { var v = parseFloat(tr.dataset.rsi); return v >= 0 && v < 30; },
       rsihi: function (tr) { return parseFloat(tr.dataset.rsi) > 70; },
-      px: function (tr) { return parseFloat(tr.dataset.px) >= minPrice; }
+      px: function (tr) { return parseFloat(tr.dataset.px) >= minPrice; },
+      mc: function (tr) { var m = META.stocks && META.stocks[tr.dataset.code] && META.stocks[tr.dataset.code].mc; return !(MAX_MCAP > 0 && isNum(m) && m > MAX_MCAP); }
     };
     var activeFilters = [];
     function applyTableFilters() {
@@ -3873,6 +3875,7 @@
   var RED_LOOKBACK = 10, RES_K = 2, RES_LOOKBACK = 60, HL_K_DEFAULT = 2, RVOL_LEN = 20; // main.py 同名常数
   var SLOTS_DEFAULT = 3;
   var MIN_PRICE = META.strategy && isNum(META.strategy.min_price) ? META.strategy.min_price : 0.1; // 后台信号 / 回测不要这个价格以下的
+  var MAX_MCAP = META.strategy && isNum(META.strategy.max_mcap) ? META.strategy.max_mcap : 0; // 后台信号 / 回测不要市值超过这个的 (0 = 不限)
   var SLOTS_BACKEND = META.strategy && isNum(META.strategy.slots) ? META.strategy.slots : SLOTS_DEFAULT;
   // Python 的 float(v)：null / 空字符串 / 不是数字 → NaN (后台 _int_in / _float_in 退回默认值)
   function pyNum(v) {
@@ -4238,10 +4241,11 @@
       var p = btPrep(it);
       if (!p.bars.length) return;
       var truths = strategies.map(function (s) { return rulesTruth(p, s.compiled, s.spec); });
-      var close = p.ctx.series.close;
+      var close = p.ctx.series.close, mcap = META.stocks && META.stocks[it.stock.code] && META.stocks[it.stock.code].mc;
+      var tooBig = MAX_MCAP > 0 && isNum(mcap) && mcap > MAX_MCAP;
       var entry = p.bars.map(function (_, i) {
         var m = 0;
-        if (close[i] < MIN_PRICE) return 0; // 太便宜的不算信号 (main.py min_price)
+        if (close[i] < MIN_PRICE || tooBig) return 0; // 太便宜 / 市值太大的不算信号 (main.py min_price / max_mcap)
         truths.forEach(function (t, k) { if (t[i]) m += 1 << k; });
         return m;
       });
@@ -5285,7 +5289,11 @@
   // 长度、数字固定在最右一栏，下拉框右边对齐；电脑上一行排完。没有长度的地方下拉框直接占满那一栏
   function defaultRule() { return { id: newId('rule'), a: { k: 'close' }, op: '>', b: { k: 'sma', n: 20 } }; }
   function operandOptions(selected, forRight) {
-    function opt(value, label) { return '<option value="' + value + '"' + (value === selected ? ' selected' : '') + '>' + escapeHtml(label) + '</option>'; }
+    var narrow = window.matchMedia && matchMedia('(max-width: 640px)').matches; // 手机一行放得下：「EMA 均线」写成「EMA」
+    function opt(value, label) {
+      if (narrow) label = label.replace(/ 均线$/, '');
+      return '<option value="' + value + '"' + (value === selected ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+    }
     var html = forRight ? '<optgroup label="数字">' + opt('num', '固定数字') + '</optgroup>' : '';
     OPERAND_GROUPS.forEach(function (g) {
       var items = OPERANDS.filter(function (o) { return o.group === g[0] && (!forRight || o.unit !== 'bool'); });
@@ -5296,11 +5304,13 @@
   // 数字后面的单位跟着左边走：价格 RM / $，百分比 %，倍数 倍，成交量 股
   function numberSuffix(r) {
     var u = OPERAND_BY_K[r.a.k] && OPERAND_BY_K[r.a.k].unit;
-    return { price: MARKET.id === 'US' ? '$' : 'RM', pct: '%', ratio: '倍', vol: '股' }[u] || '';
+    return { price: MARKET.id === 'US' ? '$' : 'RM', pct: '%', ratio: '倍', vol: 'M' }[u] || '';
   }
+  // 成交量跟数字比：框里填「百万股」(5 = 5,000,000 股)，存的还是股数
+  function numScale(r) { return OPERAND_BY_K[r.a.k] && OPERAND_BY_K[r.a.k].unit === 'vol' ? 1e6 : 1; }
   // 长度 / 数字输入框 (右边带单位)
   function numBox(area, field, value, suffix, attrs, label) {
-    return '<label class="rl-num rl-' + area + (suffix ? '' : ' no-suf') + '"><input class="rl-ctl" type="number" data-f="' + field + '" value="' + value + '" ' + attrs +
+    return '<label class="rl-num rl-' + area + (suffix ? '' : ' no-suf') + (suffix === 'M' ? ' suf-m' : '') + '"><input class="rl-ctl" type="number" data-f="' + field + '" value="' + value + '" ' + attrs +
       ' aria-label="' + escapeHtml(label) + '">' + (suffix ? '<span class="rl-suf" aria-hidden="true">' + escapeHtml(suffix) + '</span>' : '') + '</label>';
   }
   function lenBox(ref, area, field) {
@@ -5341,7 +5351,7 @@
     } else {
       var bd = r.b.k === 'num' ? null : OPERAND_BY_K[r.b.k];
       var right = r.b.k === 'num'
-        ? numBox('blen', 'bv', numLiteral(r.b.v), numberSuffix(r), 'step="any" inputmode="decimal"', '数字')
+        ? numBox('blen', 'bv', numLiteral(r.b.v / numScale(r)), numberSuffix(r), 'step="any" inputmode="decimal"', numScale(r) > 1 ? '成交量 (百万股)' : '数字')
         : lenBox(r.b, 'blen', 'bn');
       if (right) cls += ' has-blen';
       html += selectBox('op', 'op', RULE_OPS.map(function (o) {
@@ -5465,7 +5475,7 @@
       } else if (f === 'bv') {
         var v = parseFloat(el.value);
         if (!isNum(v)) return;
-        r.b.v = Math.max(-1e12, Math.min(1e12, v));
+        r.b.v = Math.max(-1e12, Math.min(1e12, v * numScale(r)));
       } else if (/^[ab]p:/.test(f)) { // 指标参数 (Supertrend 的 ATR / 倍数…)
         var pref = f[0] === 'a' ? r.a : r.b, pd = pref && OPERAND_BY_K[pref.k], key = f.slice(3);
         var px = pd && pd.params && pd.params.filter(function (x) { return x.key === key; })[0];
@@ -5487,7 +5497,7 @@
       if (!r) return;
       if (el.dataset.f === 'an') el.value = r.a.n;
       else if (el.dataset.f === 'bn') el.value = r.b.n;
-      else if (el.dataset.f === 'bv') el.value = numLiteral(r.b.v);
+      else if (el.dataset.f === 'bv') el.value = numLiteral(r.b.v / numScale(r));
       else if (/^[ab]p:/.test(el.dataset.f || '')) {
         var pref = el.dataset.f[0] === 'a' ? r.a : r.b, pd = pref && OPERAND_BY_K[pref.k];
         if (pd && pd.params) el.value = refParams(pref, pd)[el.dataset.f.slice(3)];
