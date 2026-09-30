@@ -3959,6 +3959,14 @@
     return [['prev', '上个月 ' + pm + '\u00a0月', prevStart, prevEnd], ['cur', '本月至今 ' + m + '\u00a0月', y + '-' + p2(m) + '-01', lastDay],
       ['both', '合计', prevStart, lastDay]];
   }
+  var ledgerPromise = null;
+  function loadLedger() { // 拿不到 / 策略指纹对不上 (账本还没按新策略重建) → null，退回用报告里的股票重算
+    if (!ledgerPromise) {
+      ledgerPromise = fetch('backtest_ledger.json', { cache: 'no-cache' }).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { return j && j.v === 1 && j.sig === (META.strategy && META.strategy.sig) && isArr(j.trades) ? j : null; }, function () { return null; });
+    }
+    return ledgerPromise;
+  }
   // 报告里每支股票跑一遍 → 跟后台 summarize_backtest 一样的统计 (没有任何数据返回 null)
   // strategies = [{compiled (都是没错的条件), spec}]：任何一套命中就是信号 (entry 用位元记哪几套)；slots = 最多同时持有几笔 (0 = 不限)
   function runBacktest(universe, strategies, exit, cost, position, slots) {
@@ -3986,6 +3994,18 @@
     if (!nStocks || !last) return null;
     var nSignals = sumOf(trades.map(function (t) { return t.fresh === undefined ? 1 : t.fresh; })), skipped = 0; // 连续几天成立算一次
     if (slots) { var pf = portfolioTrades(trades, slots); trades = pf.trades; skipped = pf.skipped; }
+    return finishBacktest(trades, base, { stocks: nStocks, from: first, to: last, signals: nSignals, skipped: skipped }, ex, cost, position, slots);
+  }
+  // 后台账本 (docs/backtest_ledger.json，main.py summarize_backtest 写的)：交易是固定的，不随报告里的股票变；只有新交易 / 持有中的结算才会让数字变
+  function ledgerBacktest(led, ex, cost, position, slots) {
+    var base = BT_HORIZONS.map(function (x) { var b = led.base[x] || led.base[String(x)] || [0, 0, 0]; return [b[0], b[1], b[2]]; });
+    var codes = {};
+    led.trades.forEach(function (t) { codes[t.code] = 1; if (t.h) { var h = {}; BT_HORIZONS.forEach(function (x) { h[x] = t.h[x] === undefined ? t.h[String(x)] : t.h[x]; }); t.h = h; } });
+    return finishBacktest(led.trades.slice(), base, { stocks: Object.keys(codes).length, from: led.from, to: led.last, signals: led.signals, skipped: led.skipped },
+      ex, cost, position, slots);
+  }
+  function finishBacktest(trades, base, meta, ex, cost, position, slots) {
+    var nStocks = meta.stocks, first = meta.from, last = meta.to, nSignals = meta.signals, skipped = meta.skipped;
     var horizons = BT_HORIZONS.map(function (x, k) {
       var rs = trades.filter(function (t) { return t.h[x] !== null && t.h[x] !== undefined; }).map(function (t) { return t.h[x]; });
       var b = base[k];
@@ -4587,10 +4607,15 @@
       var id = ++runId;
       res.classList.add('busy');
       if (!res.firstChild) res.innerHTML = '<p class="sp-loading">回测中…</p>';
-      loadUniverse().then(function (u) {
+      // 后台信号 + 设定没改 → 用后台账本 (固定的交易记录)；改了设定 / 别的来源才用报告里的股票重算
+      var untouched = srcKey === 'backend' && be && META.strategy && META.strategy.sig && cost === be.cost && pos === POSITION_BACKEND && slots === SLOTS_BACKEND &&
+        JSON.stringify(ex) === JSON.stringify(baseExit);
+      var ledgerP = untouched ? loadLedger() : Promise.resolve(null);
+      Promise.all([ledgerP, loadUniverse()]).then(function (both) {
+        var u = both[1], led = both[0];
         setTimeout(function () { // 让"计算中"先画出来
           if (id !== runId || !root.isConnected) return;
-          var bt = runBacktest(u, strategies, ex, cost, pos, slots);
+          var bt = led ? ledgerBacktest(led, ex, cost, pos, slots) : runBacktest(u, strategies, ex, cost, pos, slots);
           res.classList.remove('busy');
           if (bt) bt.stratNames = strategies.map(function (x) { return x.name; });
           last = bt ? { src: src, ex: ex, cost: cost, pos: pos, slots: slots, bt: bt } : null;

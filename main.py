@@ -405,6 +405,7 @@ for _s in STRATEGY["strategies"]:
 def strategy_meta():
     """页面 #report-meta 里的后台策略 (网页内置模板、自定义回测、设为后台信号用)"""
     return {"name": STRATEGY["name"], "exit": STRATEGY["exit"], "cost": STRATEGY["cost"], "position": STRATEGY["position"],
+            "sig": strategy_signature(),
             "slots": STRATEGY["slots"],
             "strategies": [{"name": s["name"], "match": s["match"], "min": s["min"], "rules": s["rules"]} for s in STRATEGY["strategies"]],
             "file_strategies": STRATEGY["file_strategies"]}
@@ -670,10 +671,10 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
     return out
 
 
-def portfolio_trades(trades, slots):
+def portfolio_trades(trades, slots, prior=()):
     """账户模式 (网页 portfolioTrades 同一套)：最多同时持有 slots 笔。按进场日排，同一天相对量高的先、再按代码；
     同一支股票还拿着就不重复买；满了就跳过 (等止盈 / 止损结算后，隔天起才有空位)。返回 (买进的, 满仓跳过几个)"""
-    held, taken, skipped = [], [], 0
+    held, taken, skipped = list(prior), [], 0  # prior = 账本里已经买进的 (占着仓位)，只挑 trades 里新的
     for t in sorted(trades, key=lambda t: (t["entry_date"], -t["rvol"], t.get("code", ""))):
         held = [x for x in held if x["reason"] == "open" or x["exit_date"] >= t["entry_date"]]
         if any(x.get("code") == t.get("code") for x in held):
@@ -772,17 +773,46 @@ def month_windows(last_day):
             ("both", "合计", prev_start, last_day)]
 
 
+def numpy_busday(a, b):
+    import numpy as np
+    return np.busday_count(a, b)
+
+
+LEDGER_PATH = os.path.join(DOCS_DIR, "backtest_ledger.json")
+
+
+def strategy_signature():
+    """账本对应的策略指纹：进场条件、离场规则、成本、仓位数任何一样改了，账本就重新从头建 (只改每笔金额不算)"""
+    body = json.dumps({"s": [(s["match"], s["min"], s["rules"]) for s in STRATEGY["strategies"]], "e": STRATEGY["exit"],
+                       "c": STRATEGY["cost"], "n": STRATEGY["slots"]}, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(body.encode("utf-8")).hexdigest()[:12]
+
+
+def load_ledger():
+    try:
+        with open(LEDGER_PATH, encoding="utf-8") as f:
+            led = json.load(f)
+        if led.get("v") == 1 and led.get("sig") == strategy_signature() and isinstance(led.get("trades"), list):
+            for t in led["trades"]:
+                t["h"] = {int(k): x for k, x in (t.get("h") or {}).items()}
+            led["base"] = {int(k): v for k, v in led["base"].items()}
+            return led
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
 def summarize_backtest(stocks):
-    """每支股票的回测合起来 → 页面上"策略回测"区块要的数字。没有任何数据返回 None"""
-    trades, base = [], {h: [0.0, 0, 0] for h in BT_HORIZONS}
+    """回测统计。数字来自「账本」(docs/backtest_ledger.json)，不是每天拿当天报告里的股票重算：
+    第一次 (或策略改了) 用手上的日线建账本；之后只会 ① 让持有中的交易继续走 / 结算 ② 加进账本建好之后新出现的信号 (按仓位数挑)。
+    已经结算的交易、以及后来才进报告的股票的旧信号，都不会再改动 → 统计数字只在有新交易 / 持有的交易结算时才变。"""
+    raw, base = [], {h: [0.0, 0, 0] for h in BT_HORIZONS}
     first_day = last_day = None
-    n_stocks = 0
     for st in stocks:
         data = st.get("data")
         bt = data and data.get("backtest")
         if not bt:
             continue
-        n_stocks += 1
         if bt.get("from"):
             first_day = min(first_day or bt["from"], bt["from"])
         for hz, (tot, cnt, win) in bt["base"].items():
@@ -790,15 +820,40 @@ def summarize_backtest(stocks):
             base[hz][1] += cnt
             base[hz][2] += win
         for t in bt["trades"]:
-            trades.append(dict(t, code=st["symbol"].split(".")[0], name=st["name"]))
+            raw.append(dict(t, code=st["symbol"].split(".")[0], name=st["name"]))
         if data.get("last_date"):
             last_day = max(last_day or data["last_date"], data["last_date"])
-    if not n_stocks or not last_day:
+    if not last_day:
         return None
     slots = STRATEGY["slots"]
-    n_signals, skipped = sum(t.get("fresh", 1) for t in trades), 0  # 信号个数 = 新出现的 (连续几天成立算一次)
-    if slots:  # 账户模式：最多同时 slots 笔，满了跳过
-        trades, skipped = portfolio_trades(trades, slots)
+    cap = slots or 10 ** 6
+    led = load_ledger()
+    if led is None:  # 建账本：手上所有日线里的信号一次收进来
+        taken, skipped = portfolio_trades(raw, cap)
+        led = {"v": 1, "sig": strategy_signature(), "from": first_day, "base": base, "trades": taken,
+               "signals": sum(t.get("fresh", 1) for t in raw), "skipped": skipped}
+    else:
+        by_key = {(t["code"], t["sig"]): t for t in raw}
+        led["trades"] = [by_key.get((t["code"], t["sig"]), t) if t["reason"] == "open" else t for t in led["trades"]]  # 持有中的继续走
+        seen = {(t["code"], t["sig"]) for t in led["trades"]}
+        new = [t for t in raw if (t["code"], t["sig"]) not in seen and t["sig"] > led["last"]]  # 只收账本建好以后才出现的信号
+        taken, skipped = portfolio_trades(new, cap, prior=led["trades"])
+        led["trades"] += taken
+        led["signals"] += sum(t.get("fresh", 1) for t in new)
+        led["skipped"] += skipped
+    led["last"] = max(last_day, led.get("last") or last_day)
+    last_day = led["last"]
+    for t in led["trades"]:  # 距今几个交易日 (周末以外的休市日不扣，够用)
+        t["sig_ago"] = int(numpy_busday(t["sig"], last_day))
+    try:
+        os.makedirs(os.path.dirname(LEDGER_PATH) or ".", exist_ok=True)
+        with open(LEDGER_PATH, "w", encoding="utf-8") as f:
+            json.dump(led, f, ensure_ascii=False, separators=(",", ":"))
+    except OSError as e:
+        print(f"⚠️ 回测账本写不了 ({e})")
+    trades, base, first_day = led["trades"], led["base"], led["from"]
+    n_stocks = len({t["code"] for t in trades})
+    n_signals, skipped = led["signals"], led["skipped"]
     horizons = []
     for hz in BT_HORIZONS:
         rs = [t["h"][hz] for t in trades if t["h"].get(hz) is not None]
@@ -820,7 +875,7 @@ def summarize_backtest(stocks):
     monthly = [dict(month=mth, **trade_stats(ts, slots)) for mth, ts in sorted(months.items())]
     return {
         "stocks": n_stocks, "from": first_day, "to": last_day, "cost": STRATEGY["cost"], "position": STRATEGY["position"],
-        "slots": slots, "signals": n_signals, "skipped": skipped,
+        "slots": slots, "signals": n_signals, "skipped": skipped, "sig": led["sig"],
         "name": STRATEGY["name"], "strategies": [st["name"] for st in STRATEGY["strategies"]], "exit": STRATEGY["exit"],
         "all": trade_stats(trades, slots), "windows": windows, "monthly": monthly, "horizons": horizons, "dist": dist,
         "recent": sorted((t for t in trades if t["sig_ago"] <= BT_RECENT_BARS), key=lambda t: (t["sig_ago"], -t["ret"]))[:40],
@@ -971,7 +1026,7 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 "rule_tags": [(STRATEGY["strategies"][k]["name"], rule_tags(ctx, STRATEGY["strategies"][k])) for k in hit_idx] or None,
                 "stop_ref": (round(stop_ref[0], 4), stop_ref[1]) if stop_ref else None,
                 "last_date": bar_dates[-1] if bar_dates else None,
-                "backtest": backtest_stock(bars, bar_dates, entry, ex, STRATEGY["cost"], series, every_signal=bool(STRATEGY["slots"])),
+                "backtest": backtest_stock(bars, bar_dates, entry, ex, STRATEGY["cost"], series, every_signal=True),
                 "daily_bars": compact_bars(df, intraday=False),  # 点开看完整图表 + 网页上的选股条件用 (只有表格股票会写进 table.json)
                 "candles": candles,
                 "ema20": ema20,
