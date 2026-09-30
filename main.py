@@ -2310,9 +2310,12 @@ TABLE_CSS = """
 REPORT_JS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "report.js")
 
 
-def report_js_version():
+FOLD_JS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "fold.js")  # 首页收纳 (区块折叠 + 顶部目录)，在 report.js 之前载入
+
+
+def report_js_version(path=REPORT_JS_PATH):
     try:
-        with open(REPORT_JS_PATH, "rb") as f:
+        with open(path, "rb") as f:
             return hashlib.sha1(f.read()).hexdigest()[:10]
     except OSError:
         return "dev"
@@ -2448,6 +2451,73 @@ CARD_CSS = """
   .lg-ctrl button:hover:not(:disabled) { color: var(--text-primary); }
   .lg-ctrl button[data-act="del"]:hover { color: var(--down); }
   .lg-ctrl button:disabled { opacity: 0.3; cursor: default; }
+  /* 图例收起 (TradingView 的 ^) */
+  .lg-foldrow { background: none; padding: 0; }
+  .lg-fold { font: inherit; font-size: 0.72rem; line-height: 1.4; padding: 0.05rem 0.45rem; border-radius: 4px; cursor: pointer;
+    color: var(--text-secondary); background: color-mix(in srgb, var(--surface) 72%, transparent); border: 1px solid var(--border); }
+  .lg-fold:hover { color: var(--text-primary); }
+  /* 进场计划：图表右上角三行，点一下出滚轮 */
+  .plan-tags { position: absolute; top: 4px; right: 70px; z-index: 4; display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
+  .pt-row { display: grid; grid-template-columns: 1.2em auto auto; align-items: baseline; gap: 0.35rem; justify-content: end;
+    font: inherit; font-size: 0.72rem; line-height: 1.45; padding: 0.05rem 0.4rem; border-radius: 4px; cursor: pointer; text-align: right;
+    background: color-mix(in srgb, var(--surface) 78%, transparent); border: 1px solid var(--border); color: var(--text-secondary); }
+  .pt-row i { font-style: normal; font-weight: 700; }
+  .pt-row b { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 600; }
+  .pt-row small { font-size: 0.66rem; font-variant-numeric: tabular-nums; min-width: 3.2em; }
+  .pt-e i { color: #e8a33d; } .pt-s i, .pt-s small { color: var(--down); } .pt-t i, .pt-t small { color: var(--up); }
+  .pt-e small { color: #e8a33d; }
+  .pt-row { grid-template-columns: 1.1em auto auto; gap: 0.25rem; }
+  .pt-row small { min-width: 2.6em; }
+  .lg-row { overflow: hidden; }
+  .lg-name { min-width: 0; flex-shrink: 1; }
+  .pt-row:hover { border-color: var(--text-secondary); }
+  .pt-row:focus-visible { outline: 2px solid var(--ema); outline-offset: 1px; }
+  .plan-mine { font-size: 0.62rem; color: #e8a33d; font-weight: 600; }
+  /* 滚轮 (三列：进场 / 止损 / 目标) */
+  .plan-roller .wheels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
+  .wheel-h { text-align: center; font-size: 0.78rem; font-weight: 600; margin-bottom: 0.3rem; }
+  .w-e .wheel-h { color: #e8a33d; } .w-s .wheel-h { color: var(--down); } .w-t .wheel-h { color: var(--up); }
+  .wheel-box { position: relative; height: 180px; border-radius: 10px; background: var(--page); overflow: hidden;
+    -webkit-mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); }
+  .wheel-band { position: absolute; left: 4px; right: 4px; top: 72px; height: 36px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); pointer-events: none; }
+  .wheel-list { position: relative; list-style: none; margin: 0; padding: 72px 0; height: 100%; overflow-y: auto; scroll-snap-type: y mandatory;
+    overscroll-behavior: contain; scrollbar-width: none; box-sizing: border-box; outline: none; }
+  .wheel-list::-webkit-scrollbar { display: none; }
+  .wheel-list li { height: 36px; line-height: 36px; text-align: center; scroll-snap-align: center; font-variant-numeric: tabular-nums;
+    font-size: 0.95rem; color: var(--muted); cursor: pointer; }
+  .wheel-list li.on { color: var(--text-primary); font-weight: 700; font-size: 1.05rem; }
+  .wheel-list:focus-visible + .wheel-band, .wheel-box:focus-within .wheel-band { border-color: var(--ema); }
+  .pr-out { margin: 0.7rem 0 0.4rem; font-size: 0.82rem; text-align: center; color: var(--text-secondary); }
+  .pr-quick { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; font-size: 0.74rem; color: var(--muted); }
+  .pr-quick span { margin-left: 0.3rem; }
+  .pr-quick button { font: inherit; font-size: 0.74rem; padding: 0.2rem 0.55rem; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); }
+  .pr-quick button:hover { color: var(--text-primary); }
+  /* 首页收纳 (fold.js)：标题下面一行摘要 + 展开 / 收起；顶部目录 */
+  .fold-toc { position: sticky; top: 0; z-index: 30; display: flex; gap: 0.35rem; overflow-x: auto; scrollbar-width: none;
+    margin: 0 -1.5rem 0.6rem; padding: 0.45rem 1.5rem; background: color-mix(in srgb, var(--page) 92%, transparent);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+  .fold-toc::-webkit-scrollbar { display: none; }
+  .fold-toc button { flex: 0 0 auto; font: inherit; font-size: 0.8rem; padding: 0.3rem 0.75rem; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); }
+  .fold-toc button:hover { color: var(--text-primary); }
+  .fold-toc .fold-all { margin-left: auto; border-style: dashed; }
+  .fold-bar { display: flex; align-items: center; gap: 0.5rem 0.9rem; width: 100%; margin: 0.2rem 0 0.9rem; padding: 0.55rem 0.8rem;
+    font: inherit; text-align: left; cursor: pointer; color: var(--text-secondary); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px; }
+  .fold-bar.open { margin: 0 0 0.5rem; padding: 0.2rem 0.1rem; background: none; border-color: transparent; justify-content: flex-end; }
+  .fold-bar:hover .fold-tg { color: var(--text-primary); }
+  .fold-bar:focus-visible { outline: 2px solid var(--ema); outline-offset: 2px; }
+  .fold-sum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 1rem; min-width: 0; flex: 1 1 auto; }
+  .fold-bar.open .fold-sum { display: none; }
+  .fold-kv { display: inline-flex; align-items: baseline; gap: 0.35rem; font-size: 0.82rem; white-space: nowrap; }
+  .fold-kv i { font-style: normal; color: var(--muted); font-size: 0.72rem; }
+  .fold-kv b { color: var(--text-primary); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .fold-kv small { font-size: 0.74rem; margin-left: 0.15rem; }
+  .fold-hint { font-size: 0.74rem; color: var(--muted); }
+  .fold-tg { flex: 0 0 auto; margin-left: auto; font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+  #sec-backtest .fold-bar { margin-top: 0.5rem; }
+  @media (max-width: 640px) { .fold-toc { margin-inline: -1rem; padding-inline: 1rem; } }
   @media (hover: hover) {
     .lg-row .lg-ctrl { display: none; }
     .lg-row:hover .lg-ctrl, .lg-row:focus-within .lg-ctrl { display: inline-flex; }
@@ -4204,6 +4274,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
 <script id="chart-data" type="application/json">{chart_json}</script>
 <script id="report-meta" type="application/json">{meta_json}</script>
+<script src="{ASSET_PREFIX}fold.js?v={report_js_version(FOLD_JS_PATH)}"></script>
 <script src="{ASSET_PREFIX}report.js?v={report_js_version()}"></script>
 </body>
 </html>"""

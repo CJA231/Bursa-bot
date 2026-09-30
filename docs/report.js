@@ -1828,10 +1828,46 @@
         st.main.setData(bars);
     }
   }
+  // 图上那条基本 EMA (原本固定 20)：长度、颜色、粗细、线型、显示，存在这台设备
+  var BASE_EMA_KEY = 'bursa_base_ema_v1';
+  function baseEma() {
+    var b = loadJSON(BASE_EMA_KEY, {}) || {};
+    var len = Math.round(+b.len);
+    return { len: len >= 2 && len <= 250 ? len : 20, color: /^#[0-9a-f]{6}$/i.test(b.color || '') ? b.color : null, width: [1, 2, 3, 4].indexOf(b.width) >= 0 ? b.width : 2,
+      kind: LINE_KINDS.some(function (k) { return k[0] === b.kind; }) ? b.kind : 'line', hidden: !!b.hidden };
+  }
+  function baseEmaOptions() {
+    var b = baseEma();
+    return Object.assign({ color: b.color || colors.ema, lineWidth: b.width, visible: !b.hidden, lineStyle: LWC.LineStyle.Solid, lineType: LWC.LineType.Simple,
+      lineVisible: true, pointMarkersVisible: false }, kindOptions(b.kind, b.width));
+  }
+  function openBaseEmaSettings() {
+    var b = baseEma(), root = document.createElement('form');
+    root.className = 'ind-set'; root.noValidate = true;
+    root.innerHTML = '<label>长度<input type="number" inputmode="numeric" name="len" min="2" max="250" step="1" value="' + b.len + '"></label>' +
+      '<label class="color-row"><span>颜色</span><input type="color" name="color" value="' + (b.color || colors.ema) + '"></label>' +
+      '<label>线宽<select name="width">' + [1, 2, 3, 4].map(function (w) { return '<option value="' + w + '"' + (b.width === w ? ' selected' : '') + '>' + w + ' px</option>'; }).join('') + '</select></label>' +
+      '<label>线型<select name="kind">' + LINE_KINDS.map(function (k) { return '<option value="' + k[0] + '"' + (b.kind === k[0] ? ' selected' : '') + '>' + k[1] + '</option>'; }).join('') + '</select></label>' +
+      '<label class="check"><input type="checkbox" name="visible"' + (b.hidden ? '' : ' checked') + '> 在图上显示</label>';
+    var dlg = openDialog({ title: '基本均线 EMA', body: root, footer: true, className: 'dlg-set' });
+    dlg.foot.innerHTML = '<button type="button" data-act="reset">恢复默认</button><span class="grow"></span><button type="button" data-act="cancel">取消</button><button type="button" class="btn-primary" data-act="ok">确定</button>';
+    function save() {
+      var f = root.elements, len = Math.round(+f.len.value);
+      saveJSON(BASE_EMA_KEY, { len: len >= 2 && len <= 250 ? len : 20, color: f.color.value, width: +f.width.value, kind: f.kind.value, hidden: !f.visible.checked });
+      dlg.close(); rerenderAll();
+    }
+    dlg.foot.addEventListener('click', function (e) {
+      var act = (e.target.closest('button[data-act]') || {}).dataset; act = act && act.act;
+      if (act === 'cancel') dlg.close();
+      else if (act === 'reset') { saveJSON(BASE_EMA_KEY, {}); dlg.close(); rerenderAll(); }
+      else if (act === 'ok') save();
+    });
+    root.addEventListener('submit', function (e) { e.preventDefault(); save(); });
+  }
   function setBaseData(st) {
     setMainData(st);
     st.volume.setData(volumeData(st.bars));
-    var emaPoints = toPoints(st.bars, seriesEMA(st.bars.map(function (b) { return b.close; }), 20));
+    var emaPoints = toPoints(st.bars, seriesEMA(st.bars.map(function (b) { return b.close; }), baseEma().len));
     st.ema.setData(emaPoints);
     st.emaLast = lastValue(emaPoints);
   }
@@ -1855,6 +1891,16 @@
     return out;
   }
   function plotColor(ind, plot) { return (ind.colors && ind.colors[plot.key]) || plot.color; }
+  // 线型：实线 / 虚线 / 点线 / 阶梯 / 圆点 (图例点名称 → 设置 → 样式 里改)
+  var LINE_KINDS = [['line', '实线'], ['dash', '虚线'], ['dot', '点线'], ['step', '阶梯'], ['dots', '圆点']];
+  function plotKind(ind, plot) { var k = ind.styles && ind.styles[plot.key]; return k || (plot.type === 'dots' ? 'dots' : 'line'); }
+  function kindOptions(kind, width) {
+    if (kind === 'dots') return { lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: 1 + (width || 2) * 0.35 };
+    if (kind === 'dash') return { lineStyle: LWC.LineStyle.Dashed };
+    if (kind === 'dot') return { lineStyle: LWC.LineStyle.Dotted };
+    if (kind === 'step') return { lineType: LWC.LineType.WithSteps };
+    return {};
+  }
   function plotNegColor(ind, plot) { return (ind.colors && ind.colors[plot.key + '_neg']) || plot.negColor; }
 
   // 返回 [{series, color, last, optional}]
@@ -1893,7 +1939,7 @@
         series = chart.addSeries(LWC.HistogramSeries, Object.assign({ priceLineVisible: false, lastValueVisible: false }, scaleOptions(ind, paneIndex)), paneIndex);
         series.setData(data.map(function (pt) { return { time: pt.time, value: pt.value, color: pt.value >= 0 ? color : neg }; }));
       } else {
-        series = lineSeries(color, plot.type === 'dots' ? { lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: 1.5 } : null);
+        series = lineSeries(color, kindOptions(plotKind(ind, plot), ind.width));
         series.setData(data);
       }
       return { series: series, color: color, last: lastValue(data) };
@@ -2066,6 +2112,7 @@
     for (var i = 0; i < paneIndex; i++) top += panes[i].getHeight() + 1;
     return top;
   }
+  var LG_FOLD_KEY = 'bursa_legend_folded_v1';
   function renderLegends(st) {
     var box = st.legendsEl;
     if (!box) return;
@@ -2079,8 +2126,9 @@
     st.chart.panes().forEach(function (pane, p) {
       var rows = '';
       if (p === 0) {
-        rows += '<div class="lg-row lg-base" data-base="ema"><span class="lg-swatch" style="background:' + colors.ema + '"></span>' +
-          '<span class="lg-name lg-static">EMA 20</span><span class="lg-val"></span></div>';
+        var be = baseEma();
+        rows += '<div class="lg-row lg-base' + (be.hidden ? ' lg-hidden' : '') + '" data-base="ema"><span class="lg-swatch" style="background:' + (be.color || colors.ema) + '"></span>' +
+          '<button type="button" class="lg-name" data-act="base" title="点一下改长度 / 颜色 / 线型">EMA ' + be.len + '</button><span class="lg-val"></span></div>';
       }
       (byPane[p] || []).forEach(function (e) {
         var idx = list.indexOf(e.ind);
@@ -2101,10 +2149,17 @@
           '<button type="button" data-act="del" title="删除" aria-label="删除 ' + name + '">' + ICON_TRASH + '</button>' +
           '</span></div>';
       });
+      if (p === 0) {
+        var folded = !!loadJSON(LG_FOLD_KEY, false), n = rows.split('class="lg-row').length - 1;
+        rows = (folded ? '' : rows) + '<div class="lg-row lg-foldrow"><button type="button" class="lg-fold" data-act="fold" aria-expanded="' + !folded + '" title="' + (folded ? '展开指标' : '收起指标') + '">' +
+          (folded ? '▾ 指标 ' + n : '▴') + '</button></div>';
+      }
       html += '<div class="lg-pane" data-pane="' + p + '" style="top:' + (paneTop(st, p) + 4) + 'px">' + rows + '</div>';
     });
     box.innerHTML = html;
     updateLegendValues(st, null);
+    var tags = st.el.parentNode && st.el.parentNode.querySelector('.plan-tags'), lg0 = box.querySelector('.lg-pane[data-pane="0"]');
+    if (tags && lg0 && tags.offsetWidth) lg0.style.right = (parseFloat(tags.style.right) || 70) + tags.offsetWidth + 6 + 'px';
   }
   function updateLegendValues(st, seriesData) {
     var box = st.legendsEl;
@@ -2155,6 +2210,158 @@
     updateLegendValues(st, hovering ? param.seriesData : null);
   }
 
+  // ---------- 进场计划：图表右上角三行 (进 / 损 / 标)，点一下出滚轮选价；每支股票分开存在这台设备 ----------
+  // 不在图上画横线 (太乱)；存了之后，卡片下面的「风险」「风险报酬比」改按自己的计划算
+  var PLAN_KEY = 'bursa_plan_v1';
+  function planTick(p) {
+    if (MARKET.id !== 'MY') return p < 1 ? 0.0001 : p < 20 ? 0.01 : p < 200 ? 0.05 : 0.1;
+    return p < 1 ? 0.005 : p < 10 ? 0.01 : p < 100 ? 0.02 : 0.1; // 马股价位跳动
+  }
+  function planSnap(v, t) { return Math.round(Math.round(v / t) * t * 10000) / 10000; }
+  function cardOf(chartId) { return document.querySelector('section.card[data-chart="' + chartId + '"]'); }
+  function planDefaults(chartId) {
+    var code = chartId.replace(/^chart-/, ''), m = META.stocks && META.stocks[code], card = cardOf(chartId);
+    var price = m && isNum(m.p) ? m.p : null;
+    if (!price) return null;
+    var t = planTick(price), stop = null;
+    var tipEl = card && card.querySelector('[data-gloss="risk"]'), tip = tipEl && (tipEl.dataset.planTip || tipEl.getAttribute('data-tip')) || '';
+    var mm = tip.match(/(\d+(?:\.\d+)?)\s*$/);
+    if (mm && +mm[1] < price) stop = +mm[1];
+    if (stop === null) stop = planSnap(price * 0.92, t);
+    return { entry: price, stop: stop, target: planSnap(price + 2 * (price - stop), t), price: price, tick: t };
+  }
+  function planOf(chartId) {
+    var d = planDefaults(chartId);
+    if (!d) return null;
+    var all = loadJSON(PLAN_KEY, {}) || {}, mine = all[chartId.replace(/^chart-/, '')];
+    if (mine && isNum(mine.entry) && isNum(mine.stop) && isNum(mine.target)) return Object.assign(d, { entry: mine.entry, stop: mine.stop, target: mine.target, mine: true, at: mine.at });
+    return d;
+  }
+  function planCalc(pl) {
+    var per = pl.entry - pl.stop;
+    return { ok: per > 0, risk: per > 0 ? per / pl.entry * 100 : null, rr: per > 0 ? (pl.target - pl.entry) / per : null };
+  }
+  function pctTxt(v) { return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '%'; }
+  function pctShort(v) { return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(Math.abs(v) >= 10 ? 0 : 1) + '%'; }
+  function renderPlanTags(st) {
+    var card = cardOf(st.id), wrap = st.el.parentNode;
+    if (!card || !wrap) return;
+    var pl = planOf(st.id);
+    if (!pl) return;
+    var box = wrap.querySelector('.plan-tags');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'plan-tags';
+      box.setAttribute('role', 'group');
+      box.setAttribute('aria-label', '进场计划');
+      wrap.appendChild(box);
+      box.addEventListener('click', function (e) { var b = e.target.closest('[data-plan]'); if (b) openPlanRoller(st.id, b.dataset.plan); });
+    }
+    var c = planCalc(pl);
+    function row(key, tag, v, extra, cls) {
+      return '<button type="button" class="pt-row ' + cls + '" data-plan="' + key + '" aria-label="' + tag + ' ' + fmtPrice(v) + '，点一下调整"><i>' + tag + '</i><b>' + fmtPrice(v) + '</b>' +
+        (extra ? '<small>' + extra + '</small>' : '') + '</button>';
+    }
+    box.classList.toggle('mine', !!pl.mine);
+    box.title = pl.mine ? '自己设的计划 (点一下调整)' : '默认：现价 / 最近离场线 / 2R (点一下调整)';
+    box.innerHTML = row('entry', '进', pl.entry, pl.mine ? '自设' : '', 'pt-e') +
+      row('stop', '损', pl.stop, c.ok ? pctShort(-c.risk) : '⚠', 'pt-s') +
+      row('target', '标', pl.target, pctShort((pl.target / pl.entry - 1) * 100), 'pt-t');
+    var right = 70;
+    try { right = st.chart.priceScale('right').width() + 6; } catch (e) {}
+    box.style.right = right + 'px';
+    // 左上角图例让出右上角的位置 (太长的指标名称会被截断，不会压在标签上)
+    var lg = st.legendsEl && st.legendsEl.querySelector('.lg-pane[data-pane="0"]');
+    if (lg) lg.style.right = (right + box.offsetWidth + 6) + 'px';
+    syncPlanGrid(st.id, pl);
+  }
+  // 卡片下面的「风险」「风险报酬比」：存了计划就按计划算 (旁边标「自设」)，没存 = 原本的算法
+  function syncPlanGrid(chartId, pl) {
+    var card = cardOf(chartId);
+    if (!card) return;
+    var r = card.querySelector('[data-gloss="risk"]'), q = card.querySelector('[data-gloss="rr"]');
+    [r, q].forEach(function (el) {
+      if (!el) return;
+      var dd = el.querySelector('dd');
+      if (!('planOrig' in el.dataset)) { el.dataset.planOrig = dd.innerHTML; el.dataset.planTip = el.getAttribute('data-tip') || ''; }
+      if (!pl.mine) { dd.innerHTML = el.dataset.planOrig; el.setAttribute('data-tip', el.dataset.planTip); }
+    });
+    if (!pl.mine) return;
+    var c = planCalc(pl), tip = '按你的计划：进场 ' + fmtPrice(pl.entry) + ' · 止损 ' + fmtPrice(pl.stop) + ' · 目标 ' + fmtPrice(pl.target);
+    if (r) { r.querySelector('dd').innerHTML = (c.ok ? pctTxt(-c.risk) : '—') + ' <small class="plan-mine">自设</small>'; r.setAttribute('data-tip', tip); }
+    if (q) { q.querySelector('dd').innerHTML = (c.ok ? '1 : ' + c.rr.toFixed(1) : '—') + ' <small class="plan-mine">自设</small>'; q.setAttribute('data-tip', tip); }
+  }
+  // 滚轮：一列一个价，一格 = 一个跳动价位；上面高、下面低 (跟价格轴一样)
+  function makeWheel(values, idx, label, cls, onChange) {
+    var H = 36, wrap = document.createElement('div');
+    wrap.className = 'wheel ' + cls;
+    wrap.innerHTML = '<div class="wheel-h">' + label + '</div><div class="wheel-box"><div class="wheel-band" aria-hidden="true"></div>' +
+      '<ul class="wheel-list" tabindex="0" role="listbox" aria-label="' + label + '">' + values.map(function (v, i) { return '<li role="option" data-i="' + i + '">' + fmtPrice(v) + '</li>'; }).join('') + '</ul></div>';
+    var list = wrap.querySelector('.wheel-list'), cur = idx, t = null;
+    function mark(i) {
+      var old = list.querySelector('.on'); if (old) { old.classList.remove('on'); old.setAttribute('aria-selected', 'false'); }
+      var li = list.children[i]; if (li) { li.classList.add('on'); li.setAttribute('aria-selected', 'true'); }
+    }
+    function set(i, smooth) { cur = Math.max(0, Math.min(values.length - 1, i)); list.scrollTo({ top: cur * H, behavior: smooth ? 'smooth' : 'auto' }); mark(cur); onChange(values[cur]); }
+    list.addEventListener('scroll', function () {
+      clearTimeout(t);
+      t = setTimeout(function () { var i = Math.round(list.scrollTop / H); if (i !== cur) { cur = Math.max(0, Math.min(values.length - 1, i)); mark(cur); onChange(values[cur]); } }, 60);
+    }, { passive: true });
+    list.addEventListener('click', function (e) { var li = e.target.closest('li[data-i]'); if (li) set(+li.dataset.i, true); });
+    list.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowUp') { e.preventDefault(); set(cur - 1, true); } else if (e.key === 'ArrowDown') { e.preventDefault(); set(cur + 1, true); }
+    });
+    return { el: wrap, init: function () { list.scrollTop = cur * H; mark(cur); }, setValue: function (v) { set(nearest(values, v), true); } };
+  }
+  function nearest(values, v) { var bi = 0; values.forEach(function (x, i) { if (Math.abs(x - v) < Math.abs(values[bi] - v)) bi = i; }); return bi; }
+  function openPlanRoller(chartId, focus) {
+    var pl = planOf(chartId), st = charts[chartId];
+    if (!pl) return;
+    var t = pl.tick, hi = planSnap(Math.max(pl.price * 1.6, pl.target * 1.25, pl.entry * 1.25), t), lo = Math.max(t, planSnap(Math.min(pl.price * 0.55, pl.stop * 0.8), t)), values = [];
+    var step = Math.max(t, planSnap((hi - lo) / 600, t) || t); // 太多格的时候放大一格
+    for (var v = hi; v >= lo - 1e-9; v = planSnap(v - step, t)) values.push(v);
+    var draft = { entry: pl.entry, stop: pl.stop, target: pl.target };
+    var root = document.createElement('div');
+    root.className = 'plan-roller';
+    root.innerHTML = '<div class="wheels"></div><p class="pr-out" aria-live="polite"></p>' +
+      '<div class="pr-quick"><span>止损用</span><button type="button" data-q="hl">回调低点</button><button type="button" data-q="sar">SAR</button><button type="button" data-q="ema">EMA</button><button type="button" data-q="p8">−8%</button>' +
+      '<span>目标</span><button type="button" data-q="r2">2R</button><button type="button" data-q="r3">3R</button><span>进场</span><button type="button" data-q="now">现价</button></div>';
+    var wheels = {};
+    [['entry', '进场', 'w-e'], ['stop', '止损', 'w-s'], ['target', '目标', 'w-t']].forEach(function (x) {
+      wheels[x[0]] = makeWheel(values, nearest(values, draft[x[0]]), x[1], x[2], function (val) { draft[x[0]] = val; out(); });
+      root.querySelector('.wheels').appendChild(wheels[x[0]].el);
+    });
+    function out() {
+      var c = planCalc(draft);
+      root.querySelector('.pr-out').innerHTML = c.ok ? '风险 <b class="change-down">' + pctTxt(-c.risk) + '</b> · 每股 ' + fmtPrice(draft.entry - draft.stop) +
+        ' · 目标 <b class="change-up">' + pctTxt((draft.target / draft.entry - 1) * 100) + '</b> · 风险报酬比 <b>1 : ' + c.rr.toFixed(1) + '</b>' : '<b class="change-down">止损要低于进场价</b>';
+    }
+    root.querySelector('.pr-quick').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-q]'); if (!b) return;
+      var q = b.dataset.q, d = planDefaults(chartId), n = st && st.bars.length, v = null;
+      if (q === 'hl') v = d.stop;
+      else if (q === 'sar' && st && n) { var sar = seriesPSAR(st.bars.map(function (x) { return x.high; }), st.bars.map(function (x) { return x.low; }), st.bars.map(function (x) { return x.close; }), 0.02, 0.2); v = sar[n - 1]; }
+      else if (q === 'ema') v = st && st.emaLast;
+      else if (q === 'p8') v = draft.entry * 0.92;
+      else if (q === 'now') { wheels.entry.setValue(d.price); return; }
+      else if (q === 'r2' || q === 'r3') { wheels.target.setValue(draft.entry + (q === 'r2' ? 2 : 3) * (draft.entry - draft.stop)); return; }
+      if (!isNum(v) || v >= draft.entry) { toast('这条线不在进场价下面，不能当止损'); return; }
+      wheels.stop.setValue(v);
+    });
+    var dlg = openDialog({ title: (META.stocks[chartId.replace(/^chart-/, '')] || {}).n + ' 进场计划', body: root, footer: true, className: 'dlg-roller' });
+    dlg.foot.innerHTML = '<button type="button" data-act="reset">恢复默认</button><span class="grow"></span><button type="button" data-act="cancel">取消</button><button type="button" class="btn-primary" data-act="ok">保存</button>';
+    requestAnimationFrame(function () { Object.keys(wheels).forEach(function (k) { wheels[k].init(); }); out(); var f = root.querySelector('.' + { entry: 'w-e', stop: 'w-s', target: 'w-t' }[focus] + ' .wheel-list'); if (f) f.focus(); });
+    dlg.foot.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-act]'); if (!b) return;
+      var code = chartId.replace(/^chart-/, ''), all = loadJSON(PLAN_KEY, {}) || {};
+      if (b.dataset.act === 'cancel') { dlg.close(); return; }
+      if (b.dataset.act === 'reset') { delete all[code]; saveJSON(PLAN_KEY, all); dlg.close(); if (st) renderPlanTags(st); toast('已恢复默认'); return; }
+      if (!(draft.entry > draft.stop)) { toast('止损要低于进场价'); return; }
+      all[code] = { entry: draft.entry, stop: draft.stop, target: draft.target, at: new Date().toISOString() };
+      saveJSON(PLAN_KEY, all); dlg.close(); if (st) renderPlanTags(st); toast('进场计划已保存');
+    });
+  }
+
   // ---------- 建图 / 拆图 ----------
   var currentTf = tfById(loadJSON(TF_STORAGE_KEY, 'D')) || tfById('D');
   function renderChart(chartId) {
@@ -2178,9 +2385,10 @@
     st.volume = chart.addSeries(LWC.HistogramSeries, { priceScaleId: '', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
     st.volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
     createMainSeries(st);
-    st.ema = chart.addSeries(LWC.LineSeries, { color: colors.ema, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+    st.ema = chart.addSeries(LWC.LineSeries, Object.assign({ priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, baseEmaOptions()));
     charts[chartId] = st;
     setTimeframe(st, currentTf);
+    requestAnimationFrame(function () { renderPlanTags(st); });
 
     chart.subscribeCrosshairMove(function (param) { onCrosshair(st, param); });
     if (st.legendsEl && !st.legendsEl.dataset.bound) {
@@ -2196,6 +2404,8 @@
           if (!wasOpen) tapped.classList.add('open');
           return;
         }
+        if (btn.dataset.act === 'fold') { saveJSON(LG_FOLD_KEY, !loadJSON(LG_FOLD_KEY, false)); Object.keys(charts).forEach(function (k) { renderLegends(charts[k]); }); return; }
+        if (btn.dataset.act === 'base') { openBaseEmaSettings(); return; }
         var row = btn.closest('[data-ind]');
         if (!row) return;
         var id = row.getAttribute('data-ind'), act = btn.dataset.act;
@@ -2212,9 +2422,9 @@
       var w = entries[0].contentRect.width;
       if (!w || w === st.lastWidth) return;
       st.lastWidth = w;
-      if (el.dataset.square) { layoutPanes(st); return; } // 正方形主图: 宽度变了高度也要跟着变
+      if (el.dataset.square) { layoutPanes(st); requestAnimationFrame(function () { renderPlanTags(st); }); return; } // 正方形主图: 宽度变了高度也要跟着变
       chart.resize(w, el.clientHeight);
-      requestAnimationFrame(function () { renderLegends(st); });
+      requestAnimationFrame(function () { renderLegends(st); renderPlanTags(st); });
     });
     st.ro.observe(el);
   }
@@ -2687,6 +2897,11 @@
       }).join('') : '<p class="hint">这个指标没有可以调的参数。</p>';
     var styleHtml = def.plots.map(function (pl) {
       var s = '<label class="color-row"><span>' + pl.label + '</span><input type="color" name="c_' + pl.key + '" value="' + plotColor(ind, pl) + '"></label>';
+      if (pl.type !== 'hist' && def.id !== 'supertrend') {
+        s += '<label class="color-row"><span>' + pl.label + ' 线型</span><select name="k_' + pl.key + '">' + LINE_KINDS.map(function (k) {
+          return '<option value="' + k[0] + '"' + (plotKind(ind, pl) === k[0] ? ' selected' : '') + '>' + k[1] + '</option>';
+        }).join('') + '</select></label>';
+      }
       if (pl.type === 'hist') s += '<label class="color-row"><span>' + pl.negLabel + '</span><input type="color" name="c_' + pl.key + '_neg" value="' + plotNegColor(ind, pl) + '"></label>';
       return s;
     }).join('') +
@@ -2721,6 +2936,7 @@
         def.inputs.forEach(function (i) { root.elements['p_' + i.key].value = i.def; });
         def.plots.forEach(function (pl) {
           root.elements['c_' + pl.key].value = pl.color;
+          if (root.elements['k_' + pl.key]) root.elements['k_' + pl.key].value = pl.type === 'dots' ? 'dots' : 'line';
           if (pl.type === 'hist') root.elements['c_' + pl.key + '_neg'].value = pl.negColor;
         });
         root.elements.width.value = String(def.width || 2);
@@ -2747,6 +2963,9 @@
         if (pl.type === 'hist') cols[pl.key + '_neg'] = f['c_' + pl.key + '_neg'].value;
       });
       ind.colors = cols;
+      var kinds = {};
+      def.plots.forEach(function (pl) { if (f['k_' + pl.key]) kinds[pl.key] = f['k_' + pl.key].value; });
+      ind.styles = kinds;
       ind.width = +f.width.value;
       ind.pane = f.pane.value === 'sub' ? 'sub' : 'main';
       ind.hidden = !f.visible.checked;
