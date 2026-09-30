@@ -1,7 +1,8 @@
 {
-  "说明": "入场：EMA5 上穿 EMA20、SAR 在价格下方、Supertrend(3,1.4) 下穿价格 (转多)，三条里任意满足 2 条就是信号；信号日收盘价进场；入场风险超过 max_risk % 不进。离场：SAR 转空 / EMA5x20 死叉，跌破浮动 HL 只提醒 (swing_alert)。",
+  "说明": "入场：EMA5 上穿 EMA20、SAR 在价格下方、Supertrend(3,1.4) 下穿价格 (转多)，三条里任意满足 2 条就是信号；信号日收盘价进场；进场价到最近回调低点 (收盘价) 超过 max_risk % 就不进。离场：收盘跌破最近回调低点就离场，回调低点每次确认更高就往上移 (浮动止盈，swing_mode = rebound：回调后第一根收涨确认；t2：左右各 swing_low 根确认；swing_alert = true 则只提醒不离场)；另外 SAR 转空 / EMA5x20 死叉也离场。",
   "name": "EMA",
   "min_price": 0.10,
+  "max_mcap": {"MY": 3000000000},
   "match": "atleast",
   "min": 2,
   "rules": [
@@ -9,5 +10,5 @@
     {"a":{"k":"sar"},"op":"<","b":{"k":"close"}},
     {"a":{"k":"st","n":3,"m":1.4},"op":"crossdown","b":{"k":"close"}}
   ],
-  "exit": {"sar": true, "ema_cross": [5,20], "swing_low": 2, "swing_alert": true, "entry_close": true, "max_risk": 10, "max_hold": 90, "stop_pct": 15, "take_pct": 0}
+  "exit": {"sar": true, "ema_cross": [5,20], "swing_low": 2, "swing_mode": "rebound", "swing_alert": false, "entry_close": true, "max_risk": 10, "max_hold": 90, "stop_pct": 0, "take_pct": 0}
 }

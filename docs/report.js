@@ -1262,7 +1262,8 @@
     if (r.formula !== undefined) return r.label || '公式：' + (r.formula.trim() || '(空)');
     var a = operandLabel(r.a);
     if (isBoolOperand(r.a)) return r.op === 'not' ? a + ' 不成立' : a;
-    return a + ' ' + RULE_OP_LABEL[r.op] + ' ' + operandLabel(r.b);
+    var b = r.b.k === 'num' && OPERAND_BY_K[r.a.k] && OPERAND_BY_K[r.a.k].unit === 'vol' ? numLiteral(r.b.v / 1e6) + 'M' : operandLabel(r.b); // 成交量写成 5M
+    return a + ' ' + RULE_OP_LABEL[r.op] + ' ' + b;
   }
   function unitWarning(r) {
     if (r.formula !== undefined || isBoolOperand(r.a) || !r.b || r.b.k === 'num') return '';
@@ -3691,7 +3692,8 @@
       rv: function (tr) { return parseFloat(tr.dataset.rv) >= 2; },
       rsilo: function (tr) { var v = parseFloat(tr.dataset.rsi); return v >= 0 && v < 30; },
       rsihi: function (tr) { return parseFloat(tr.dataset.rsi) > 70; },
-      px: function (tr) { return parseFloat(tr.dataset.px) >= minPrice; }
+      px: function (tr) { return parseFloat(tr.dataset.px) >= minPrice; },
+      mc: function (tr) { var m = META.stocks && META.stocks[tr.dataset.code] && META.stocks[tr.dataset.code].mc; return !(MAX_MCAP > 0 && isNum(m) && m > MAX_MCAP); }
     };
     var activeFilters = [];
     function applyTableFilters() {
@@ -3862,7 +3864,7 @@
   var BT_HORIZONS = [5, 10, 20], BT_START = 25, BT_RECENT_BARS = 20, BT_DIST_EDGES = [-10, -5, 0, 5, 10];
   var EXIT_DEFAULT = { sar: true, ema_cross: [5, 20], swing_low: 2, max_hold: 30, stop_pct: 0, take_pct: 0, red_candle: false, prior_high: false, resistance: false, swing_alert: false, entry_close: false, max_risk: 0 };
   var EXIT_REASONS = { // main.py EXIT_REASON_LABELS 同一份
-    stop: ['止损', 'Stop Loss'], swing: ['浮动 HL', 'Trailing HL'], red: ['回调红K', 'Pullback Red Candle'], sar: ['SAR 转空', 'SAR Flip'],
+    stop: ['止损', 'Stop Loss'], swing: ['跌破回调低点', 'Trailing Stop'], red: ['回调红K', 'Pullback Red Candle'], sar: ['SAR 转空', 'SAR Flip'],
     ema: ['EMA 死叉', 'EMA Cross-down'], take: ['止盈', 'Take Profit'], high: ['历史高点', 'Prior High'], res: ['近期阻力', 'Resistance'],
     time: ['满期', 'Time Stop'], open: ['持有中', 'Open']
   };
@@ -3873,6 +3875,7 @@
   var RED_LOOKBACK = 10, RES_K = 2, RES_LOOKBACK = 60, HL_K_DEFAULT = 2, RVOL_LEN = 20; // main.py 同名常数
   var SLOTS_DEFAULT = 3;
   var MIN_PRICE = META.strategy && isNum(META.strategy.min_price) ? META.strategy.min_price : 0.1; // 后台信号 / 回测不要这个价格以下的
+  var MAX_MCAP = META.strategy && isNum(META.strategy.max_mcap) ? META.strategy.max_mcap : 0; // 后台信号 / 回测不要市值超过这个的 (0 = 不限)
   var SLOTS_BACKEND = META.strategy && isNum(META.strategy.slots) ? META.strategy.slots : SLOTS_DEFAULT;
   // Python 的 float(v)：null / 空字符串 / 不是数字 → NaN (后台 _int_in / _float_in 退回默认值)
   function pyNum(v) {
@@ -3906,13 +3909,14 @@
       resistance: !!ex.resistance,
       entry_close: !!ex.entry_close, // 信号日收盘价进场 (否则隔天开盘)
       max_risk: floatIn(ex.max_risk === undefined ? 0 : ex.max_risk, 0, 90, 0), // 入场风险超过这个 % 不进，0 = 不限
-      swing_alert: !!ex.swing_alert // 跌破浮动 HL 只提醒 (记在交易上)，不离场
+      swing_mode: ex.swing_mode === 'rebound' ? 'rebound' : 't2', // 回调低点：rebound = 回调后第一根收涨确认；t2 = 左右各 N 根确认
+      swing_alert: !!ex.swing_alert // 跌破回调低点只提醒 (记在交易上)，不离场
     };
   }
   function exitLabels(ex) { // main.py exit_labels 同一个顺序：止损 → 止盈 → 趋势 / 时间
     var out = [];
     if (ex.stop_pct) out.push('止损 -' + fmtG(ex.stop_pct) + '% (Stop Loss)');
-    if (ex.swing_low) out.push('跌破浮动 HL，左右 ' + ex.swing_low + ' 根 (Trailing HL)' + (ex.swing_alert ? '：只提醒不离场 (Alert only)' : ''));
+    if (ex.swing_low) out.push('收盘跌破最近回调低点 (收盘价，' + (ex.swing_mode === 'rebound' ? '回调后第一根收涨确认' : '左右 ' + ex.swing_low + ' 根确认') + '，只往上移) (Trailing Stop)' + (ex.swing_alert ? '：只提醒不离场 (Alert only)' : ''));
     if (ex.red_candle) out.push('跌破回调红K低点 (Pullback Red Candle)');
     if (ex.take_pct) out.push('止盈 +' + fmtG(ex.take_pct) + '% (Take Profit)');
     if (ex.prior_high) out.push('涨到历史高点 (Prior High)');
@@ -3985,6 +3989,23 @@
     }
     return out;
   }
+  // 每一根收盘时已经确认的最近一次回调低点 (收盘价) (main.py trail_levels)：
+  // rebound = 连续收跌里最低的收盘价，之后第一根收涨确认；t2 = 收盘价比左右各 k 根都低，右边走完才确认
+  function trailLevels(close, mode, k) {
+    var n = close.length, out = new Array(n).fill(null), level = null, i;
+    if (mode === 'rebound') {
+      var low = null;
+      for (i = 1; i < n; i++) {
+        if (close[i] < close[i - 1]) low = low === null ? close[i] : Math.min(low, close[i]);
+        else if (close[i] > close[i - 1] && low !== null) { level = low; low = null; }
+        out[i] = level;
+      }
+      return out;
+    }
+    var piv = pivotLows(close, k);
+    for (i = 0; i < n; i++) { if (i - k >= 0 && piv[i - k]) level = close[i - k]; out[i] = level; }
+    return out;
+  }
   function latestPivot(piv, k, upto) {
     for (var p = Math.min(upto - k, piv.length - 1); p >= 0; p--) if (piv[p]) return p;
     return null;
@@ -4039,7 +4060,7 @@
     var sar = seriesPSAR(h, lo, c);
     var emaF = ex.ema_cross ? seriesEMA(c, ex.ema_cross[0]) : null, emaS = ex.ema_cross ? seriesEMA(c, ex.ema_cross[1]) : null;
     var vol = p.ctx.series.volume;
-    var k = ex.swing_low || HL_K_DEFAULT, piv = pivotLows(lo, k), phi = ex.resistance ? pivotHighs(h, RES_K) : null;
+    var trail = trailLevels(c, ex.swing_mode, ex.swing_low || HL_K_DEFAULT), phi = ex.resistance ? pivotHighs(h, RES_K) : null;
     function bull(i) { return sar[i] !== null && sar[i] !== undefined && rnd3(c[i]) > rnd3(sar[i]); }
     var i, j, hz;
     var cl = !!ex.entry_close;
@@ -4058,8 +4079,8 @@
     while (i < (cl ? n : n - 1)) { // 隔天开盘进场：今天的信号不算；收盘价进场：今天的信号也算
       if (!entry[i] || !((cl ? c[i] : o[i + 1]) > 0)) { i++; continue; }
       var e = cl ? i : i + 1, entryPx = cl ? c[e] : o[e];
-      var swingP = piv ? latestPivot(piv, k, i) : null;
-      var swing = swingP !== null ? lo[swingP] : null;
+      var swing = trail[i]; // 信号日收盘时最近一次回调低点 (收盘价)
+      if (swing !== null && swing >= entryPx) swing = null; // 已经在进场价上面 = 不能当止损
       var red = ex.red_candle ? redCandleLow(o, c, lo, i) : null;
       var tg = exitTargets(h, phi, i, entryPx, ex);
       // 入场风险：计入价到最近一次回调低点 (HL)；没有 HL 才看其他离场线里最近的一条 (main.py 同一套)
@@ -4075,11 +4096,7 @@
         if (cl && j === e) { if (e === n - 1) break; j++; } // 收盘价进场：进场那天不检查离场
         hi = Math.max(hi, h[j]);
         low = Math.min(low, lo[j]);
-        var q = j - 1 - k;
-        if (piv && q > (swingP !== null ? swingP : -1) && q >= 0 && piv[q]) {
-          swingP = q;
-          swing = swing === null ? lo[q] : Math.max(swing, lo[q]); // 只往上移 (跟踪止损 = 浮动 HL)
-        }
+        if (trail[j] !== null && (swing === null || trail[j] > swing) && trail[j] < c[j]) swing = trail[j]; // 更高的回调低点 → 止损往上移 (浮动止盈)
         if (ex.swing_low && swing !== null && (!hl.length || hl[hl.length - 1][1] !== swing)) hl.push([dates[j], swing]); // 追溯图上画浮动 HL 用
         if (ex.stop_pct && c[j] <= entryPx * (1 - ex.stop_pct / 100)) reason = 'stop';
         else if (ex.swing_low && swing !== null && c[j] < swing && !ex.swing_alert) reason = 'swing';
@@ -4224,10 +4241,11 @@
       var p = btPrep(it);
       if (!p.bars.length) return;
       var truths = strategies.map(function (s) { return rulesTruth(p, s.compiled, s.spec); });
-      var close = p.ctx.series.close;
+      var close = p.ctx.series.close, mcap = META.stocks && META.stocks[it.stock.code] && META.stocks[it.stock.code].mc;
+      var tooBig = MAX_MCAP > 0 && isNum(mcap) && mcap > MAX_MCAP;
       var entry = p.bars.map(function (_, i) {
         var m = 0;
-        if (close[i] < MIN_PRICE) return 0; // 太便宜的不算信号 (main.py min_price)
+        if (close[i] < MIN_PRICE || tooBig) return 0; // 太便宜 / 市值太大的不算信号 (main.py min_price / max_mcap)
         truths.forEach(function (t, k) { if (t[i]) m += 1 << k; });
         return m;
       });
@@ -4834,7 +4852,7 @@
         sar: ex.sar, ema_on: !!ex.ema_cross, ema_f: ex.ema_cross ? ex.ema_cross[0] : 5, ema_s: ex.ema_cross ? ex.ema_cross[1] : 20,
         swing_on: !!ex.swing_low, swing_k: ex.swing_low || 2, stop_on: !!ex.stop_pct, stop_pct: ex.stop_pct || 8,
         take_on: !!ex.take_pct, take_pct: ex.take_pct || 20, hold_on: !!ex.max_hold, max_hold: ex.max_hold || 30,
-        red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, swing_alert: !!ex.swing_alert, entry_close: !!ex.entry_close, max_risk: ex.max_risk || 0, cost: cost, pos: pos, slots: slots
+        red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, swing_alert: !!ex.swing_alert, swing_mode: ex.swing_mode || 't2', entry_close: !!ex.entry_close, max_risk: ex.max_risk || 0, cost: cost, pos: pos, slots: slots
       };
     }
     var st = stateFrom(baseExit, be ? be.cost : COST_DEFAULT, POSITION_BACKEND, SLOTS_BACKEND);
@@ -4849,7 +4867,7 @@
       return cleanExit({
         sar: st.sar, ema_cross: st.ema_on ? [st.ema_f, st.ema_s] : null, swing_low: st.swing_on ? st.swing_k : 0,
         max_hold: st.hold_on ? st.max_hold : 0, stop_pct: st.stop_on ? st.stop_pct : 0, take_pct: st.take_on ? st.take_pct : 0,
-        red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on, swing_alert: st.swing_alert, entry_close: st.entry_close, max_risk: st.max_risk
+        red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on, swing_alert: st.swing_alert, swing_mode: st.swing_mode, entry_close: st.entry_close, max_risk: st.max_risk
       });
     }
     function costOf() { return floatIn(st.cost, 0, 10, COST_DEFAULT); }
@@ -5271,7 +5289,11 @@
   // 长度、数字固定在最右一栏，下拉框右边对齐；电脑上一行排完。没有长度的地方下拉框直接占满那一栏
   function defaultRule() { return { id: newId('rule'), a: { k: 'close' }, op: '>', b: { k: 'sma', n: 20 } }; }
   function operandOptions(selected, forRight) {
-    function opt(value, label) { return '<option value="' + value + '"' + (value === selected ? ' selected' : '') + '>' + escapeHtml(label) + '</option>'; }
+    var narrow = window.matchMedia && matchMedia('(max-width: 640px)').matches; // 手机一行放得下：「EMA 均线」写成「EMA」
+    function opt(value, label) {
+      if (narrow) label = label.replace(/ 均线$/, '');
+      return '<option value="' + value + '"' + (value === selected ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+    }
     var html = forRight ? '<optgroup label="数字">' + opt('num', '固定数字') + '</optgroup>' : '';
     OPERAND_GROUPS.forEach(function (g) {
       var items = OPERANDS.filter(function (o) { return o.group === g[0] && (!forRight || o.unit !== 'bool'); });
@@ -5282,11 +5304,13 @@
   // 数字后面的单位跟着左边走：价格 RM / $，百分比 %，倍数 倍，成交量 股
   function numberSuffix(r) {
     var u = OPERAND_BY_K[r.a.k] && OPERAND_BY_K[r.a.k].unit;
-    return { price: MARKET.id === 'US' ? '$' : 'RM', pct: '%', ratio: '倍', vol: '股' }[u] || '';
+    return { price: MARKET.id === 'US' ? '$' : 'RM', pct: '%', ratio: '倍', vol: 'M' }[u] || '';
   }
+  // 成交量跟数字比：框里填「百万股」(5 = 5,000,000 股)，存的还是股数
+  function numScale(r) { return OPERAND_BY_K[r.a.k] && OPERAND_BY_K[r.a.k].unit === 'vol' ? 1e6 : 1; }
   // 长度 / 数字输入框 (右边带单位)
   function numBox(area, field, value, suffix, attrs, label) {
-    return '<label class="rl-num rl-' + area + (suffix ? '' : ' no-suf') + '"><input class="rl-ctl" type="number" data-f="' + field + '" value="' + value + '" ' + attrs +
+    return '<label class="rl-num rl-' + area + (suffix ? '' : ' no-suf') + (suffix === 'M' ? ' suf-m' : '') + '"><input class="rl-ctl" type="number" data-f="' + field + '" value="' + value + '" ' + attrs +
       ' aria-label="' + escapeHtml(label) + '">' + (suffix ? '<span class="rl-suf" aria-hidden="true">' + escapeHtml(suffix) + '</span>' : '') + '</label>';
   }
   function lenBox(ref, area, field) {
@@ -5327,7 +5351,7 @@
     } else {
       var bd = r.b.k === 'num' ? null : OPERAND_BY_K[r.b.k];
       var right = r.b.k === 'num'
-        ? numBox('blen', 'bv', numLiteral(r.b.v), numberSuffix(r), 'step="any" inputmode="decimal"', '数字')
+        ? numBox('blen', 'bv', numLiteral(r.b.v / numScale(r)), numberSuffix(r), 'step="any" inputmode="decimal"', numScale(r) > 1 ? '成交量 (百万股)' : '数字')
         : lenBox(r.b, 'blen', 'bn');
       if (right) cls += ' has-blen';
       html += selectBox('op', 'op', RULE_OPS.map(function (o) {
@@ -5451,7 +5475,7 @@
       } else if (f === 'bv') {
         var v = parseFloat(el.value);
         if (!isNum(v)) return;
-        r.b.v = Math.max(-1e12, Math.min(1e12, v));
+        r.b.v = Math.max(-1e12, Math.min(1e12, v * numScale(r)));
       } else if (/^[ab]p:/.test(f)) { // 指标参数 (Supertrend 的 ATR / 倍数…)
         var pref = f[0] === 'a' ? r.a : r.b, pd = pref && OPERAND_BY_K[pref.k], key = f.slice(3);
         var px = pd && pd.params && pd.params.filter(function (x) { return x.key === key; })[0];
@@ -5473,7 +5497,7 @@
       if (!r) return;
       if (el.dataset.f === 'an') el.value = r.a.n;
       else if (el.dataset.f === 'bn') el.value = r.b.n;
-      else if (el.dataset.f === 'bv') el.value = numLiteral(r.b.v);
+      else if (el.dataset.f === 'bv') el.value = numLiteral(r.b.v / numScale(r));
       else if (/^[ab]p:/.test(el.dataset.f || '')) {
         var pref = el.dataset.f[0] === 'a' ? r.a : r.b, pd = pref && OPERAND_BY_K[pref.k];
         if (pd && pd.params) el.value = refParams(pref, pd)[el.dataset.f.slice(3)];

@@ -823,7 +823,10 @@ def rule_label(r):
     a = operand_label(r["a"])
     if is_bool_operand(r["a"]):
         return a + " 不成立" if r.get("op") == "not" else a
-    return f"{a} {RULE_OPS[r['op']]} {operand_label(r['b'])}"
+    b = r["b"]
+    if b["k"] == "num" and OPERANDS[r["a"]["k"]][0] == "vol":  # 成交量写成 5M (网页 ruleLabel 同一套)
+        return f"{a} {RULE_OPS[r['op']]} {num_literal(b['v'] / 1e6)}M"
+    return f"{a} {RULE_OPS[r['op']]} {operand_label(b)}"
 
 
 def clean_ref(ref, allow_num):
