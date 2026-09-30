@@ -97,8 +97,8 @@
   // 6. 顶部目录
   var toc = document.createElement('nav');
   toc.className = 'fold-toc'; toc.setAttribute('aria-label', '跳到');
-  var items = [['market', '市场'], ['screener', '筛选器'], ['signals', '信号'], ['backtest', '回测'], ['ann', '公告'], ['table', '股票']];
-  toc.innerHTML = items.filter(function (x) { return x[0] === 'signals' || folds[x[0]]; }).map(function (x) {
+  var items = [['focus', '今天'], ['market', '市场'], ['screener', '筛选器'], ['signals', '信号'], ['backtest', '回测'], ['ann', '公告'], ['table', '股票']];
+  toc.innerHTML = items.filter(function (x) { return x[0] === 'signals' || x[0] === 'focus' || folds[x[0]]; }).map(function (x) {
     return '<button type="button" data-to="' + x[0] + '">' + x[1] + '</button>';
   }).join('') + '<button type="button" class="fold-all" data-to="all">全部展开</button>';
   var upd = $('p.updated');
@@ -112,7 +112,7 @@
       b.textContent = anyClosed ? '全部收起' : '全部展开';
       return;
     }
-    var target = to === 'signals' ? sig : folds[to].head;
+    var target = to === 'signals' ? sig : to === 'focus' ? $('#sec-focus') : folds[to].head;
     if (folds[to]) folds[to].set(true, true);
     var y = target.getBoundingClientRect().top + window.scrollY - toc.offsetHeight - 8;
     window.scrollTo({ top: y, behavior: 'smooth' });

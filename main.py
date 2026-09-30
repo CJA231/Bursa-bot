@@ -819,7 +819,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
             "sig": dates[i], "sig_ago": n - 1 - i, "entry_date": dates[e], "entry": entry_px, "exit": c[j], "exit_date": dates[j],
             "days": j - e + (0 if cl else 1), "reason": reason, "ret": _r(ret), "net": _r(ret - cost),
             "mfe": _r((hi / entry_px - 1) * 100), "mae": _r((low_ / entry_px - 1) * 100),
-            "risk": _r(risk) if risk else None, "alert": alert, "hits": exit_hits, "h": horizons, "strats": entry[i], "rm": rmask[i] if rmask else None, "rvol": _r(rel_volume_at(v, i), 4),
+            "risk": _r(risk) if risk else None, "stop": _r(swing, 4) if swing is not None else None, "alert": alert, "hits": exit_hits, "h": horizons, "strats": entry[i], "rm": rmask[i] if rmask else None, "rvol": _r(rel_volume_at(v, i), 4),
             "fresh": 1 if i == 0 or not entry[i - 1] else 0,  # 新出现的信号 (前一天还没有)；满仓跳过只数这种
         })
         i = i + 1 if every_signal else j + 1
@@ -1077,7 +1077,45 @@ def summarize_backtest(stocks):
         "paper": {"start": led["paper"]["start"], "stats": trade_stats(led["paper"]["trades"], slots),
                   "trades": sorted(led["paper"]["trades"], key=lambda t: (t["entry_date"], t["code"]), reverse=True)},
         "recent": sorted((t for t in trades if t["sig_ago"] <= BT_RECENT_BARS), key=lambda t: (t["sig_ago"], -t["ret"]))[:40],
+        "follow": follow_items(raw),
     }
+
+
+FOLLOW_OPEN_BARS = 20  # 还拿着的：信号在这么多根 K 线以内才列出来
+FOLLOW_DONE_BARS = 3   # 已经离场的：最近这么多根 K 线以内离场才列出来
+FOLLOW_NEAR_PCT = 3    # 现价离止损线不到这个 % = 接近风险线
+
+
+def follow_items(raw):
+    """首页「今天关注」用：以前出现过信号的股票现在怎么样 (今天新出现的信号另外列)。
+    每支股票取最近一次信号：还拿着 = 持续 (离止损线近 / 已有趋势提醒 = 接近风险线)；刚离场 = 条件失效"""
+    latest = {}
+    for t in raw:
+        if t["sig_ago"] < 1:
+            continue
+        if t["reason"] == "open":
+            if t["sig_ago"] > FOLLOW_OPEN_BARS:
+                continue
+        elif t["sig_ago"] - t["days"] >= FOLLOW_DONE_BARS:
+            continue
+        if t["code"] not in latest or t["sig_ago"] < latest[t["code"]]["sig_ago"]:
+            latest[t["code"]] = t
+    out = []
+    for t in latest.values():
+        last, stop = t["exit"], t.get("stop")
+        dist = (last - stop) / last * 100 if stop is not None and last else None
+        alert_hits = (t.get("alert") or {}).get("hits")
+        if t["reason"] != "open":
+            status = "out"
+        elif alert_hits or (dist is not None and dist <= FOLLOW_NEAR_PCT):
+            status = "near"
+        else:
+            status = "hold"
+        out.append({"code": t["code"], "name": t["name"], "status": status, "sig": t["sig"], "ago": t["sig_ago"], "entry": t["entry"], "last": last,
+                    "ret": t["ret"], "days": t["days"], "stop": stop, "dist": _r(dist, 1) if dist is not None else None,
+                    "reason": t["reason"], "exit_date": t["exit_date"] if t["reason"] != "open" else None,
+                    "hits": t.get("hits") or alert_hits or None})
+    return sorted(out, key=lambda x: (("near", "hold", "out").index(x["status"]), x["ago"], x["code"]))
 
 
 # === 3. 获取数据并计算指标 ===
@@ -2180,6 +2218,46 @@ def ask_deepseek(data, reason):
 # === 6. 报告页面的设置面板 (颜色自定义 + 自定义指标公式) ===
 # 这几块单独写成普通字符串 (不是 f-string)，因为内容全是 JS/CSS 不需要 Python 变量插值，
 # 这样大括号不用到处写成 {{ }}，改起来更不容易出错。
+
+FOCUS_CSS = """
+  /* 首页「今天关注」：新增 / 持续 / 失效 / 接近风险线 / 我的计划 */
+  .focus { margin: 0.4rem 0 1rem; }
+  .focus h2.section { margin-top: 0.2rem; }
+  .fc-tabs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.2rem 0 0.4rem; }
+  .fc-tab { font: inherit; font-size: 0.8rem; padding: 0.3rem 0.65rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-secondary); cursor: pointer; }
+  .fc-tab b { color: var(--text-primary); font-variant-numeric: tabular-nums; margin-left: 0.15rem; }
+  .fc-tab[aria-selected="true"] { border-color: var(--ema); color: var(--text-primary); background: color-mix(in srgb, var(--ema) 12%, transparent); }
+  .fc-tab.warn b { color: var(--down); }
+  .fc-help { margin: 0 0 0.4rem; font-size: 0.74rem; color: var(--muted); }
+  .fc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+  .fc-row { display: grid; gap: 0.15rem; width: 100%; text-align: left; font: inherit; padding: 0.5rem 0.65rem; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface); color: var(--text-primary); cursor: pointer; }
+  .fc-row:hover { background: var(--page); }
+  .fc-row:focus-visible { outline: 2px solid var(--ema); outline-offset: 1px; }
+  .fc-h { display: flex; align-items: baseline; gap: 0.4rem; }
+  .fc-h small { color: var(--muted); font-size: 0.72rem; }
+  .fc-px { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 0.86rem; }
+  .fc-px i { font-style: normal; font-size: 0.76rem; }
+  .fc-l { font-size: 0.76rem; color: var(--text-secondary); line-height: 1.45; }
+  .fc-p { font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .fc-p small { color: var(--muted); } .nw { white-space: nowrap; }
+  .fc-live { font-style: normal; color: var(--ema); }
+  /* 详情里的计划：触发理由 → 入场计划 → 失效条件 → 后续变化 */
+  .sv-plan { margin: 0 0 0.8rem; padding: 0.6rem 0.75rem; border: 1px solid color-mix(in srgb, var(--ema) 40%, var(--border)); border-radius: 10px; font-size: 0.8rem; }
+  .sp-flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.55rem; counter-reset: sp; }
+  .sp-flow > li { display: grid; grid-template-columns: 4.6rem minmax(0, 1fr); gap: 0.5rem; counter-increment: sp; }
+  .sp-flow h5 { margin: 0; font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); }
+  .sp-flow h5::before { content: counter(sp) "  "; color: var(--muted); font-weight: 400; }
+  .sp-flow p { margin: 0; }
+  .sp-plan { font-variant-numeric: tabular-nums; font-size: 0.86rem; }
+  .sp-sub, .sp-hist { color: var(--muted); font-size: 0.72rem; }
+  .sp-hist { margin: 0.5rem 0 0 !important; padding-top: 0.4rem; border-top: 1px dashed var(--border); }
+  .sp-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; list-style: none; margin: 0.3rem 0 0; padding: 0; }
+  .sp-tags li { font-size: 0.7rem; padding: 0.05rem 0.4rem; border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary); }
+  .sp-acts { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
+  .sp-more { margin-top: 0.3rem; color: var(--muted); font-size: 0.72rem; } .sp-more ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
+  @media (max-width: 640px) { .sp-flow > li { grid-template-columns: 1fr; gap: 0.15rem; } }
+"""
 
 UI_CSS = """
   /* 有些元素自己的 class 写了 display: flex，会盖掉浏览器默认的 [hidden] { display: none }，这里统一强制一下 */
@@ -4175,6 +4253,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
     cards = []
     chips = []
+    focus_new = []  # 首页「今天关注」的新增信号
     chart_payload = {}
     table_rows = []
     no_data_count = 0
@@ -4314,6 +4393,11 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
              f"报酬参考 (回测同类信号期间最大涨幅中位数)：{pct_text(mfe_median, 1)}" if mfe_median else "回测样本不够"),
         ]
         quote_grid = "".join(f'<div{tip_attrs(g, t) if g or t else ""}><dt>{k}</dt><dd>{v}</dd></div>' for k, v, g, t in quote_items)
+        focus_new.append({
+            "code": code, "name": s["name"], "price": data["close"], "chg": round(change_pct, 2), "date": data.get("last_date"),
+            "strat": [name for name, _ in groups], "why": [x for _, tags in groups for x in tags], "rv": round(rel_vol, 2) if rel_vol is not None else None,
+            "stop": round(stop_ref[0], 4) if stop_ref and stop_ref[0] < close else None, "stop_by": stop_ref[1] if stop_ref and stop_ref[0] < close else None,
+            "mfe": mfe_median, "hist_rr": round(rr, 1) if rr else None})
         live_badge = '<span class="live-badge" title="盘中信号：用的是还没收完的日线，收盘前可能消失">盘中</span>' if state == "live" else ""
 
         # 图表下方只放数据 (quote)，不放说明文字/图例/符号；AI 点评只保留在下载的 Excel/PDF 里
@@ -4349,7 +4433,12 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
                  "bt": {k: backtest["all"].get(k) for k in ("mfe_median", "risk_median", "win_rate", "avg")} if backtest else None,
                  # 后台策略 (strategy.json)：网页「后台默认策略」模板、「自定义回测」的默认值、「设为后台信号」都读这一份
                  "strategy": strategy_meta(), "repo": REPO_SLUG,
-                 "cost_default": MKT["round_trip_cost_pct"]}
+                 "cost_default": MKT["round_trip_cost_pct"],
+                 # 首页「今天关注」：今天新出现的信号 + 之前信号的后续 (持续 / 接近风险线 / 已离场)；confirmed = 收盘确认 (盘中的信号收盘前可能消失)
+                 "focus": {"date": backtest["to"] if backtest else None, "confirmed": state != "live", "new": focus_new,
+                           "follow": (backtest or {}).get("follow") or [],
+                           "strategies": [{"name": st["name"], "labels": st["labels"], "match": match_text(st)} for st in STRATEGY["strategies"]],
+                           "exit": exit_labels(STRATEGY["exit"])}}
     meta_json = json.dumps(page_meta, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     market_html = build_market_html(market, stocks)
     backtest_html = build_backtest_html(backtest)
@@ -4480,6 +4569,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 {STRATEGY_CSS}
 {MARKET_CSS}
 {TOOLS_CSS}
+{FOCUS_CSS}
 </style>
 </head>
 <body {body_attrs}>
@@ -4488,6 +4578,10 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
   <h1>{MKT['title']}</h1>
 </header>
 <p class="updated">更新时间 {now} ({MKT['tz_label']}) {state_badge_html(state, delay)}</p>
+<section class="focus" id="sec-focus" aria-labelledby="sec-focus-h">
+  <h2 class="section" id="sec-focus-h">今天关注 <span class="section-count fc-date"></span></h2>
+  <div class="fc-body"><p class="hint">载入中…</p></div>
+</section>
 {dashboard_html}
 {market_html}
 

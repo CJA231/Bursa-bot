@@ -3209,9 +3209,9 @@
       '<button type="button" class="sv-act" data-act="calc">计算器</button>' +
       '<button type="button" class="sv-act" data-act="share">分享</button></div>' +
       (ctx ? '<div class="sv-nav"><button type="button" class="sv-act" data-act="prev" aria-label="上一支"' + (ctx.i <= 0 ? ' disabled' : '') + '>‹</button>' +
-        '<span>' + (ctx.i + 1) + ' / ' + ctx.list.length + '</span>' +
+        '<span>' + (ctx.label ? ctx.label + ' ' : '') + (ctx.i + 1) + ' / ' + ctx.list.length + '</span>' +
         '<button type="button" class="sv-act" data-act="next" aria-label="下一支"' + (ctx.i >= ctx.list.length - 1 ? ' disabled' : '') + '>›</button></div>' : '') +
-      '</div>' + stockStatsHtml(opts.code) +
+      '</div>' + stockStatsHtml(opts.code) + stockPlanHtml(opts.code) +
       // 电脑: 左边正方形K线图，右边财报，下面公告、新闻；手机: 从上到下排，图表右边留一条滑动页面用的空白
       '<div class="sv-grid"><section class="sv-chart" aria-label="K线图">' +
       '<div class="sv-toolbar"><div class="sv-tf"></div>' +
@@ -3252,13 +3252,14 @@
         var keep = dlg.close({ keep: true }); // 同一格 history 留给下一支，按返回一次就回到页面
         var extra = { reuse: keep, previousFocus: keep && keep.previousFocus };
         if (ctx.marksFor) { var mk = ctx.marksFor(ctx.list[j].code); extra.marks = mk.marks; extra.focus = mk.focus; extra.levels = mk.levels; }
-        openReportStock(ctx.list[j], { list: ctx.list, i: j, marksFor: ctx.marksFor }, extra);
+        openReportStock(ctx.list[j], { list: ctx.list, i: j, marksFor: ctx.marksFor, label: ctx.label }, extra);
       }
     });
     // 价格 / 涨跌放进标题那一行 (标题不跟着内容滚动)，往下看财报、新闻时还看得到是哪支股票、现在多少钱
     var svHead = root.querySelector('.sv-head');
     if (svHead) dlg.el.querySelector('.dlg-head h3').insertAdjacentElement('afterend', svHead);
     root.querySelector('.sv-ind').addEventListener('click', function () { openIndicatorsDialog('all'); });
+    bindStockPlan(root, opts.code);
     var msg = root.querySelector('.sv-msg'), wrap = root.querySelector('.chart-wrap');
     var detail = loadDetail(opts.code);
     var shortHistory = false;
@@ -3598,7 +3599,12 @@
     btn.type = 'button';
     btn.className = 'card-fin';
     btn.textContent = '完整图表 · 财报 ›';
-    btn.addEventListener('click', function () { openReportStock(entryByCode(code)); });
+    btn.addEventListener('click', function () { // 上一支 / 下一支 = 现在看得到的信号卡片 (不是整份 267 支)
+      var list = [].slice.call(document.querySelectorAll('.card[data-chart]')).filter(function (c) { return !c.hidden; })
+        .map(function (c) { return entryByCode(c.dataset.chart.replace(/^chart-/, '')); }).filter(Boolean);
+      var e = entryByCode(code);
+      openReportStock(e, { list: list, i: list.indexOf(e), label: '信号' });
+    });
     // 条件文字不放在卡片上 (太挤)：收进股票名称的提示 (长按 / 鼠标移上去)；这一行只留按钮 + 进场计划
     var words = [];
     [].slice.call(tags.childNodes).forEach(function (n) {
@@ -4203,7 +4209,7 @@
       out.trades.push({
         sig: dates[i], sig_ago: n - 1 - i, entry_date: dates[e], entry: entryPx, exit: exitPx, exit_date: dates[j], days: j - e + (cl ? 0 : 1), reason: reason,
         ret: rd(ret), net: rd(ret - cost), mfe: rd((hi / entryPx - 1) * 100), mae: rd((low / entryPx - 1) * 100),
-        risk: risk ? rd(risk) : null, alert: alert, hits: exitHits, h: hzr, strats: entry[i], rm: p.rmask ? p.rmask[i] : null, rvol: rd(relVolumeAt(vol, i), 4), fresh: i === 0 || !entry[i - 1] ? 1 : 0,
+        risk: risk ? rd(risk) : null, stop: swing !== null ? rd(swing, 4) : null, alert: alert, hits: exitHits, h: hzr, strats: entry[i], rm: p.rmask ? p.rmask[i] : null, rvol: rd(relVolumeAt(vol, i), 4), fresh: i === 0 || !entry[i - 1] ? 1 : 0,
         // 追溯图表用 (后台版本没有)：浮动 HL 每次往上移的日期和价位、回调红K 低点、历史高点 / 近期阻力目标
         lv: { hl: hl, red: red, high: tg.high, res: tg.res }
       });
@@ -6494,6 +6500,165 @@
     apply();
   })();
 
+  // ---------- 首页「今天关注」+ 详情里的「触发理由 → 入场计划 → 失效条件 → 后续变化」 ----------
+  // 数字都来自 main.py 放在 report-meta 里的 focus：new = 今天新出现的信号；follow = 以前的信号现在怎么样 (持续 / 接近风险线 / 已离场)
+  // 我的计划 = 自己存在这台设备的进场计划 (bursa_plan_v1)，跟今天的收盘价比：到了目标 / 跌破止损 / 进行中
+  var FOCUS = META.focus || null;
+  function focusNew(code) { return FOCUS && (FOCUS.new || []).filter(function (x) { return x.code === code; })[0] || null; }
+  function focusFollow(code) { return FOCUS && (FOCUS.follow || []).filter(function (x) { return x.code === code; })[0] || null; }
+  function savedPlan(code) {
+    var m = (loadJSON(PLAN_KEY, {}) || {})[code];
+    return m && isNum(m.entry) && isNum(m.stop) && isNum(m.target) ? m : null;
+  }
+  // 这支股票的计划：自己存过的 > 今天的新信号 (进 = 收盘价、损 = 最近离场线、标 = 2R) > 没有
+  function planFor(code) {
+    var n = focusNew(code), mine = savedPlan(code), pl = null;
+    if (n) {
+      var t = planTick(n.price), hasStop = isNum(n.stop) && n.stop < n.price, stop = hasStop ? n.stop : planSnap(n.price * 0.92, t);
+      pl = { entry: n.price, stop: stop, target: planSnap(n.price + 2 * (n.price - stop), t), by: hasStop ? n.stop_by : '−8%' };
+    }
+    if (mine) pl = { entry: mine.entry, stop: mine.stop, target: mine.target, by: '自设', mine: true, at: mine.at };
+    if (!pl) return null;
+    pl.risk = pl.entry > pl.stop ? (pl.entry - pl.stop) / pl.entry * 100 : null;
+    pl.gain = pl.entry > 0 ? (pl.target / pl.entry - 1) * 100 : null;
+    pl.rr = pl.entry > pl.stop ? (pl.target - pl.entry) / (pl.entry - pl.stop) : null;
+    var p = META.stocks[code] && META.stocks[code].p;
+    pl.now = isNum(p) ? p : null;
+    pl.state = pl.now === null ? null : pl.now >= pl.target ? 'hit' : pl.now <= pl.stop ? 'stopped' : 'run';
+    pl.days = pl.at ? Math.max(0, Math.floor((Date.now() - Date.parse(pl.at)) / 864e5)) : null;
+    return pl;
+  }
+  function byText(pl) { return String(pl.by || '').replace(/\s*\(.*\)/, ''); } // 「最近回调低点 (收盘价)」→「最近回调低点」
+  function rrText(v) { return isNum(v) ? (v >= 10 ? Math.round(v) : v.toFixed(1).replace(/\.0$/, '')) + ' : 1' : '—'; } // 计划报酬风险比：赚 / 亏
+  function planLine(pl) {
+    return '进 <b>' + fmtPrice(pl.entry) + '</b> · 损 <b>' + fmtPrice(pl.stop) + '</b>' + (pl.risk !== null ? ' <small>(' + pctShort(-pl.risk) + ')</small>' : '') +
+      ' · 标 <b>' + fmtPrice(pl.target) + '</b> <small>(' + pctShort(pl.gain) + ')</small>' + (pl.rr !== null ? ' · <b class="nw">' + rrText(pl.rr) + '</b>' : '');
+  }
+  function planStateText(pl) {
+    if (pl.state === null) return '';
+    var v = (pl.now / pl.entry - 1) * 100;
+    if (pl.state === 'hit') return '<b class="change-up">已到目标</b> 现价 ' + fmtPrice(pl.now) + ' (' + pctShort(v) + ')';
+    if (pl.state === 'stopped') return '<b class="change-down">已跌破止损</b> 现价 ' + fmtPrice(pl.now) + ' (' + pctShort(v) + ')';
+    return '进行中 · 现价 ' + fmtPrice(pl.now) + ' <span class="' + (v > 0 ? 'change-up' : v < 0 ? 'change-down' : '') + '">' + pctShort(v) + '</span> · 离止损 ' + pctShort((pl.now - pl.stop) / pl.now * 100).replace('+', '') + ' · 离目标 ' + pctShort((pl.target - pl.now) / pl.now * 100).replace('+', '');
+  }
+  function followText(f) {
+    var up = f.ret > 0 ? 'change-up' : f.ret < 0 ? 'change-down' : '';
+    var head = md(f.sig) + ' 信号 · 进 ' + fmtPrice(f.entry);
+    if (f.status === 'out') {
+      var why = EXIT_REASONS[f.reason] ? EXIT_REASONS[f.reason][0] : f.reason;
+      return head + ' → ' + md(f.exit_date) + ' 离场 ' + fmtPrice(f.last) + ' <span class="' + up + '">' + pctShort(f.ret) + '</span><br>' + escapeHtml(why + (f.hits && f.hits.length ? '：' + f.hits.join(' · ') : ''));
+    }
+    var stop = isNum(f.stop) ? '止损线 ' + fmtPrice(f.stop) + (isNum(f.dist) ? ' (离现价 ' + f.dist.toFixed(1) + '%)' : '') : '还没有止损线';
+    return head + ' → 现 ' + fmtPrice(f.last) + ' <span class="' + up + '">' + pctShort(f.ret) + '</span> · 第 ' + f.days + ' 天<br>' + stop +
+      (f.status === 'near' && f.hits && f.hits.length ? ' · <span class="change-down">已坏：' + escapeHtml(f.hits.join(' · ')) + '</span>' : '');
+  }
+  function focusGroups() {
+    var g = { new: [], hold: [], out: [], near: [], mine: [] };
+    (FOCUS ? FOCUS.new || [] : []).forEach(function (n) { g.new.push({ code: n.code, name: n.name, n: n }); });
+    (FOCUS ? FOCUS.follow || [] : []).forEach(function (f) { g[f.status].push({ code: f.code, name: f.name, f: f }); });
+    var all = loadJSON(PLAN_KEY, {}) || {};
+    Object.keys(all).forEach(function (code) {
+      var pl = savedPlan(code) && planFor(code), m = META.stocks[code];
+      if (pl && m) g.mine.push({ code: code, name: m.n, pl: pl });
+    });
+    g.mine.sort(function (a, b) { return (a.pl.state === 'run') - (b.pl.state === 'run'); }); // 有变化的排前面
+    return g;
+  }
+  function focusRowHtml(it) {
+    var m = META.stocks[it.code] || {}, np = namePair(it.code, it.name), price = isNum(m.p) ? m.p : it.n && it.n.price, chg = isNum(m.c) ? m.c : it.n && it.n.chg;
+    var line1 = '', line2 = '';
+    if (it.n) {
+      var n = it.n, tags = (n.why || []).slice(0, 3).join(' · ') + ((n.why || []).length > 3 ? ' …' : '') + (isNum(n.rv) ? ' · 量 ' + n.rv.toFixed(1) + '×' : '');
+      line1 = '触发 ' + md(n.date || FOCUS.date) + ' · ' + (FOCUS.confirmed ? '收盘确认' : '<em class="fc-live">盘中，收盘前可能消失</em>') + '<br>' + escapeHtml(tags);
+      line2 = planLine(planFor(it.code));
+    } else if (it.f) line1 = followText(it.f);
+    else if (it.pl) {
+      line1 = '你的计划 · ' + (it.pl.days === null ? '' : it.pl.days === 0 ? '今天存的' : it.pl.days + ' 天前存的') + '<br>' + planStateText(it.pl);
+      line2 = planLine(it.pl);
+    }
+    return '<li><button type="button" class="fc-row" data-code="' + escapeHtml(it.code) + '"><span class="fc-h"><b>' + escapeHtml(np[0]) + '</b><small>' + escapeHtml(np[1]) + '</small>' +
+      (isNum(price) ? '<span class="fc-px">' + fmtPrice(price) + (isNum(chg) ? ' <i class="' + (chg > 0 ? 'change-up' : chg < 0 ? 'change-down' : '') + '">' + pctShort(chg) + '</i>' : '') + '</span>' : '') + '</span>' +
+      (line1 ? '<span class="fc-l">' + line1 + '</span>' : '') + (line2 ? '<span class="fc-p">' + line2 + '</span>' : '') + '</button></li>';
+  }
+  var focusTab = null;
+  function renderFocus() {
+    var sec = document.getElementById('sec-focus');
+    if (!sec) return;
+    var body = sec.querySelector('.fc-body');
+    var g = focusGroups(), labels = { new: '新增信号', hold: '持续符合', out: '条件失效', near: '接近风险线', mine: '我的计划' };
+    var order = ['new', 'hold', 'out', 'near'].concat(g.mine.length ? ['mine'] : []);
+    if (!focusTab || !g[focusTab] || (focusTab === 'mine' && !g.mine.length)) {
+      focusTab = ['new', 'near', 'hold', 'out'].filter(function (k) { return g[k].length; })[0] || 'new';
+      if (g.mine.some(function (x) { return x.pl.state !== 'run'; })) focusTab = 'mine'; // 昨天存的计划有变化 = 先看这个
+    }
+    var empty = { new: '今天没有新信号。', hold: '最近没有还在走的信号。', out: '最近没有刚离场的信号。', near: '没有股票接近止损线。', mine: '' };
+    var help = { new: '今天收盘新出现的策略信号', hold: '最近出现过信号、趋势还健康、离止损线还远', out: '最近 ' + 3 + ' 天内触发了离场规则', near: '离止损线不到 3%，或已经有趋势检查坏掉', mine: '你存的进场计划，用今天收盘价对照' };
+    sec.querySelector('.fc-date').textContent = FOCUS && FOCUS.date ? md(FOCUS.date) + (FOCUS.confirmed ? ' 收盘' : ' 盘中') : '';
+    body.innerHTML = '<div class="fc-tabs" role="tablist" aria-label="今天关注">' + order.map(function (k) {
+      return '<button type="button" role="tab" class="fc-tab' + (k === 'near' && g[k].length ? ' warn' : '') + '" data-g="' + k + '" aria-selected="' + (k === focusTab) + '">' + labels[k] + ' <b>' + g[k].length + '</b></button>';
+    }).join('') + '</div><p class="fc-help">' + help[focusTab] + (FOCUS && FOCUS.strategies && focusTab === 'new' ? ' · 策略「' + escapeHtml(FOCUS.strategies.map(function (x) { return x.name; }).join('、')) + '」' : '') + '</p>' +
+      (g[focusTab].length ? '<ol class="fc-list">' + g[focusTab].map(focusRowHtml).join('') + '</ol>' : '<p class="hint">' + empty[focusTab] + '</p>');
+    if (!body.dataset.bound) {
+      body.dataset.bound = '1';
+      body.addEventListener('click', function (e) {
+        var t = e.target.closest('.fc-tab');
+        if (t) { focusTab = t.dataset.g; renderFocus(); return; }
+        var r = e.target.closest('.fc-row');
+        if (!r) return;
+        // 上一支 / 下一支 = 现在这一组的股票 (保留进来时的列表)
+        var list = focusGroups()[focusTab].map(function (x) { return entryByCode(x.code); }).filter(Boolean), en = entryByCode(r.dataset.code);
+        if (!en) { toast('报告里没有这支股票'); return; }
+        openReportStock(en, { list: list, i: list.indexOf(en), label: labels[focusTab] });
+      });
+    }
+  }
+  // 详情顶部：触发理由 → 入场计划 → 失效条件 → 后续变化 (历史统计另外一行，不跟计划混在一起)
+  function stockPlanHtml(code) {
+    var n = focusNew(code), f = focusFollow(code), pl = planFor(code);
+    if (!n && !f && !pl) return '';
+    var strat = FOCUS && FOCUS.strategies ? FOCUS.strategies.map(function (x) { return x.name; }).join('、') : '';
+    var why = n ? '策略「' + escapeHtml((n.strat || []).join('、') || strat) + '」· 触发 ' + md(n.date || FOCUS.date) + ' ' + (FOCUS.confirmed ? '收盘确认' : '<em class="fc-live">盘中，收盘前可能消失</em>') +
+        '<ul class="sp-tags">' + (n.why || []).map(function (x) { return '<li>' + escapeHtml(x) + '</li>'; }).join('') + (isNum(n.rv) ? '<li>量 ' + n.rv.toFixed(1) + '×</li>' : '') + '</ul>'
+      : f ? '策略「' + escapeHtml(strat) + '」· ' + md(f.sig) + ' 出现信号，进场 ' + fmtPrice(f.entry) + (FOCUS.strategies ? '<ul class="sp-tags">' + FOCUS.strategies.reduce(function (a, x) { return a.concat(x.labels); }, []).map(function (x) { return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>' : '')
+      : '没有后台信号 — 这是你自己设的计划';
+    var plan = pl ? '<p class="sp-plan">' + planLine(pl) + '</p><p class="sp-sub">' + (pl.mine ? '自设计划' + (pl.days === null ? '' : pl.days === 0 ? '，今天存的' : '，' + pl.days + ' 天前存的') : '默认：现价进场 · 损 = ' + escapeHtml(byText(pl)) + ' · 标 = 2 倍风险') + '</p>' +
+        '<div class="sp-acts">' + (pl.mine ? '' : '<button type="button" class="sp-btn primary" data-act="plan-save">保存计划</button>') +
+        (cardOf('chart-' + code) ? '<button type="button" class="sp-btn" data-act="plan-edit">调整</button>' : '') + (pl.mine ? '<button type="button" class="sp-btn" data-act="plan-clear">删除计划</button>' : '') + '</div>'
+      : f && f.status !== 'out' ? '<p class="sp-plan">进 <b>' + fmtPrice(f.entry) + '</b>' + (isNum(f.stop) ? ' · 现在的止损线 <b>' + fmtPrice(f.stop) + '</b>' : '') + '</p><p class="sp-sub">这笔是后台策略的进场价；止损线是最近的更高低点，会往上移。</p>'
+      : '<p class="hint">这支股票现在没有计划可以存。</p>';
+    var out = [];
+    if (pl) out.push('收盘价跌破 <b>' + fmtPrice(pl.stop) + '</b> 计划就失效 (' + escapeHtml(byText(pl)) + ')');
+    if (f && f.status !== 'out' && isNum(f.stop)) out.push('策略止损线 <b>' + fmtPrice(f.stop) + '</b>：收盘跌破 + 趋势检查坏掉才离场');
+    var rules = FOCUS && FOCUS.exit ? '<details class="sp-more"><summary>后台离场规则</summary><ul>' + FOCUS.exit.map(function (x) { return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul></details>' : '';
+    var after = f ? followText(f) : pl && pl.mine ? planStateText(pl) : n ? '今天刚出现。明天回来这里会写：有没有碰到止损 / 目标、趋势有没有变坏。' : '';
+    if (pl && pl.mine && f) after += '<br>' + planStateText(pl);
+    var hist = n && (isNum(n.mfe) || isNum(n.hist_rr)) ? '<p class="sp-hist">历史统计 (回测里同类信号，不是这份计划)：期间最大涨幅中位数 ' + (isNum(n.mfe) ? pctShort(n.mfe) : '—') + (isNum(n.hist_rr) ? ' · 对上现在的风险 = 1 : ' + n.hist_rr : '') + '</p>' : '';
+    return '<section class="sv-plan" aria-label="策略计划"><ol class="sp-flow">' +
+      '<li><h5>触发理由</h5><div>' + why + '</div></li><li><h5>入场计划</h5><div>' + plan + '</div></li>' +
+      '<li><h5>失效条件</h5><div>' + (out.length ? out.join('<br>') : '<span class="hint">—</span>') + rules + '</div></li>' +
+      '<li><h5>后续变化</h5><div>' + (after || '<span class="hint">—</span>') + '</div></li></ol>' + hist + '</section>';
+  }
+  function bindStockPlan(root, code) {
+    var box = root.querySelector('.sv-plan');
+    if (!box) return;
+    box.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-act]');
+      if (!b) return;
+      var all = loadJSON(PLAN_KEY, {}) || {}, act = b.dataset.act, pl = planFor(code), st = charts['chart-' + code];
+      if (act === 'plan-save' && pl && pl.risk !== null) {
+        all[code] = { entry: pl.entry, stop: pl.stop, target: pl.target, at: new Date().toISOString() };
+        saveJSON(PLAN_KEY, all); toast('计划已保存，明天回来会对照收盘价');
+      } else if (act === 'plan-clear') { delete all[code]; saveJSON(PLAN_KEY, all); toast('计划已删除'); }
+      else if (act === 'plan-edit') { openPlanRoller('chart-' + code, 'entry'); return; }
+      else return;
+      if (st) renderPlanTags(st);
+      var fresh = document.createElement('div');
+      fresh.innerHTML = stockPlanHtml(code);
+      if (fresh.firstChild) { box.replaceWith(fresh.firstChild); bindStockPlan(root, code); } else box.remove();
+      renderFocus();
+    });
+  }
+
   // ---------- 网址 #s=代码 = 一打开就显示那支股票 (分享出去的链接) ----------
   function openFromHash() {
     var m = /^#s=([^&]+)$/.exec(location.hash);
@@ -6507,6 +6672,7 @@
   // 页面一打开: 按当前模板的条件算一次 (没有条件就只显示"添加条件")，☰ 导航里的模板列表也先准备好
   refreshStrategy();
   renderDashScreeners();
+  renderFocus();
   openFromHash();
 
   // 给自动测试用：跟后台 engine.py 逐根K线对齐 (网页本身不用)
