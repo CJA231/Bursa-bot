@@ -248,6 +248,17 @@ def series_ref(arr, n):
     return out
 
 
+def series_within(arr, n):
+    """within(x, n)：最近 n 根 (含这一根) 里 x 有一根成立 → 1；都不成立 → 0；这一根算不出来又没有成立的 → None"""
+    out = []
+    for i in range(len(arr)):
+        if any(truth_of(arr[j]) is True for j in range(max(0, i - n + 1), i + 1)):
+            out.append(1)
+        else:
+            out.append(None if truth_of(arr[i]) is None else 0)
+    return out
+
+
 def series_cross(a, b, up):
     n = len(a) if isinstance(a, list) else len(b)
 
@@ -381,7 +392,7 @@ COMPARE = {">": lambda a, b: 1 if a > b else 0, "<": lambda a, b: 1 if a < b els
            ">=": lambda a, b: 1 if a >= b else 0, "<=": lambda a, b: 1 if a <= b else 0,
            "==": lambda a, b: 1 if a == b else 0, "!=": lambda a, b: 1 if a != b else 0}
 FORMULA_VARS = "close open high low volume"
-FORMULA_FUNCS = "sma ema stdev highest lowest sum rsi atr obv abs ref max min round crossup crossdown psar supertrend t3"
+FORMULA_FUNCS = "sma ema stdev highest lowest sum rsi atr obv abs ref within max min round crossup crossdown psar supertrend t3"
 
 
 class FormulaError(ValueError):
@@ -510,6 +521,9 @@ def eval_formula(formula, ctx):
         if name == "ref":
             need("ref", args, 2)
             return series_ref(array_arg(args[0], "ref 的第一个参数"), period_arg(args[1], "ref 往前几根"))
+        if name == "within":
+            need("within", args, 2)
+            return series_within(array_arg(args[0], "within 的第一个参数"), period_arg(args[1], "within 最近几根"))
         if name in ("max", "min"):
             need(name, args, 2)
             return ew(args[0], args[1], max if name == "max" else min)
@@ -805,7 +819,7 @@ def rule_formula(r):
 
 def rule_label(r):
     if "formula" in r:
-        return "公式：" + (r["formula"].strip() or "(空)")
+        return r["label"] if r.get("label") else "公式：" + (r["formula"].strip() or "(空)")
     a = operand_label(r["a"])
     if is_bool_operand(r["a"]):
         return a + " 不成立" if r.get("op") == "not" else a
@@ -843,7 +857,10 @@ def clean_rule(r):
     if "formula" in r:
         if not isinstance(r["formula"], str):
             return None
-        return {"formula": r["formula"][:300]}
+        out = {"formula": r["formula"][:300]}
+        if isinstance(r.get("label"), str) and r["label"].strip():  # 可选：公式条件的中文名称 (卡片、面板上显示这个)
+            out["label"] = r["label"].strip()[:40]
+        return out
     a = clean_ref(r.get("a"), False)
     if not a:
         return None
@@ -874,8 +891,33 @@ def compile_rules(rules):
     return out
 
 
+def match_spec(match, need=None):
+    """"怎样算命中"统一成一个字符串：all = 全部满足、any = 任一满足、atleast:N = 至少满足 N 条 (网页 matchSpec 同一套)"""
+    if match == "any":
+        return "any"
+    if match == "atleast":
+        try:
+            n = int(math.floor(float(need) + 0.5))
+        except (TypeError, ValueError, OverflowError):
+            n = 1
+        return f"atleast:{max(1, min(50, n))}"
+    return "all"
+
+
+def match_pass(n_ok, n_all, spec):
+    """n_all 条条件里有 n_ok 条成立，按 spec 算不算命中 (没有条件 = 不命中)"""
+    if not n_all:
+        return False
+    if spec == "any":
+        return n_ok > 0
+    if spec.startswith("atleast:"):
+        return n_ok >= min(int(spec[8:]), n_all)
+    return n_ok == n_all
+
+
 def rules_truth(bars, compiled, match="all", ctx=None):
     """一组 (已经 compile_rules 过的) 条件在每一根K线上成不成立 → list of True / False。
+    match = match_spec 的写法 (all / any / atleast:N)。
     数据不够 (None) 算不成立；某支股票算的时候出错，那一条就当不成立 —— 都跟网页 evaluateRules 一样。"""
     ctx = ctx or Ctx(bars)
     n = len(bars)
@@ -892,6 +934,5 @@ def rules_truth(bars, compiled, match="all", ctx=None):
         return [False] * n
     out = []
     for i in range(n):
-        oks = [a is not None and truth_of(a[i]) is True for a in arrays]
-        out.append(any(oks) if match == "any" else all(oks))
+        out.append(match_pass(sum(1 for a in arrays if a is not None and truth_of(a[i]) is True), len(arrays), match))
     return out

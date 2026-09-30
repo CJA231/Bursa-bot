@@ -364,6 +364,17 @@ def detect_t3_pattern(df):
 
 **验证** (沙箱连不上 Yahoo / Bursa / SEC)：模拟跑 `main()` 马股 / 美股 (mock_run.py 另外假造 screener 的市值等字段、指数、Bursa / SEC 的回应)；回测逐日对齐 (上面)；Playwright 旧的 109 项 + 新的 143 项 (手机 + 电脑 × 马股 + 美股：今日市场、回测、公告栏、周期选单、表格筛选 / 不截断、返回手势、深链接、上一支下一支、自选、计算器数字、名词解释、同比、条件回测)；旧版页面 + 新脚本 14 项
 
+### 🗂 多套后台策略 + 3 仓位账户回测 + 至少 N 条 + 模板管理 (9/30 第七轮，同一个 PR #31)
+用户原话：每笔 RM20000 一次只有三个仓位，买完了要等止盈或止损之后才补；后台信号筛选器可以选全部满足 / 自定义满足 / 任一满足，可以多套策略筛选然后分类；模板管理不友善 (新筛选一直建立新模板、不能改名)；成交量 > 10m、价格 0.10 ~ 5.00、SAR / EMA 5x20 或 5x10 / Supertrend(3,1.4) 转多；入场风险从最新价拉到最近一次回调 (HL)。用户没回答我的问题直接说「直接开 pr」，所以按我提议的默认：交叉 = 3 天内发生过、满仓同一天先买相对量最高、自定义 = 至少 N 条、多套策略共用 3 个仓位。
+- 公式新函数 `within(x, n)` (engine.py series_within ↔ report.js seriesWithin)；公式条件可带 `label` (中文名称)
+- 匹配 `match_spec` / `matchSpec`：all / any / atleast:N；模板 `{match, min}`；编辑器三段 + 数字框
+- strategy.json `strategies: [{name, match, min, rules, markets}]` + 共用 `exit / slots / cost_pct / position_rm`；旧写法 (最外层 rules) 照样能读；`file_strategies` 放进 META，网页设为后台信号时别的市场的策略不会丢
+- 每支股票 entry[i] = 位元 (哪几套命中)；卡片 data-strats + 「全部 / 各策略」切换 (#strat-filter)；卡片标策略徽章
+- 回测：slots > 0 时每个信号日都算一笔候选 (`every_signal`)，`portfolio_trades` / `portfolioTrades` 按进场日 → 相对量高 → 代码挑，同一支还拿着不买，满了跳过 (满仓跳过只数新出现的信号 `fresh`)；本金 = slots × 每笔；分类多「策略」、CSV 多「策略」栏
+- 入场风险 = 计入价到最近 HL (浮动 HL 没开时用 2 根确认)，没有 HL 才看其他离场线；卡片「风险」同理
+- 模板：改后台 / 内置策略沿用 origin 同一份；套用内置 reuse；改名换成页面对话框 (`renameTemplate`)；☰ ✎ / 🗑；自定义回测来源旁「改名」；设为后台信号可选「加进后台策略 / 只用这一套」
+- 验证：回测 JS vs Python 44 组 (多套策略、至少 N 条、within、仓位 0/1/3) + 页面 0 差异；Playwright 旧 6 套 + 新 ui_test5 (手机 + 电脑) 全部通过
+
 ### 🛑 浮动 HL + 回调红K 止损 + 历史高点 / 近期阻力 止盈 + 回撤 % / RM (9/26 第六轮，PR #31)
 用户原话："1. 更改 backtest 的止损 higher low 为浮动 hl 2. backtest 止损的选择 增加 回调的红色蜡烛 其他的要么是历史高点 或者近期阻力 3. 回测数据 的回撤点 更改为百分比 和期望值，按每 rm20000 可以赚多少 rm；直接开 pr"
 
