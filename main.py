@@ -2625,6 +2625,7 @@ CARD_CSS = """
     padding: 0.55rem 0.8rem; cursor: pointer; white-space: nowrap;
   }
   .sym-chip b { color: var(--text-primary); font-size: var(--fs-sm); }
+  .chip-code { color: var(--muted); font-weight: 400; margin: 0 0.2rem; }
   .sym-chip .sym-price { font-variant-numeric: tabular-nums; }
   .sym-chip:hover { background: var(--surface); }
   .sym-chip.active { background: var(--surface); box-shadow: inset 0 -2px 0 var(--text-primary); }
@@ -4019,7 +4020,7 @@ def build_market_html(market, stocks):
     if listed:
         def chip(s, value, cls):
             code = s["symbol"].split(".")[0]
-            return (f'<button type="button" class="mk-chip" data-code="{html.escape(code)}" title="{html.escape(s["name"])}"><b>{html.escape(display_name(code, s["name"]))}</b>'
+            return (f'<button type="button" class="mk-chip" data-code="{html.escape(code)}" title="{html.escape(s["name"])}"><b>{html.escape(display_name(code, s["name"]))}</b><small class="chip-code">{html.escape(name_pair(code, s["name"])[1])}</small>'
                     f'<span class="{cls}">{value}</span></button>')
         liquid = [s for s in listed if (s["data"].get("turnover") or 0) >= MOVER_MIN_TURNOVER]
         gainers = sorted((s for s in liquid if change_pct_of(s["data"]) > 0), key=lambda s: -change_pct_of(s["data"]))[:3]
@@ -4251,7 +4252,7 @@ def build_board_html(board):
                   for c, label in ANN_CATS if counts.get(c)]
         items = "".join(
             f'<li class="ann-item" data-cat="{it["cat"]}"><time datetime="{it["date"]}">{it["date"][5:].replace("-", "/")}</time>'
-            f'<button type="button" class="ann-stock{" sig" if it["signal"] else ""}" data-code="{html.escape(it["code"])}" title="{html.escape(it["name"])}">{html.escape(display_name(it["code"], it["name"]))}</button>'
+            f'<button type="button" class="ann-stock{" sig" if it["signal"] else ""}" data-code="{html.escape(it["code"])}" title="{html.escape(it["name"])}">{html.escape(display_name(it["code"], it["name"]))}</button><small class="chip-code">{html.escape(name_pair(it["code"], it["name"])[1])}</small>'
             f'<span class="ann-cat">{cat_label.get(it["cat"], "其他")}</span>'
             f'<a href="{html.escape(it["link"])}" target="_blank" rel="noopener noreferrer">{html.escape(it["title"])}</a></li>'
             for it in board)
@@ -4422,7 +4423,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
         live_badge = '<span class="live-badge" title="盘中信号：用的是还没收完的日线，收盘前可能消失">盘中</span>' if state == "live" else ""
 
         # 图表下方只放数据 (quote)，不放说明文字/图例/符号；AI 点评只保留在下载的 Excel/PDF 里
-        chips.append(f'''<button type="button" class="sym-chip" data-strats="{strat_idx}" aria-current="false"><b>{html.escape(display_name(code, s['name']))}</b>'''
+        chips.append(f'''<button type="button" class="sym-chip" data-strats="{strat_idx}" aria-current="false"><b>{html.escape(display_name(code, s['name']))}</b><small class="chip-code">{html.escape(name_pair(code, s['name'])[1])}</small>'''
                      f'''<span class="sym-price">{fmt_price(data['close'])}</span><span class="{change_class}">{sign}{change_pct:.2f}%</span></button>''')
         cards.append(f"""<section class="card" data-chart="{chart_id}" data-strats="{strat_idx}" aria-roledescription="卡片" aria-label="{html.escape(s['name'])} {code}">
             <div class="card-head">

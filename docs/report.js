@@ -4689,7 +4689,7 @@
       if (by === 'strat') { key = 's' + t.strats; label = stratLabel(bt, t.strats); }
       else if (by === 'rules') { key = 'r' + t.rm; label = rmText(bt.ruleNames, t.rm); }
       else if (by === 'reason') { key = t.reason; label = EXIT_REASONS[t.reason][0]; }
-      else if (by === 'stock') { key = t.code; label = namePair(t.code, t.name)[0]; }
+      else if (by === 'stock') { key = t.code; label = namePair(t.code, t.name).join(' '); }
       else if (by === 'days') {
         if (!isClosedTrade(t)) { key = 'open'; label = '持有中'; }
         else {
