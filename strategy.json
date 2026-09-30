@@ -1,20 +1,13 @@
 {
-  "说明": "后台信号 + 策略回测用的条件。strategies 里每一套都会扫描，任何一套命中就是信号，卡片按策略分类。每套：name 名称、match (all = 全部满足、any = 任一满足、atleast = 至少满足 min 条)、rules (写法跟网页「选股条件」一样)、可选 markets (例如 [\"MY\"] = 只在马股用)。最方便的改法：网页「策略回测」→「自定义回测」调好后按「设为后台信号」，把复制出来的内容整个贴到这里。exit = 回测离场规则 (每天收盘检查，哪一个先发生就按那天收盘价结算)：止损 —— stop_pct 固定止损 % (0 = 不用)、swing_low 浮动 HL (左右各几根K线确认的波段低点，出现更高的低点就往上移；0 = 不用)、red_candle 跌破回调红K 低点；止盈 —— take_pct 固定止盈 %、prior_high 涨到历史高点、resistance 涨到近期阻力；趋势 / 时间 —— sar SAR 转空、ema_cross [快线, 慢线] 快线下穿慢线 (null = 不用)、max_hold 最多持有几天 (0 = 不限)。slots = 回测账户最多同时持有几笔 (满了新信号跳过，0 = 不限)；position_rm 每笔金额 (不写 = 20000)；cost_pct 来回交易成本 % (不写 = 马股 0.5、美股 0.1)。文件写错会退回默认策略，运行日志第一行会写原因。",
-  "strategies": [
-    {"name": "后台默认策略", "match": "all", "rules": [
-      {"a": {"k": "close"}, "op": ">", "b": {"k": "ema", "n": 20}},
-      {"a": {"k": "close"}, "op": ">", "b": {"k": "sar"}},
-      {"a": {"k": "t3"}, "op": "is"}
-    ]},
-    {"name": "SAR · EMA · Supertrend 转多", "match": "all", "markets": ["MY"], "rules": [
-      {"a": {"k": "vol"}, "op": ">", "b": {"k": "num", "v": 10000000}},
-      {"a": {"k": "close"}, "op": ">=", "b": {"k": "num", "v": 0.1}},
-      {"a": {"k": "close"}, "op": "<=", "b": {"k": "num", "v": 5}},
-      {"formula": "within(crossup(close, psar()), 3)", "label": "SAR 转多 (3 天内)"},
-      {"formula": "within(crossup(ema(close,5), ema(close,20)) or crossup(ema(close,5), ema(close,10)), 3)", "label": "EMA5 上穿 EMA20 / EMA10 (3 天内)"},
-      {"formula": "within(crossup(close, supertrend(3,1.4)), 3)", "label": "Supertrend(3,1.4) 转多 (3 天内)"}
-    ]}
+  "说明": "网页「自定义回测」按「设为后台信号」产生 (2026-09-26)。写法见仓库 README；写错会退回默认策略，运行日志第一行会写原因。",
+  "name": "EMA",
+  "match": "all",
+  "rules": [
+    {"a":{"k":"ema","n":5},"op":">=","b":{"k":"ema","n":20}},
+    {"a":{"k":"sar"},"op":"<","b":{"k":"close"}},
+    {"a":{"k":"st","n":3,"m":1.4},"op":"<","b":{"k":"close"}},
+    {"a":{"k":"rsi","n":14},"op":"crossup","b":{"k":"num","v":70}},
+    {"a":{"k":"vol"},"op":">","b":{"k":"num","v":5000000}}
   ],
-  "exit": {"sar": true, "ema_cross": [5, 20], "swing_low": 2, "max_hold": 30, "stop_pct": 0, "take_pct": 0, "red_candle": false, "prior_high": false, "resistance": false},
-  "slots": 3
+  "exit": {"sar": false, "ema_cross": [5,10], "swing_low": 0, "max_hold": 90, "stop_pct": 15, "take_pct": 20}
 }
