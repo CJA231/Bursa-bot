@@ -3644,6 +3644,7 @@
   var POSITION_BACKEND = META.strategy && isNum(META.strategy.position) ? META.strategy.position : POSITION_DEFAULT;
   var RED_LOOKBACK = 10, RES_K = 2, RES_LOOKBACK = 60, HL_K_DEFAULT = 2, RVOL_LEN = 20; // main.py 同名常数
   var SLOTS_DEFAULT = 3;
+  var MIN_PRICE = META.strategy && isNum(META.strategy.min_price) ? META.strategy.min_price : 0.1; // 后台信号 / 回测不要这个价格以下的
   var SLOTS_BACKEND = META.strategy && isNum(META.strategy.slots) ? META.strategy.slots : SLOTS_DEFAULT;
   // Python 的 float(v)：null / 空字符串 / 不是数字 → NaN (后台 _int_in / _float_in 退回默认值)
   function pyNum(v) {
@@ -3712,13 +3713,30 @@
     return it.bt;
   }
   // 一组条件在每一根K线上成不成立 (engine.py rules_truth)：数据不够 / 算的时候出错 = 不成立
+  // 每条条件单独算一次记下来 (同一支股票换 全部 / 至少 N / 任一 满足 不用重算公式)
+  function ruleArrays(p, compiled) {
+    var cache = p.rule || (p.rule = {});
+    return compiled.map(function (c) {
+      if (!(c.formula in cache)) {
+        try { var a = evalFormula(c.formula, p.ctx); cache[c.formula] = isArr(a) ? a : p.bars.map(function () { return a; }); } catch (e) { cache[c.formula] = null; }
+      }
+      return cache[c.formula];
+    });
+  }
+  // 每根K线哪几条成立 (位元，第 k 条 = 1 << k) (engine.py rules_masks)
+  function ruleMasks(p, compiled) {
+    var arrs = ruleArrays(p, compiled);
+    return p.bars.map(function (_, i) {
+      var m = 0;
+      for (var k = 0; k < arrs.length; k++) if (arrs[k] && truthOf(arrs[k][i]) === true) m |= 1 << k;
+      return m;
+    });
+  }
   function rulesTruth(p, compiled, spec) {
     var key = spec + '|' + compiled.map(function (c) { return c.formula; }).join('\n');
     if (p.entry[key]) return p.entry[key];
     var n = p.bars.length;
-    var arrs = compiled.map(function (c) {
-      try { var a = evalFormula(c.formula, p.ctx); return isArr(a) ? a : p.bars.map(function () { return a; }); } catch (e) { return null; }
-    });
+    var arrs = ruleArrays(p, compiled);
     var out = [];
     for (var i = 0; i < n; i++) {
       var nOk = 0;
@@ -3856,7 +3874,7 @@
       out.trades.push({
         sig: dates[i], sig_ago: n - 1 - i, entry_date: dates[e], entry: entryPx, exit: c[j], exit_date: dates[j], days: j - e + (cl ? 0 : 1), reason: reason,
         ret: rd(ret), net: rd(ret - cost), mfe: rd((hi / entryPx - 1) * 100), mae: rd((low / entryPx - 1) * 100),
-        risk: risk ? rd(risk) : null, alert: alert, h: hzr, strats: entry[i], rvol: rd(relVolumeAt(vol, i), 4), fresh: i === 0 || !entry[i - 1] ? 1 : 0,
+        risk: risk ? rd(risk) : null, alert: alert, h: hzr, strats: entry[i], rm: p.rmask ? p.rmask[i] : null, rvol: rd(relVolumeAt(vol, i), 4), fresh: i === 0 || !entry[i - 1] ? 1 : 0,
         // 追溯图表用 (后台版本没有)：浮动 HL 每次往上移的日期和价位、回调红K 低点、历史高点 / 近期阻力目标
         lv: { hl: hl, red: red, high: tg.high, res: tg.res }
       });
@@ -3978,11 +3996,14 @@
       var p = btPrep(it);
       if (!p.bars.length) return;
       var truths = strategies.map(function (s) { return rulesTruth(p, s.compiled, s.spec); });
+      var close = p.ctx.series.close;
       var entry = p.bars.map(function (_, i) {
         var m = 0;
+        if (close[i] < MIN_PRICE) return 0; // 太便宜的不算信号 (main.py min_price)
         truths.forEach(function (t, k) { if (t[i]) m += 1 << k; });
         return m;
       });
+      p.rmask = strategies.length === 1 ? ruleMasks(p, strategies[0].maskCompiled || strategies[0].compiled) : null;
       var bt = backtestStock(p, entry, ex, cost, !!slots);
       nStocks++;
       if (bt.from && (first === null || bt.from < first)) first = bt.from;
@@ -4153,6 +4174,91 @@
   }
   function dayTs(d) { return Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 1000; }
   var HOLD_BUCKETS = [[1, 2, '1–2 天'], [3, 5, '3–5 天'], [6, 10, '6–10 天'], [11, 20, '11–20 天'], [21, 1e9, '21 天以上']];
+  // 每笔在信号日命中了哪几条条件：①②③ 亮 = 成立 (只有一套策略、两条以上条件才有)
+  var CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
+  function circ(k) { return k < CIRCLED.length ? CIRCLED.charAt(k) : String(k + 1); }
+  function hasRules(bt) { return !!(bt.ruleNames && bt.ruleNames.length > 1 && bt.trades.some(function (t) { return isNum(t.rm); })); }
+  function rmChips(names, rm) {
+    if (!isNum(rm) || !names || names.length < 2) return '';
+    return '<span class="cbt-rm">' + names.map(function (nm, k) {
+      return '<i class="' + (rm & (1 << k) ? 'on' : 'off') + '" title="' + escapeHtml(nm) + '">' + circ(k) + '</i>';
+    }).join('') + '</span>';
+  }
+  function rmText(names, rm) {
+    if (!isNum(rm) || !names) return '—';
+    var on = names.filter(function (_, k) { return rm & (1 << k); });
+    return on.length ? names.map(function (_, k) { return rm & (1 << k) ? circ(k) : ''; }).join('') + ' ' + on.join(' + ') : '—';
+  }
+  function rmLegend(names) {
+    if (!names || names.length < 2) return '';
+    return '<p class="cbt-rm-legend">' + names.map(function (nm, k) { return '<span><i class="on">' + circ(k) + '</i>' + escapeHtml(nm) + '</span>'; }).join(' ') + '</p>';
+  }
+  // 滚动卡片：同一组条件按 全部满足 / 至少 N 条 / 指定哪 N 条 / 任一满足 各回测一次，一页一种
+  function combosOf(n, r) {
+    var out = [];
+    (function rec(start, cur) {
+      if (cur.length === r) { out.push(cur.slice()); return; }
+      for (var i = start; i < n; i++) { cur.push(i); rec(i + 1, cur); cur.pop(); }
+    })(0, []);
+    return out;
+  }
+  function modePages(s) {
+    var k = s.compiled.length, names = s.compiled.map(function (c) { return ruleLabel(c.rule); }), pages = [];
+    if (k < 2) return pages;
+    function page(key, title, sub, idx, spec) {
+      pages.push({ key: key, title: title, sub: sub, cur: false,
+        strat: { name: title, compiled: idx.map(function (i) { return s.compiled[i]; }), spec: spec, maskCompiled: s.compiled } });
+    }
+    var every = names.map(function (_, i) { return i; });
+    page('all', '全部满足', every.map(circ).join('') + ' 同时成立', every, 'all');
+    if (k >= 3) {
+      var n = s.spec.indexOf('atleast:') === 0 ? Math.max(1, Math.min(+s.spec.slice(8), k - 1)) : k - 1;
+      if (n > 1) page('atleast:' + n, '至少满足 ' + n + ' 条', k + ' 条里任意 ' + n + ' 条成立 (下面几页拆开看是哪 ' + n + ' 条)', every, 'atleast:' + n);
+      combosOf(k, n).slice(0, 10).forEach(function (c) {
+        page('combo:' + c.join(','), c.map(circ).join(' + '), c.map(function (i) { return names[i]; }).join(' + ') + ' 同时成立 (其他条不管)', c, 'all');
+      });
+    }
+    page('any', '任一满足', '只要有一条成立', every, 'any');
+    var curKey = s.spec === 'atleast:1' ? 'any' : s.spec;
+    pages.forEach(function (p) { p.cur = p.key === curKey; });
+    return pages;
+  }
+  function rollHtml(pages, names, pos, note) {
+    var nav = '<div class="cbt-seg cbt-roll-nav" role="tablist" aria-label="条件满足方式">' + pages.map(function (p, i) {
+      return '<button type="button" role="tab" data-pg="' + i + '" aria-selected="' + (i === 0) + '">' + escapeHtml(p.title) +
+        (p.bt ? ' <small>' + p.bt.all.n + '</small>' : '') + '</button>';
+    }).join('') + '</div>';
+    var cards = pages.map(function (p, i) {
+      var bt = p.bt, a = bt && bt.all;
+      var h = '<section class="cbt-card' + (p.cur ? ' cur' : '') + '" data-pg="' + i + '"><h5>' + escapeHtml(p.title) + (p.cur ? ' <em>当前设定</em>' : '') + '</h5>' +
+        '<p class="cbt-card-sub">' + escapeHtml(p.sub) + '</p>';
+      if (!bt || !a.n) return h + '<p class="hint">近 6 个月没有出现过</p></section>';
+      function kpi(label, v, c) { return '<div><span>' + label + '</span><b class="' + (c || '') + '">' + v + '</b></div>'; }
+      h += '<div class="cbt-kpis">' + kpi('笔数', a.n + (a.open ? '<small>持有 ' + a.open + '</small>' : '')) +
+        kpi('胜率', isNum(a.win_rate) ? a.win_rate.toFixed(1) + '%' : '—') + kpi('期望值', fmtPct(a.avg, 2), btCls(a.avg)) +
+        kpi('合计', fmtRM(a.total, pos), btCls(a.total)) + kpi('最大回撤', fmtPct(a.mdd_pct, 1)) + '</div>';
+      var by = {}, order = [];
+      bt.trades.forEach(function (t) {
+        var g = by[t.code];
+        if (!g) { g = by[t.code] = { code: t.code, name: t.name, n: 0, net: 0, open: 0, last: t }; order.push(t.code); }
+        g.n++;
+        if (isClosedTrade(t)) g.net += t.net; else g.open++;
+        if (t.sig >= g.last.sig) g.last = t;
+      });
+      var rows = order.map(function (c) { return by[c]; }).sort(function (x, y) { return x.last.sig < y.last.sig ? 1 : x.last.sig > y.last.sig ? -1 : y.net - x.net; });
+      h += '<div class="bt-table-wrap"><table class="bt-table cbt-ctable"><thead><tr><th>股票 <small>' + rows.length + ' 支</small></th><th>最近信号</th>' +
+        '<th class="num">笔数</th><th class="num">已结算</th></tr></thead><tbody>' + rows.map(function (g, j) {
+          var np = namePair(g.code, g.name), t = g.last;
+          return '<tr data-code="' + escapeHtml(g.code) + '" tabindex="0"' + (j >= 8 ? ' class="more"' : '') + '><td><b>' + escapeHtml(np[0]) + '</b><small>' + escapeHtml(np[1]) + '</small></td>' +
+            '<td>' + md(t.sig) + rmChips(names, t.rm) + (isClosedTrade(t) ? '' : '<small class="cbt-open">持有中 ' + fmtPct(t.ret, 1) + '</small>') + '</td>' +
+            '<td class="num">' + g.n + '</td><td class="num ' + btCls(g.n > g.open ? g.net : null) + '">' + (g.n > g.open ? fmtPct(g.net, 1) : '—') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+      if (rows.length > 8) h += '<button type="button" class="sp-btn cbt-more" data-act="card-all">显示全部 ' + rows.length + ' 支</button>';
+      return h + '</section>';
+    }).join('');
+    return '<div class="cbt-rollbox"><h5 class="cbt-roll-h">按条件满足方式看 <small>左右滑动 · 点股票看图</small></h5>' + rmLegend(names) + nav +
+      '<div class="cbt-roll">' + cards + '</div>' + (note ? '<p class="hint">' + escapeHtml(note) + '</p>' : '') + '</div>';
+  }
   var BT_GROUPS = [['reason', '离场原因'], ['stock', '股票'], ['days', '持有天数'], ['month', '月份']];
   // 分类：按离场原因 / 股票 / 持有天数 / 信号月份分组，每组笔数、胜率、期望值、合计 (RM)
   function stratLabel(bt, mask) {
@@ -4164,6 +4270,7 @@
     trades.forEach(function (t) {
       var key, label;
       if (by === 'strat') { key = 's' + t.strats; label = stratLabel(bt, t.strats); }
+      else if (by === 'rules') { key = 'r' + t.rm; label = rmText(bt.ruleNames, t.rm); }
       else if (by === 'reason') { key = t.reason; label = EXIT_REASONS[t.reason][0]; }
       else if (by === 'stock') { key = t.code; label = namePair(t.code, t.name)[0]; }
       else if (by === 'days') {
@@ -4182,7 +4289,7 @@
       return s;
     });
     if (by === 'stock') rows.sort(function (a, b) { return (b.total || 0) - (a.total || 0) || b.n - a.n; });
-    else if (by === 'reason' || by === 'strat') rows.sort(function (a, b) { return b.n - a.n; });
+    else if (by === 'reason' || by === 'strat' || by === 'rules') rows.sort(function (a, b) { return b.n - a.n; });
     else if (by === 'month') rows.sort(function (a, b) { return a.key < b.key ? 1 : -1; });
     else rows.sort(function (a, b) {
       function idx(k) { for (var i = 0; i < HOLD_BUCKETS.length; i++) if (HOLD_BUCKETS[i][2] === k) return i; return 99; }
@@ -4192,18 +4299,20 @@
   }
   function btCls(v) { return !isNum(v) ? '' : v > 0 ? 'change-up' : v < 0 ? 'change-down' : 'change-neutral'; }
   function btGroupHtml(bt, by, showAll) {
-    var multi = (bt.stratNames || []).length > 1;
+    var multi = (bt.stratNames || []).length > 1, hasRm = hasRules(bt);
     if (by === 'strat' && !multi) by = 'reason';
+    if (by === 'rules' && !hasRm) by = 'reason';
     var rows = groupTrades(bt.trades, by, bt), LIMIT = 15, pos = bt.position;
     var shown = showAll || by !== 'stock' ? rows : rows.slice(0, LIMIT);
-    var html = '<div class="cbt-seg" role="tablist" aria-label="分类方式">' + (multi ? [['strat', '策略']] : []).concat(BT_GROUPS).map(function (g) {
+    var html = '<div class="cbt-seg" role="tablist" aria-label="分类方式">' + (multi ? [['strat', '策略']] : []).concat(hasRm ? [['rules', '命中条件']] : [], BT_GROUPS).map(function (g) {
       return '<button type="button" role="tab" data-g="' + g[0] + '" aria-selected="' + (g[0] === by) + '">' + g[1] + '</button>';
     }).join('') + '</div>' +
-      '<div class="bt-table-wrap"><table class="bt-table cbt-gtable"><thead><tr><th>' + escapeHtml(by === 'strat' ? '策略' : BT_GROUPS.filter(function (g) { return g[0] === by; })[0][1]) + '</th>' +
+      '<div class="bt-table-wrap"><table class="bt-table cbt-gtable"><thead><tr><th>' + escapeHtml(by === 'strat' ? '策略' : by === 'rules' ? '命中条件' : BT_GROUPS.filter(function (g) { return g[0] === by; })[0][1]) + '</th>' +
       '<th class="num">笔数</th><th class="num">胜率</th><th class="num">期望值</th><th class="num">合计 RM</th></tr></thead><tbody>' +
       shown.map(function (r) {
         return '<tr' + (by === 'stock' ? ' data-code="' + escapeHtml(r.key) + '" tabindex="0"' : '') + '><th scope="row">' + escapeHtml(r.label) +
           (by === 'reason' ? '<small>' + EXIT_REASONS[r.key][1] + '</small>' : '') +
+          (by === 'rules' ? rmChips(bt.ruleNames, +r.key.slice(1)) : '') +
           (r.open && r.closed ? '<small>持有 ' + r.open + '</small>' : '') + '</th><td class="num">' + r.n + '</td>' +
           '<td class="num">' + (isNum(r.win_rate) ? r.win_rate.toFixed(1) + '%' : '—') + '</td>' +
           '<td class="num ' + btCls(r.avg) + '">' + fmtPct(r.avg, 2) + (isNum(r.avg) ? '<small>' + fmtRM(r.avg, pos) + '</small>' : '') + '</td>' +
@@ -4232,10 +4341,10 @@
       return '<button type="button" role="tab" data-lf="' + x[0] + '" aria-selected="' + (x[0] === f) + '">' + x[1] + ' <small>' + counts[x[0]] + '</small></button>';
     }).join('') + '</div><button type="button" class="sp-btn cbt-dl" data-act="csv">⤓ CSV</button></div>';
     if (!idx.length) return html + '<p class="hint">没有交易</p>';
-    html += '<div class="bt-table-wrap"><table class="bt-table cbt-log"><thead><tr><th>股票</th><th>信号日</th><th>离场</th>' +
+    html += rmLegend(bt.ruleNames) + '<div class="bt-table-wrap"><table class="bt-table cbt-log"><thead><tr><th>股票</th><th>信号日</th><th>离场</th>' +
       '<th class="num">收益</th><th>原因</th></tr></thead><tbody>' + idx.slice(0, limit).map(function (i) {
         var t = bt.trades[i], np = namePair(t.code, t.name), done = isClosedTrade(t), v = done ? t.net : t.ret;
-        return '<tr data-t="' + i + '" tabindex="0"><td><b>' + escapeHtml(np[0]) + '</b><small>' + escapeHtml(np[1]) + '</small></td>' +
+        return '<tr data-t="' + i + '" tabindex="0"><td><b>' + escapeHtml(np[0]) + '</b><small>' + escapeHtml(np[1]) + '</small>' + rmChips(bt.ruleNames, t.rm) + '</td>' +
           '<td>' + md(t.sig) + '</td><td>' + (done ? md(t.exit_date) : '—') + '<small>' + t.days + ' 天</small></td>' +
           '<td class="num ' + btCls(v) + '">' + fmtPct(v, 1) + '<small>' + fmtRM(v, bt.position) + '</small></td>' +
           '<td><span class="bt-st ' + t.reason + '">' + EXIT_REASONS[t.reason][0] + '</span></td></tr>';
@@ -4277,12 +4386,12 @@
   function btTradesCsv(bt) {
     var head = ['代码 Code', '名称 Name', '策略 Strategy', '信号日 Signal', '进场日 Entry Date', '进场价 Entry', '离场日 Exit Date', '离场价/现价 Exit', '持有天数 Days',
       '离场原因 Exit Reason', '收益% Return', '扣成本% Net', '盈亏 RM P/L (每笔 RM' + fmtG(bt.position) + ')', 'MFE%', 'MAE%', '初始风险% Initial Risk', 'R 倍数 R',
-      '5日% 5D', '10日% 10D', '20日% 20D'];
+      '5日% 5D', '10日% 10D', '20日% 20D'].concat(hasRules(bt) ? ['命中条件 Rules Hit'] : []);
     var rows = bt.trades.slice().sort(function (a, b) { return a.sig < b.sig ? -1 : a.sig > b.sig ? 1 : a.code < b.code ? -1 : 1; }).map(function (t) {
       var done = isClosedTrade(t);
       return [t.code, t.name, stratLabel(bt, t.strats), t.sig, t.entry_date, t.entry, done ? t.exit_date : '', t.exit, t.days, EXIT_REASONS[t.reason][0] + ' ' + EXIT_REASONS[t.reason][1],
         t.ret, done ? t.net : '', done ? Math.round(t.net * bt.position / 100) + 0 : '', t.mfe, t.mae, t.risk, done && t.risk ? rd(t.net / t.risk) : '',
-        t.h[5], t.h[10], t.h[20]];
+        t.h[5], t.h[10], t.h[20]].concat(hasRules(bt) ? [rmText(bt.ruleNames, t.rm)] : []);
     });
     return '﻿' + [head].concat(rows).map(function (r) { return r.map(csvCell).join(','); }).join('\r\n') + '\r\n';
   }
@@ -4576,7 +4685,7 @@
       root.querySelector('.cbt-rename').hidden = !(cur && cur.tpl);
     }
     function save() { saveJSON(BT_KEY, { src: srcKey, st: st }); }
-    var timer = null, runId = 0, last = null;
+    var timer = null, runId = 0, last = null, rolls = [];
     function schedule() { clearTimeout(timer); timer = setTimeout(run, 250); }
     function run() {
       timer = null;
@@ -4617,7 +4726,14 @@
           if (id !== runId || !root.isConnected) return;
           var bt = led ? ledgerBacktest(led, ex, cost, pos, slots) : runBacktest(u, strategies, ex, cost, pos, slots);
           res.classList.remove('busy');
-          if (bt) bt.stratNames = strategies.map(function (x) { return x.name; });
+          var one = strategies.length === 1 ? strategies[0] : null, names = one ? one.compiled.map(function (c) { return ruleLabel(c.rule); }) : null;
+          if (bt) { bt.stratNames = strategies.map(function (x) { return x.name; }); bt.ruleNames = names; }
+          // 一套策略、两条以上条件 → 全部 / 至少 N / 指定哪 N 条 / 任一 各跑一次 (当前设定那一页直接用上面的结果)
+          rolls = one && names.length > 1 ? modePages(one) : [];
+          rolls.forEach(function (p) {
+            p.bt = p.cur && bt ? bt : runBacktest(u, [p.strat], ex, cost, pos, slots);
+            if (p.bt) { p.bt.ruleNames = names; p.bt.stratNames = [p.title]; }
+          });
           last = bt ? { src: src, ex: ex, cost: cost, pos: pos, slots: slots, bt: bt } : null;
           if (view !== 'sum') renderView();
           if (!bt) { res.innerHTML = '<p class="hint">没有K线数据</p>'; return; }
@@ -4625,7 +4741,13 @@
               '\n' + (slots ? '仓位：最多同时 ' + slots + ' 笔，满了新信号跳过 (' + bt.signals + ' 个信号，满仓跳过 ' + bt.skipped + ' 个)；同一天先买相对量高的' : '仓位：不限 (每个信号都买)')) +
             ' <small>' + (bt.from ? md(bt.from) + ' ~ ' + md(bt.to) + ' · ' : '') + bt.all.n + ' 笔' + (slots ? ' · ' + slots + ' 个仓位 · 满仓跳过 ' + bt.skipped : '') +
             (u.missing ? ' · ' + u.missing + ' 支没有K线' : '') + '</small></h4>';
-          res.innerHTML = head + (bt.all.n ? backtestResultHtml(bt) : '<p class="hint">近 6 个月没有出现过这组条件</p>');
+          res.innerHTML = head + (rolls.length ? rollHtml(rolls, names, pos, led ? '「当前设定」那页用后台固定账本；其他页用今天报告里的股票重算，只作对比。' : '') : '') +
+            (bt.all.n ? backtestResultHtml(bt) : '<p class="hint">近 6 个月没有出现过这组条件</p>');
+          var roll = res.querySelector('.cbt-roll');
+          if (roll) roll.addEventListener('scroll', function () {
+            var i = Math.round(roll.scrollLeft / Math.max(1, roll.clientWidth));
+            res.querySelectorAll('.cbt-roll-nav [data-pg]').forEach(function (b) { b.setAttribute('aria-selected', String(+b.dataset.pg === i)); });
+          }, { passive: true });
         }, 20);
       });
     }
@@ -4730,6 +4852,22 @@
         copyText(setBox.querySelector('.cbt-json').textContent).then(function (ok) { toast(ok ? '已复制' : '复制不了，请长按内容全选复制'); });
         return;
       }
+      var pg = e.target.closest('.cbt-roll-nav [data-pg]');
+      if (pg) {
+        var card = res.querySelector('.cbt-card[data-pg="' + pg.dataset.pg + '"]');
+        if (card) card.parentNode.scrollTo({ left: card.offsetLeft - card.parentNode.offsetLeft, behavior: 'smooth' });
+        return;
+      }
+      if (b && b.dataset.act === 'card-all') { b.closest('.cbt-card').classList.add('all'); b.remove(); return; }
+      var cr = e.target.closest('.cbt-ctable tr[data-code]');
+      if (cr) {
+        var rp = rolls[+cr.closest('.cbt-card').dataset.pg], rbt = rp && rp.bt;
+        if (rbt) {
+          var own = rbt.trades.filter(function (t) { return t.code === cr.dataset.code; });
+          if (own.length) openTradeChart(rbt, own[own.length - 1], rbt.trades.map(function (t, i) { return i; }));
+        }
+        return;
+      }
       var g = e.target.closest('[data-g]');
       if (g) { groupBy = g.dataset.g; groupAll = false; renderView(); return; }
       var lf = e.target.closest('[data-lf]');
@@ -4754,7 +4892,7 @@
     });
     root.addEventListener('keydown', function (e) {
       if (e.key !== 'Enter') return;
-      var row = e.target.closest && e.target.closest('.cbt-log tr[data-t], .cbt-gtable tr[data-code]');
+      var row = e.target.closest && e.target.closest('.cbt-log tr[data-t], .cbt-gtable tr[data-code], .cbt-ctable tr[data-code]');
       if (row) { row.click(); return; }
       var tr = e.target.closest && e.target.closest('.bt-recent tr[data-code]');
       if (tr) openFromSection(tr);

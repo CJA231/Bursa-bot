@@ -281,6 +281,7 @@ RED_LOOKBACK = 10     # 回调红K：信号日前 10 根K线里最近的一根�
 RES_K = 2             # 近期阻力：波段高点 = 比左边 2 根都高、不低于右边 2 根 (跟浮动 HL 一样要等右边走完才确认)
 RES_LOOKBACK = 60     # 近期阻力只看信号日前 60 根K线 (约 3 个月) 里的波段高点
 HL_K_DEFAULT = 2      # 入场风险 = 计入价到最近一次回调低点 (HL)；浮动 HL 没开时用左右 2 根确认的波段低点
+MIN_PRICE_DEFAULT = 0.10  # 后台信号 / 回测不要 RM0.10 以下的股票 (strategy.json 的 min_price 可以改，0 = 不限)
 RVOL_LEN = 20         # 满仓时同一天先买相对量 (当天量 ÷ 前 20 天平均) 最高的
 
 
@@ -394,6 +395,8 @@ def load_strategy():
         "position": _float_in(strat.get("position_rm", POSITION_DEFAULT), 100, 1e8, POSITION_DEFAULT),
         "slots": _int_in(strat.get("slots", SLOTS_DEFAULT), 0, 50, SLOTS_DEFAULT),
         "custom": raw is not None and strat is not DEFAULT_STRATEGY,
+        # 后台信号 / 回测都不要这个价格以下的股票 (信号日收盘价)；0 = 不限
+        "min_price": _float_in(strat.get("min_price", MIN_PRICE_DEFAULT), 0, 1e6, MIN_PRICE_DEFAULT),
     }, note
 
 
@@ -405,7 +408,7 @@ for _s in STRATEGY["strategies"]:
 def strategy_meta():
     """页面 #report-meta 里的后台策略 (网页内置模板、自定义回测、设为后台信号用)"""
     return {"name": STRATEGY["name"], "exit": STRATEGY["exit"], "cost": STRATEGY["cost"], "position": STRATEGY["position"],
-            "sig": strategy_signature(),
+            "sig": strategy_signature(), "min_price": STRATEGY["min_price"],
             "slots": STRATEGY["slots"],
             "strategies": [{"name": s["name"], "match": s["match"], "min": s["min"], "rules": s["rules"]} for s in STRATEGY["strategies"]],
             "file_strategies": STRATEGY["file_strategies"]}
@@ -475,6 +478,7 @@ BT_START = 25             # 前 25 根K线当暖身 (指标还没算出来)，�
 BT_RECENT_BARS = 20       # "最近信号"列出最近 20 个交易日里出现过的信号
 BT_RECENT_SHOW = 10       # 先显示 10 条，其余按「显示全部」(CSS .bt-recent:not(.all) 藏起来)
 BT_DIST_EDGES = (-10, -5, 0, 5, 10)  # 收益分布: < -10%、-10~-5、-5~0、0~5、5~10、> 10%
+CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
 EXIT_REASON_LABELS = {  # (中文, 英文)；网页 report.js EXIT_REASONS 同一份
     "stop": ("止损", "Stop Loss"), "swing": ("浮动 HL", "Trailing HL"), "red": ("回调红K", "Pullback Red Candle"),
     "sar": ("SAR 转空", "SAR Flip"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
@@ -568,10 +572,11 @@ def rel_volume_at(v, i):
     return v[i] / avg if avg > 0 else 0.0
 
 
-def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
+def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rmask=None):
     """一支股票的模拟交易 + 同期基准。返回 {"trades": [...], "base": {天数: [收益总和, 次数, 上涨次数]}}
     entry[i] = 第 i 天哪几套策略命中 (位元，0 = 没有)。every_signal = True：每个信号日都算一笔 (账户模式，
-    后面 portfolio_trades 再按仓位数挑)；False：这支股票一笔没结算前的新信号不算 (不限仓位)"""
+    后面 portfolio_trades 再按仓位数挑)；False：这支股票一笔没结算前的新信号不算 (不限仓位)。
+    rmask[i] = 第 i 天哪几条条件成立 (位元，只有一套策略时才有)，记在每笔的 rm 上"""
     n = len(bars)
     out = {"trades": [], "base": {h: [0.0, 0, 0] for h in BT_HORIZONS}, "from": dates[BT_START] if n > BT_START else None}
     if n < BT_START + 2:
@@ -664,7 +669,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
             "sig": dates[i], "sig_ago": n - 1 - i, "entry_date": dates[e], "entry": entry_px, "exit": c[j], "exit_date": dates[j],
             "days": j - e + (0 if cl else 1), "reason": reason, "ret": _r(ret), "net": _r(ret - cost),
             "mfe": _r((hi / entry_px - 1) * 100), "mae": _r((low_ / entry_px - 1) * 100),
-            "risk": _r(risk) if risk else None, "alert": alert, "h": horizons, "strats": entry[i], "rvol": _r(rel_volume_at(v, i), 4),
+            "risk": _r(risk) if risk else None, "alert": alert, "h": horizons, "strats": entry[i], "rm": rmask[i] if rmask else None, "rvol": _r(rel_volume_at(v, i), 4),
             "fresh": 1 if i == 0 or not entry[i - 1] else 0,  # 新出现的信号 (前一天还没有)；满仓跳过只数这种
         })
         i = i + 1 if every_signal else j + 1
@@ -784,7 +789,7 @@ LEDGER_PATH = os.path.join(DOCS_DIR, "backtest_ledger.json")
 def strategy_signature():
     """账本对应的策略指纹：进场条件、离场规则、成本、仓位数任何一样改了，账本就重新从头建 (只改每笔金额不算)"""
     body = json.dumps({"s": [(s["match"], s["min"], s["rules"]) for s in STRATEGY["strategies"]], "e": STRATEGY["exit"],
-                       "c": STRATEGY["cost"], "n": STRATEGY["slots"]}, sort_keys=True, ensure_ascii=False)
+                       "c": STRATEGY["cost"], "n": STRATEGY["slots"], "p": STRATEGY["min_price"]}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(body.encode("utf-8")).hexdigest()[:12]
 
 
@@ -980,8 +985,10 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             ctx = engine.Ctx(bars)
             # 每套策略各算一次，entry[i] 用位元记第 i 天哪几套命中 (第 k 套 = 1 << k)
             truths = [engine.rules_truth(bars, st["compiled"], st["spec"], ctx) for st in STRATEGY["strategies"]]
-            entry = [sum(1 << k for k, t in enumerate(truths) if t[i]) for i in range(len(bars))]
-            hit_idx = [k for k, t in enumerate(truths) if t and t[-1]]
+            mp = STRATEGY["min_price"]  # 太便宜的 (收盘价 < min_price) 不算信号
+            entry = [sum(1 << k for k, t in enumerate(truths) if t[i]) if bars[i]["close"] >= mp else 0 for i in range(len(bars))]
+            hit_idx = [k for k in range(len(truths)) if entry and entry[-1] & (1 << k)]
+            rmask = engine.rules_masks(bars, STRATEGY["strategies"][0]["compiled"], ctx) if len(STRATEGY["strategies"]) == 1 else None
             ex = STRATEGY["exit"]
             series = exit_series(bars, ex, ctx)
             # 入场风险：现价跌到最近一次回调低点 (HL) 要跌多少；没有 HL 才看其他离场线 (SAR、回调红K、固定止损 %) 里最近的一条
@@ -1026,7 +1033,7 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 "rule_tags": [(STRATEGY["strategies"][k]["name"], rule_tags(ctx, STRATEGY["strategies"][k])) for k in hit_idx] or None,
                 "stop_ref": (round(stop_ref[0], 4), stop_ref[1]) if stop_ref else None,
                 "last_date": bar_dates[-1] if bar_dates else None,
-                "backtest": backtest_stock(bars, bar_dates, entry, ex, STRATEGY["cost"], series, every_signal=True),
+                "backtest": backtest_stock(bars, bar_dates, entry, ex, STRATEGY["cost"], series, every_signal=True, rmask=rmask),
                 "daily_bars": compact_bars(df, intraday=False),  # 点开看完整图表 + 网页上的选股条件用 (只有表格股票会写进 table.json)
                 "candles": candles,
                 "ema20": ema20,
@@ -2716,6 +2723,38 @@ MARKET_CSS = """
   }
   .cbt-seg small { color: var(--muted); margin-left: 0.15rem; font-weight: 400; }
   .cbt-vsum { font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 0.6rem; }
+  /* 每笔信号日命中了哪几条条件 (①②③ 亮 = 成立) + 按条件满足方式分页的滚动卡片 */
+  .cbt-rm { display: inline-flex; gap: 0.1rem; margin-left: 0.3rem; vertical-align: middle; }
+  .cbt-rm i, .cbt-rm-legend i { font-style: normal; font-size: 0.74rem; line-height: 1; }
+  .cbt-rm i.on, .cbt-rm-legend i.on { color: var(--ema); font-weight: 700; }
+  .cbt-rm i.off { color: var(--muted); opacity: 0.45; }
+  .cbt-rm-legend { display: flex; flex-wrap: wrap; gap: 0.25rem 0.8rem; font-size: 0.74rem; color: var(--text-secondary); margin: 0 0 0.5rem; }
+  .cbt-rm-legend i { margin-right: 0.2rem; }
+  .cbt-rollbox { margin: 0.4rem 0 1rem; }
+  .cbt-roll-h { font-size: 0.84rem; margin: 0 0 0.35rem; }
+  .cbt-roll-h small { color: var(--muted); font-weight: 400; font-size: 0.7rem; margin-left: 0.3rem; }
+  .cbt-roll-nav { display: flex; flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .cbt-roll-nav::-webkit-scrollbar { display: none; }
+  .cbt-roll { display: flex; gap: 0.6rem; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch; scrollbar-width: thin; padding-bottom: 0.3rem; }
+  .cbt-card { flex: 0 0 100%; scroll-snap-align: start; box-sizing: border-box; min-width: 0; border: 1px solid var(--border);
+    border-radius: 12px; padding: 0.65rem 0.75rem; background: var(--surface); }
+  .cbt-card.cur { border-color: color-mix(in srgb, var(--ema) 60%, var(--border)); }
+  .cbt-card h5 { margin: 0; font-size: 0.9rem; }
+  .cbt-card h5 em { font-style: normal; font-size: 0.66rem; font-weight: 600; color: var(--ema); border: 1px solid currentColor;
+    border-radius: 999px; padding: 0 0.4rem; margin-left: 0.3rem; vertical-align: middle; }
+  .cbt-card-sub { margin: 0.15rem 0 0.5rem; font-size: 0.74rem; color: var(--text-secondary); }
+  .cbt-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.3rem; margin: 0 0 0.55rem; }
+  .cbt-kpis div { background: var(--page); border-radius: 8px; padding: 0.35rem 0.4rem; min-width: 0; }
+  .cbt-kpis span { display: block; font-size: 0.66rem; color: var(--muted); }
+  .cbt-kpis b { display: block; font-size: 0.82rem; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cbt-kpis small { display: block; font-size: 0.62rem; color: var(--muted); font-weight: 400; }
+  .cbt-card:not(.all) .cbt-ctable tr.more { display: none; }
+  .cbt-ctable tbody tr { cursor: pointer; }
+  .cbt-ctable tbody tr:hover { background: var(--page); }
+  .cbt-ctable td small { display: block; color: var(--muted); font-size: 0.68rem; }
+  .cbt-ctable .cbt-open { color: var(--ema); }
+  @media (max-width: 640px) { .cbt-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   .cbt-vsum b { color: var(--text-primary); }
   .cbt-log-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
   .cbt-log-bar .cbt-seg { margin-bottom: 0.5rem; }
@@ -3683,14 +3722,25 @@ def build_backtest_html(bt):
         f'<td class="num {cls(m["avg"])}">{pct_text(m["avg"], 2)}</td><td class="num">{num(m["pf"])}</td>'
         f'<td class="num">{pct_text(m["mdd_pct"], 1)}</td></tr>' for m in reversed(bt["monthly"]))
     status = {k: v[0] for k, v in EXIT_REASON_LABELS.items()}
+    rule_names = STRATEGY["strategies"][0]["labels"] if len(STRATEGY["strategies"]) == 1 else []
+
+    def rm_chips(rm):
+        """信号日命中了哪几条：①②③ 亮的 = 成立 (悬停看条件全名)"""
+        if rm is None or len(rule_names) < 2:
+            return ""
+        return '<span class="cbt-rm">' + "".join(
+            f'<i class="{"on" if rm & (1 << k) else "off"}" title="{html.escape(nm)}">{CIRCLED[k] if k < len(CIRCLED) else k + 1}</i>'
+            for k, nm in enumerate(rule_names)) + "</span>"
+    rule_legend = ('<p class="cbt-rm-legend">' + " ".join(f'<span><i class="on">{CIRCLED[k]}</i>{html.escape(nm)}</span>'
+                                                          for k, nm in enumerate(rule_names[:len(CIRCLED)])) + "</p>") if len(rule_names) > 1 else ""
     recent_rows = "".join(
         f'<tr data-code="{html.escape(t["code"])}" tabindex="0"><td><b>{html.escape(name_pair(t["code"], t["name"])[0])}</b> <small>{html.escape(name_pair(t["code"], t["name"])[1])}</small></td>'
         f'<td>{t["sig"][5:].replace("-", "/")}</td><td class="num bt-hide-sm">{fmt_price(t["entry"])}</td><td class="num">{fmt_price(t["exit"])}</td>'
         f'<td class="num {cls(t["ret"])}">{pct_text(t["ret"], 1)}</td><td class="num bt-hide-sm">{pct_text(t["mae"], 1)}</td>'
-        f'<td><span class="bt-st {t["reason"]}">{status[t["reason"]]}</span> <small>{t["days"]} 天</small></td></tr>'
+        f'<td><span class="bt-st {t["reason"]}">{status[t["reason"]]}</span> <small>{t["days"]} 天</small>{rm_chips(t.get("rm"))}</td></tr>'
         for t in bt["recent"])
     if recent_rows:
-        recent = (h5("最近信号", "Recent Signals", "recent") +
+        recent = (h5("最近信号", "Recent Signals", "recent") + rule_legend +
                   f'<div class="bt-table-wrap"><table class="bt-table bt-recent"><thead><tr><th>股票</th><th>信号日</th><th class="num bt-hide-sm">计入价</th>'
                   f'<th class="num">现价 / 结算</th><th class="num">收益</th><th class="num bt-hide-sm">MAE</th><th>状态</th></tr></thead><tbody>{recent_rows}</tbody></table></div>'
                   + (f'<button type="button" class="sp-btn bt-all" data-act="bt-all">显示全部 {len(bt["recent"])} 条</button>' if len(bt["recent"]) > BT_RECENT_SHOW else ""))
