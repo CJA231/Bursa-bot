@@ -2158,8 +2158,6 @@
     });
     box.innerHTML = html;
     updateLegendValues(st, null);
-    var tags = st.el.parentNode && st.el.parentNode.querySelector('.plan-tags'), lg0 = box.querySelector('.lg-pane[data-pane="0"]');
-    if (tags && lg0 && tags.offsetWidth) lg0.style.right = (parseFloat(tags.style.right) || 70) + tags.offsetWidth + 6 + 'px';
   }
   function updateLegendValues(st, seriesData) {
     var box = st.legendsEl;
@@ -2244,8 +2242,8 @@
   function pctTxt(v) { return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '%'; }
   function pctShort(v) { return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(Math.abs(v) >= 10 ? 0 : 1) + '%'; }
   function renderPlanTags(st) {
-    var card = cardOf(st.id), wrap = st.el.parentNode;
-    if (!card || !wrap) return;
+    var card = cardOf(st.id), wrap = card;
+    if (!card) return;
     var pl = planOf(st.id);
     if (!pl) return;
     var box = wrap.querySelector('.plan-tags');
@@ -2263,16 +2261,19 @@
         (extra ? '<small>' + extra + '</small>' : '') + '</button>';
     }
     box.classList.toggle('mine', !!pl.mine);
+    card.classList.add('has-plan');
     box.title = pl.mine ? '自己设的计划 (点一下调整)' : '默认：现价 / 最近离场线 / 2R (点一下调整)';
     box.innerHTML = row('entry', '进', pl.entry, pl.mine ? '自设' : '', 'pt-e') +
       row('stop', '损', pl.stop, c.ok ? pctShort(-c.risk) : '⚠', 'pt-s') +
       row('target', '标', pl.target, pctShort((pl.target / pl.entry - 1) * 100), 'pt-t');
-    var right = 70;
-    try { right = st.chart.priceScale('right').width() + 6; } catch (e) {}
-    box.style.right = right + 'px';
-    // 左上角图例让出右上角的位置 (太长的指标名称会被截断，不会压在标签上)
-    var lg = st.legendsEl && st.legendsEl.querySelector('.lg-pane[data-pane="0"]');
-    if (lg) lg.style.right = (right + box.offsetWidth + 6) + 'px';
+    // 标题区比这三行矮的时候，图表往下让一点，不会被盖住
+    var cw = card.querySelector('.chart-wrap');
+    if (cw) {
+      cw.style.marginTop = '';
+      var gap = box.getBoundingClientRect().bottom + 6 - cw.getBoundingClientRect().top;
+      if (gap > 0) cw.style.marginTop = gap + 'px';
+    }
+
     syncPlanGrid(st.id, pl);
   }
   // 卡片下面的「风险」「风险报酬比」：存了计划就按计划算 (旁边标「自设」)，没存 = 原本的算法
@@ -3597,7 +3598,15 @@
     btn.className = 'card-fin';
     btn.textContent = '完整图表 · 财报 ›';
     btn.addEventListener('click', function () { openReportStock(entryByCode(code)); });
-    tags.appendChild(btn);
+    // 条件文字不放在卡片上 (太挤)：收进股票名称的提示 (长按 / 鼠标移上去)；这一行只留按钮 + 进场计划
+    var words = [];
+    [].slice.call(tags.childNodes).forEach(function (n) {
+      if (n.nodeType === 1 && n.classList.contains('plan-tags')) return;
+      words.push(n.textContent); tags.removeChild(n);
+    });
+    words = words.join('').replace(/\s+/g, ' ').trim();
+    if (words) h2.title = words;
+    tags.insertBefore(btn, tags.firstChild);
   });
 
   buildToolbar();

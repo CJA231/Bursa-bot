@@ -2457,19 +2457,20 @@ CARD_CSS = """
     color: var(--text-secondary); background: color-mix(in srgb, var(--surface) 72%, transparent); border: 1px solid var(--border); }
   .lg-fold:hover { color: var(--text-primary); }
   /* 进场计划：图表右上角三行，点一下出滚轮 */
-  .plan-tags { position: absolute; top: 4px; right: 70px; z-index: 4; display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
-  .pt-row { display: grid; grid-template-columns: 1.2em auto auto; align-items: baseline; gap: 0.35rem; justify-content: end;
-    font: inherit; font-size: 0.72rem; line-height: 1.45; padding: 0.05rem 0.4rem; border-radius: 4px; cursor: pointer; text-align: right;
-    background: color-mix(in srgb, var(--surface) 78%, transparent); border: 1px solid var(--border); color: var(--text-secondary); }
+  /* 进场计划：卡片右上角 (翻页按钮下面) 竖排三行，不放在图表里 */
+  .card[data-chart] { position: relative; }
+  .card > .plan-tags { position: absolute; top: 2.9rem; right: 0.8rem; z-index: 3; display: flex; flex-direction: column; align-items: stretch; gap: 0.2rem; }
+  .card.has-plan .card-head, .card.has-plan .card-tags { margin-right: 8.4rem; }
+  .pt-row { display: flex; align-items: baseline; justify-content: flex-end; gap: 0.3rem;
+    font: inherit; font-size: 0.74rem; line-height: 1.45; padding: 0.08rem 0.45rem; border-radius: 6px; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap; }
+  .pt-row i { margin-right: auto; }
+  @media (max-width: 640px) { .card > .plan-tags { top: 2.6rem; right: 0.5rem; } .card.has-plan .card-head, .card.has-plan .card-tags { margin-right: 7.9rem; } }
   .pt-row i { font-style: normal; font-weight: 700; }
   .pt-row b { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 600; }
-  .pt-row small { font-size: 0.66rem; font-variant-numeric: tabular-nums; min-width: 3.2em; }
+  .pt-row small { font-size: 0.68rem; font-variant-numeric: tabular-nums; }
   .pt-e i { color: #e8a33d; } .pt-s i, .pt-s small { color: var(--down); } .pt-t i, .pt-t small { color: var(--up); }
   .pt-e small { color: #e8a33d; }
-  .pt-row { grid-template-columns: 1.1em auto auto; gap: 0.25rem; }
-  .pt-row small { min-width: 2.6em; }
-  .lg-row { overflow: hidden; }
-  .lg-name { min-width: 0; flex-shrink: 1; }
   .pt-row:hover { border-color: var(--text-secondary); }
   .pt-row:focus-visible { outline: 2px solid var(--ema); outline-offset: 1px; }
   .plan-mine { font-size: 0.62rem; color: #e8a33d; font-weight: 600; }
@@ -3434,19 +3435,22 @@ STRATEGY_CSS = """
   .rl-live b { color: var(--text-primary); font-size: 1.05rem; margin: 0 0.1rem; }
   .rl-live span { color: var(--muted); }
   .rl-list { display: flex; flex-direction: column; gap: 0.6rem; }
+  /* 一条条件一行：编号 · 左边 · 天数 · 比较 · 右边 · 天数 · 删除 (手机也一样，框缩窄)；指标参数 / 提示才另起一行小字 */
   .rl-row {
-    display: grid; align-items: center; gap: 0.5rem;
-    grid-template-columns: 4.6rem minmax(0, 1fr) 6.2rem;
-    grid-template-areas: "no no del" "a a a" "op b b";
-    padding: 0.4rem 0.65rem 0.7rem; border-radius: 12px;
+    display: grid; align-items: center; gap: 0.3rem;
+    grid-template-columns: 1.1rem minmax(0, 1fr) 2.4rem auto minmax(0, 1fr) 2.4rem 1.5rem;
+    grid-template-areas: "no a a op b b del";
+    padding: 0.4rem 0.45rem; border-radius: 10px;
     background: color-mix(in srgb, var(--text-primary) 4%, var(--surface)); border: 1px solid var(--border);
   }
-  .rl-row.has-alen { grid-template-areas: "no no del" "a a alen" "op b b"; }
-  .rl-row.has-blen { grid-template-areas: "no no del" "a a a" "op b blen"; }
-  .rl-row.has-alen.has-blen { grid-template-areas: "no no del" "a a alen" "op b blen"; }
-  .rl-row.is-bool { grid-template-areas: "no no del" "a a a" "op op op"; }
-  .rl-row.is-bool.has-alen { grid-template-areas: "no no del" "a a alen" "op op op"; }
-  .rl-row.is-formula { grid-template-areas: "no no del" "f f f"; }
+  .rl-row.has-alen { grid-template-areas: "no a alen op b b del"; }
+  .rl-row.has-blen { grid-template-areas: "no a a op b blen del"; }
+  .rl-row.has-alen.has-blen { grid-template-areas: "no a alen op b blen del"; }
+  .rl-row.is-bool { grid-template-areas: "no a a op op op del"; }
+  .rl-row.is-bool.has-alen { grid-template-areas: "no a alen op op op del"; }
+  .rl-row.is-formula { grid-template-areas: "no f f f f f del"; }
+  .rl-no-t { display: none; }
+  .rl-warn, .rl-err, .rl-params { grid-column: 2 / -1; }
   .rl-no { grid-area: no; display: flex; align-items: center; gap: 0.45rem; font-size: 0.76rem; color: var(--muted); }
   .rl-no b {
     display: inline-grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 50%;
@@ -3474,6 +3478,19 @@ STRATEGY_CSS = """
     background-repeat: no-repeat; background-position: right 0.75rem center; background-size: 0.68rem;
   }
   .dlg .rl-row select.rl-op { text-align: center; text-align-last: center; padding: 0 1.6rem 0 0.6rem; background-position: right 0.55rem center; }
+  @media (max-width: 640px) {
+    .dlg .rl-row .rl-ctl { height: 2.2rem; padding: 0 0.3rem; border-radius: 8px; }
+    .dlg .rl-row select.rl-ctl { padding: 0 0.3rem; background-image: none; text-align: center; text-align-last: center; } /* 手机上不画下拉箭头，字才放得下 */
+    .dlg .rl-row select.rl-op { padding: 0 0.25rem; min-width: 2.4rem; }
+    .rl-row { padding: 0.35rem 0.35rem; }
+    .dlg .rl-row .rl-num input { padding-right: 0.4rem; }
+    .dlg .rl-row .rl-suf { display: none; }
+    .dlg .rl-row .rl-pnum input.rl-ctl { width: 3.6rem; height: 1.9rem; }
+    .rl-params { font-size: 0.72rem; gap: 0.2rem 0.5rem; }
+    .rl-params-t { display: none; }
+    .rl-del { width: 1.7rem; height: 1.7rem; }
+    .rl-no b { width: 1.2rem; height: 1.2rem; font-size: 0.66rem; }
+  }
   .dlg .rl-row .rl-ctl:hover { border-color: color-mix(in srgb, var(--text-primary) 28%, transparent); }
   .dlg .rl-row .rl-ctl:focus { outline: none; border-color: var(--ema); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ema) 25%, transparent); }
   .dlg .rl-row textarea.rl-ctl {
@@ -3495,7 +3512,7 @@ STRATEGY_CSS = """
   /* 指标参数 (Supertrend 的 ATR / 倍数、SAR、MACD)：条件卡片里多一行小框 */
   .rl-params { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.7rem; font-size: 0.76rem; color: var(--text-secondary); }
   .rl-params-t { color: var(--muted); }
-  .rl-pnum { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; }
+  .dlg .rl-pnum { display: inline-flex; flex-direction: row; align-items: center; gap: 0.35rem; margin: 0; } /* 参数名放在框左边，同一行 */
   .dlg .rl-row .rl-pnum input.rl-ctl { width: 4.8rem; text-align: right; padding: 0 0.6rem; font-variant-numeric: tabular-nums; -moz-appearance: textfield; } /* 跟其他框一样 40px 高 */
   .rl-pnum input::-webkit-outer-spin-button, .rl-pnum input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .rl-warn, .rl-err { grid-column: 1 / -1; margin: 0; font-size: 0.76rem; line-height: 1.5; }
@@ -3522,21 +3539,9 @@ STRATEGY_CSS = """
     background: color-mix(in srgb, var(--text-primary) 7%, transparent); padding: 0.05rem 0.3rem; border-radius: 4px;
   }
   .rl-empty { font-size: 0.84rem; color: var(--muted); margin: 0; padding: 1rem; text-align: center; border: 1px dashed var(--border); border-radius: 12px; }
-  /* 电脑: 一条条件一行排完 */
+  /* 电脑: 框宽一点 */
   @media (min-width: 641px) {
-    .rl-row {
-      grid-template-columns: 1.5rem minmax(0, 1fr) 5.6rem 4.8rem minmax(0, 1fr) 6.4rem 2.1rem;
-      grid-template-areas: "no a a op b b del";
-      padding: 0.55rem 0.6rem;
-    }
-    .rl-row.has-alen { grid-template-areas: "no a alen op b b del"; }
-    .rl-row.has-blen { grid-template-areas: "no a a op b blen del"; }
-    .rl-row.has-alen.has-blen { grid-template-areas: "no a alen op b blen del"; }
-    .rl-row.is-bool { grid-template-areas: "no a a op op op del"; }
-    .rl-row.is-bool.has-alen { grid-template-areas: "no a alen op op op del"; }
-    .rl-row.is-formula { grid-template-areas: "no f f f f f del"; }
-    .rl-no-t { display: none; }
-    .rl-warn, .rl-err, .rl-params { grid-column: 2 / -1; }
+    .rl-row { grid-template-columns: 1.5rem minmax(0, 1fr) 5.6rem 4.8rem minmax(0, 1fr) 6.4rem 2.1rem; gap: 0.5rem; padding: 0.55rem 0.6rem; }
   }
   /* 没有鼠标的设备 (手机 / 平板)：字号 16px，iPhone 点进去才不会自动放大整页 */
   @media (hover: none) {
