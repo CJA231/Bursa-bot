@@ -33,10 +33,12 @@
     bar.addEventListener('click', function () { f.set(body.hidden, true); });
     f.set(id in state ? state[id] : open, false);
   }
+  function num(el) { var m = /[\d,.]+/.exec(txt(el)); return m ? m[0] : ''; }
   function chip(label, value, cls) { return '<span class="fold-kv"><i>' + label + '</i><b class="' + (cls || '') + '">' + value + '</b></span>'; }
   function tileVal(label) {
     var dts = document.querySelectorAll('#sec-backtest .bt-tiles dt');
-    for (var i = 0; i < dts.length; i++) if (txt(dts[i]).indexOf(label) === 0) { var dd = dts[i].nextElementSibling; return dd ? [txt(dd), dd.className] : null; }
+    var names = label.split('|'); // 中文 | English：切到英文后这里读到的是翻译过的字
+    for (var i = 0; i < dts.length; i++) if (names.some(function (nm) { return txt(dts[i]).indexOf(nm) === 0; })) { var dd = dts[i].nextElementSibling; return dd ? [txt(dd), dd.className] : null; }
     return null;
   }
 
@@ -45,8 +47,8 @@
   if (mk) fold('market', '市场', $('#sec-market-h'), [$('.mk-row', mk), $('.mk-movers', mk)], function () {
     var idx = $('.mk-idx', mk), ch = idx && $('span[class^="change"]', idx), cnt = mk.querySelectorAll('.mk-counts span');
     return chip('KLCI', txt(idx && idx.querySelector('b')) + ' <small class="' + (ch ? ch.className : '') + '">' + txt(ch).replace(/^.*\(/, '').replace(')', '') + '</small>') +
-      (cnt.length === 3 ? chip('涨 / 跌', '<span class="change-up">' + txt(cnt[0]).replace('涨 ', '') + '</span> / <span class="change-down">' + txt(cnt[2]).replace('跌 ', '') + '</span>') : '') +
-      chip('成交额', txt($('.mk-note span', mk)).replace('成交额 ', ''));
+      (cnt.length === 3 ? chip('涨 / 跌', '<span class="change-up">' + num(cnt[0]) + '</span> / <span class="change-down">' + num(cnt[2]) + '</span>') : '') +
+      chip('成交额', (/(RM|\$)?\s*[\d.,]+\s*[A-Za-z]*\s*$/.exec(txt($('.mk-note span', mk))) || [''])[0]);
   }, false);
 
   // 2. 筛选器 (自己的条件模板)
@@ -65,7 +67,7 @@
     head.parentNode.insertBefore(box, head.nextSibling);
     rest.forEach(function (n) { box.appendChild(n); });
     fold('backtest', '回测', head, [box], function () {
-      var w = tileVal('胜率'), e = tileVal('期望值'), t = tileVal('合计盈亏'), d = tileVal('最大回撤');
+      var w = tileVal('胜率|Win rate'), e = tileVal('期望值|Expectancy'), t = tileVal('合计盈亏|Net P/L'), d = tileVal('最大回撤|Max drawdown');
       return (w ? chip('胜率', w[0]) : '') + (e ? chip('期望值', e[0], e[1]) : '') + (t ? chip('合计', t[0], t[1]) : '') + (d ? chip('回撤', d[0], d[1]) : '');
     }, false);
   }
@@ -97,8 +99,8 @@
   // 6. 顶部目录
   var toc = document.createElement('nav');
   toc.className = 'fold-toc'; toc.setAttribute('aria-label', '跳到');
-  var items = [['market', '市场'], ['screener', '筛选器'], ['signals', '信号'], ['backtest', '回测'], ['ann', '公告'], ['table', '股票']];
-  toc.innerHTML = items.filter(function (x) { return x[0] === 'signals' || folds[x[0]]; }).map(function (x) {
+  var items = [['focus', '今天'], ['market', '市场'], ['screener', '筛选器'], ['signals', '信号'], ['backtest', '回测'], ['ann', '公告'], ['table', '股票']];
+  toc.innerHTML = items.filter(function (x) { return x[0] === 'signals' || x[0] === 'focus' || folds[x[0]]; }).map(function (x) {
     return '<button type="button" data-to="' + x[0] + '">' + x[1] + '</button>';
   }).join('') + '<button type="button" class="fold-all" data-to="all">全部展开</button>';
   var upd = $('p.updated');
@@ -112,7 +114,7 @@
       b.textContent = anyClosed ? '全部收起' : '全部展开';
       return;
     }
-    var target = to === 'signals' ? sig : folds[to].head;
+    var target = to === 'signals' ? sig : to === 'focus' ? $('#sec-focus') : folds[to].head;
     if (folds[to]) folds[to].set(true, true);
     var y = target.getBoundingClientRect().top + window.scrollY - toc.offsetHeight - 8;
     window.scrollTo({ top: y, behavior: 'smooth' });
