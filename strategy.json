@@ -9,5 +9,5 @@
     {"a":{"k":"rsi","n":14},"op":"crossup","b":{"k":"num","v":70}},
     {"a":{"k":"vol"},"op":">","b":{"k":"num","v":5000000}}
   ],
-  "exit": {"sar": false, "ema_cross": [5,10], "swing_low": 0, "max_hold": 90, "stop_pct": 15, "take_pct": 20}
+  "exit": {"sar": true, "ema_cross": [5,20], "swing_low": 2, "swing_alert": true, "max_hold": 90, "stop_pct": 15, "take_pct": 0}
 }

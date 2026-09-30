@@ -3632,7 +3632,7 @@
   // 跟同期"任意一天买进"比 (看信号有没有比随便买好)。统计按月份分：上一个完整月份 = 基准，本月到今天另外算。
   // 用报告里每支股票最近 6 个月的日线 (信号股页面上带的是 2 年，也只取最后 6 个月，跟后台一样)，全部在浏览器里算
   var BT_HORIZONS = [5, 10, 20], BT_START = 25, BT_RECENT_BARS = 20, BT_DIST_EDGES = [-10, -5, 0, 5, 10];
-  var EXIT_DEFAULT = { sar: true, ema_cross: [5, 20], swing_low: 2, max_hold: 30, stop_pct: 0, take_pct: 0, red_candle: false, prior_high: false, resistance: false };
+  var EXIT_DEFAULT = { sar: true, ema_cross: [5, 20], swing_low: 2, max_hold: 30, stop_pct: 0, take_pct: 0, red_candle: false, prior_high: false, resistance: false, swing_alert: false };
   var EXIT_REASONS = { // main.py EXIT_REASON_LABELS 同一份
     stop: ['止损', 'Stop Loss'], swing: ['浮动 HL', 'Trailing HL'], red: ['回调红K', 'Pullback Red Candle'], sar: ['SAR 转空', 'SAR Flip'],
     ema: ['EMA 死叉', 'EMA Cross-down'], take: ['止盈', 'Take Profit'], high: ['历史高点', 'Prior High'], res: ['近期阻力', 'Resistance'],
@@ -3674,13 +3674,14 @@
       take_pct: floatIn(ex.take_pct === undefined ? 0 : ex.take_pct, 0, 1000, 0),
       red_candle: !!ex.red_candle,
       prior_high: !!ex.prior_high,
-      resistance: !!ex.resistance
+      resistance: !!ex.resistance,
+      swing_alert: !!ex.swing_alert // 跌破浮动 HL 只提醒 (记在交易上)，不离场
     };
   }
   function exitLabels(ex) { // main.py exit_labels 同一个顺序：止损 → 止盈 → 趋势 / 时间
     var out = [];
     if (ex.stop_pct) out.push('止损 -' + fmtG(ex.stop_pct) + '% (Stop Loss)');
-    if (ex.swing_low) out.push('跌破浮动 HL，左右 ' + ex.swing_low + ' 根 (Trailing HL)');
+    if (ex.swing_low) out.push('跌破浮动 HL，左右 ' + ex.swing_low + ' 根 (Trailing HL)' + (ex.swing_alert ? '：只提醒不离场 (Alert only)' : ''));
     if (ex.red_candle) out.push('跌破回调红K低点 (Pullback Red Candle)');
     if (ex.take_pct) out.push('止盈 +' + fmtG(ex.take_pct) + '% (Take Profit)');
     if (ex.prior_high) out.push('涨到历史高点 (Prior High)');
@@ -3817,7 +3818,7 @@
         .filter(function (x) { return x !== null && x !== undefined && x < entryPx; });
       var riskLine = swing !== null && swing < entryPx ? swing : stops.length ? Math.max.apply(null, stops) : null;
       var risk = riskLine !== null ? (entryPx - riskLine) / entryPx * 100 : null;
-      var hi = h[e], low = lo[e], reason = 'open';
+      var hi = h[e], low = lo[e], reason = 'open', alert = null;
       var hl = ex.swing_low && swing !== null ? [[dates[i], swing]] : []; // 追溯图上画浮动 HL：从信号日 (已经知道这条线) 画到离场
       j = e;
       for (;;) {
@@ -3830,7 +3831,7 @@
         }
         if (ex.swing_low && swing !== null && (!hl.length || hl[hl.length - 1][1] !== swing)) hl.push([dates[j], swing]); // 追溯图上画浮动 HL 用
         if (ex.stop_pct && c[j] <= entryPx * (1 - ex.stop_pct / 100)) reason = 'stop';
-        else if (ex.swing_low && swing !== null && c[j] < swing) reason = 'swing';
+        else if (ex.swing_low && swing !== null && c[j] < swing && !ex.swing_alert) reason = 'swing';
         else if (red !== null && c[j] < red) reason = 'red';
         else if (ex.sar && bull(j - 1) && !bull(j)) reason = 'sar';
         else if (ex.ema_cross && j >= 1 && emaF[j] !== null && emaS[j] !== null && emaF[j - 1] !== null && emaS[j - 1] !== null &&
@@ -3839,6 +3840,7 @@
         else if (tg.high !== null && c[j] >= tg.high) reason = 'high';
         else if (tg.res !== null && c[j] >= tg.res) reason = 'res';
         else if (ex.max_hold && j - e + 1 >= ex.max_hold) reason = 'time';
+        if (ex.swing_alert && ex.swing_low && swing !== null && c[j] < swing && alert === null) alert = { date: dates[j], price: c[j], hl: swing };
         if (reason !== 'open' || j === n - 1) break;
         j++;
       }
@@ -3849,7 +3851,7 @@
       out.trades.push({
         sig: dates[i], sig_ago: n - 1 - i, entry_date: dates[e], entry: entryPx, exit: c[j], exit_date: dates[j], days: j - e + 1, reason: reason,
         ret: rd(ret), net: rd(ret - cost), mfe: rd((hi / entryPx - 1) * 100), mae: rd((low / entryPx - 1) * 100),
-        risk: risk ? rd(risk) : null, h: hzr, strats: entry[i], rvol: rd(relVolumeAt(vol, i), 4), fresh: i === 0 || !entry[i - 1] ? 1 : 0,
+        risk: risk ? rd(risk) : null, alert: alert, h: hzr, strats: entry[i], rvol: rd(relVolumeAt(vol, i), 4), fresh: i === 0 || !entry[i - 1] ? 1 : 0,
         // 追溯图表用 (后台版本没有)：浮动 HL 每次往上移的日期和价位、回调红K 低点、历史高点 / 近期阻力目标
         lv: { hl: hl, red: red, high: tg.high, res: tg.res }
       });
@@ -4470,7 +4472,7 @@
         sar: ex.sar, ema_on: !!ex.ema_cross, ema_f: ex.ema_cross ? ex.ema_cross[0] : 5, ema_s: ex.ema_cross ? ex.ema_cross[1] : 20,
         swing_on: !!ex.swing_low, swing_k: ex.swing_low || 2, stop_on: !!ex.stop_pct, stop_pct: ex.stop_pct || 8,
         take_on: !!ex.take_pct, take_pct: ex.take_pct || 20, hold_on: !!ex.max_hold, max_hold: ex.max_hold || 30,
-        red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, cost: cost, pos: pos, slots: slots
+        red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, swing_alert: !!ex.swing_alert, cost: cost, pos: pos, slots: slots
       };
     }
     var st = stateFrom(baseExit, be ? be.cost : COST_DEFAULT, POSITION_BACKEND, SLOTS_BACKEND);
@@ -4485,7 +4487,7 @@
       return cleanExit({
         sar: st.sar, ema_cross: st.ema_on ? [st.ema_f, st.ema_s] : null, swing_low: st.swing_on ? st.swing_k : 0,
         max_hold: st.hold_on ? st.max_hold : 0, stop_pct: st.stop_on ? st.stop_pct : 0, take_pct: st.take_on ? st.take_pct : 0,
-        red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on
+        red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on, swing_alert: st.swing_alert
       });
     }
     function costOf() { return floatIn(st.cost, 0, 10, COST_DEFAULT); }

@@ -270,7 +270,7 @@ DEFAULT_STRATEGY = {
     #   止盈：固定 % (take_pct)、历史高点 (prior_high)、近期阻力 (resistance)
     #   趋势 / 时间：SAR 转空、EMA 快线下穿慢线、最多持有几天 (0 / false = 不用那一条)
     "exit": {"sar": True, "ema_cross": [5, 20], "swing_low": 2, "max_hold": 30, "stop_pct": 0, "take_pct": 0,
-             "red_candle": False, "prior_high": False, "resistance": False},
+             "red_candle": False, "prior_high": False, "resistance": False, "swing_alert": False},
     "slots": 3,
 }
 EXIT_DEFAULT = DEFAULT_STRATEGY["exit"]
@@ -320,6 +320,7 @@ def clean_exit(ex):
         "red_candle": bool(ex.get("red_candle", False)),
         "prior_high": bool(ex.get("prior_high", False)),
         "resistance": bool(ex.get("resistance", False)),
+        "swing_alert": bool(ex.get("swing_alert", False)),  # True = 跌破浮动 HL 只发 alert (记在交易上)，不离场；离场交给 SAR / EMA 死叉
     }
 
 
@@ -412,7 +413,7 @@ def exit_labels(ex):
     if ex["stop_pct"]:
         out.append(f"止损 -{ex['stop_pct']:g}% (Stop Loss)")
     if ex["swing_low"]:
-        out.append(f"跌破浮动 HL，左右 {ex['swing_low']} 根 (Trailing HL)")
+        out.append(f"跌破浮动 HL，左右 {ex['swing_low']} 根 (Trailing HL)" + ("：只提醒不离场 (Alert only)" if ex["swing_alert"] else ""))
     if ex["red_candle"]:
         out.append("跌破回调红K低点 (Pullback Red Candle)")
     if ex["take_pct"]:
@@ -612,7 +613,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
         risk_line = swing if swing is not None and swing < entry_px else max(stops) if stops else None
         risk = (entry_px - risk_line) / entry_px * 100 if risk_line is not None else None
         hi, low_ = h[e], lo[e]
-        j, reason = e, "open"
+        j, reason, alert = e, "open", None
         while True:
             hi, low_ = max(hi, h[j]), min(low_, lo[j])
             if piv and j - 1 - k > (swing_p if swing_p is not None else -1) and j - 1 - k >= 0 and piv[j - 1 - k]:
@@ -620,7 +621,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
                 swing = lo[swing_p] if swing is None else max(swing, lo[swing_p])  # 只往上移 (跟踪止损)
             if ex["stop_pct"] and c[j] <= entry_px * (1 - ex["stop_pct"] / 100):
                 reason = "stop"
-            elif ex["swing_low"] and swing is not None and c[j] < swing:
+            elif ex["swing_low"] and swing is not None and c[j] < swing and not ex["swing_alert"]:
                 reason = "swing"
             elif red is not None and c[j] < red:
                 reason = "red"
@@ -637,6 +638,8 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
                 reason = "res"
             elif ex["max_hold"] and j - e + 1 >= ex["max_hold"]:
                 reason = "time"
+            if ex["swing_alert"] and ex["swing_low"] and swing is not None and c[j] < swing and alert is None:
+                alert = {"date": dates[j], "price": c[j], "hl": swing}  # 跌破最近回调低点：提醒，等 SAR / EMA 确认才离场
             if reason != "open" or j == n - 1:
                 break
             j += 1
@@ -649,7 +652,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
             "sig": dates[i], "sig_ago": n - 1 - i, "entry_date": dates[e], "entry": entry_px, "exit": c[j], "exit_date": dates[j],
             "days": j - e + 1, "reason": reason, "ret": _r(ret), "net": _r(ret - cost),
             "mfe": _r((hi / entry_px - 1) * 100), "mae": _r((low_ / entry_px - 1) * 100),
-            "risk": _r(risk) if risk else None, "h": horizons, "strats": entry[i], "rvol": _r(rel_volume_at(v, i), 4),
+            "risk": _r(risk) if risk else None, "alert": alert, "h": horizons, "strats": entry[i], "rvol": _r(rel_volume_at(v, i), 4),
             "fresh": 1 if i == 0 or not entry[i - 1] else 0,  # 新出现的信号 (前一天还没有)；满仓跳过只数这种
         })
         i = i + 1 if every_signal else j + 1
