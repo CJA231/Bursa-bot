@@ -270,7 +270,8 @@ DEFAULT_STRATEGY = {
     #   止盈：固定 % (take_pct)、历史高点 (prior_high)、近期阻力 (resistance)
     #   趋势 / 时间：SAR 转空、EMA 快线下穿慢线、最多持有几天 (0 / false = 不用那一条)
     "exit": {"sar": True, "ema_cross": [5, 20], "swing_low": 2, "max_hold": 30, "stop_pct": 0, "take_pct": 0,
-             "red_candle": False, "prior_high": False, "resistance": False},
+             "red_candle": False, "prior_high": False, "resistance": False, "swing_alert": False,
+             "entry_close": False, "max_risk": 0},
     "slots": 3,
 }
 EXIT_DEFAULT = DEFAULT_STRATEGY["exit"]
@@ -320,6 +321,9 @@ def clean_exit(ex):
         "red_candle": bool(ex.get("red_candle", False)),
         "prior_high": bool(ex.get("prior_high", False)),
         "resistance": bool(ex.get("resistance", False)),
+        "entry_close": bool(ex.get("entry_close", False)),  # True = 信号日收盘价进场 (False = 隔天开盘价)
+        "max_risk": _float_in(ex.get("max_risk", 0), 0, 90, 0),  # 入场风险 (进场价到最近回调低点) 超过这个 % 就不进；0 = 不限
+        "swing_alert": bool(ex.get("swing_alert", False)),  # True = 跌破浮动 HL 只发 alert (记在交易上)，不离场；离场交给 SAR / EMA 死叉
     }
 
 
@@ -401,6 +405,7 @@ for _s in STRATEGY["strategies"]:
 def strategy_meta():
     """页面 #report-meta 里的后台策略 (网页内置模板、自定义回测、设为后台信号用)"""
     return {"name": STRATEGY["name"], "exit": STRATEGY["exit"], "cost": STRATEGY["cost"], "position": STRATEGY["position"],
+            "sig": strategy_signature(),
             "slots": STRATEGY["slots"],
             "strategies": [{"name": s["name"], "match": s["match"], "min": s["min"], "rules": s["rules"]} for s in STRATEGY["strategies"]],
             "file_strategies": STRATEGY["file_strategies"]}
@@ -412,7 +417,7 @@ def exit_labels(ex):
     if ex["stop_pct"]:
         out.append(f"止损 -{ex['stop_pct']:g}% (Stop Loss)")
     if ex["swing_low"]:
-        out.append(f"跌破浮动 HL，左右 {ex['swing_low']} 根 (Trailing HL)")
+        out.append(f"跌破浮动 HL，左右 {ex['swing_low']} 根 (Trailing HL)" + ("：只提醒不离场 (Alert only)" if ex["swing_alert"] else ""))
     if ex["red_candle"]:
         out.append("跌破回调红K低点 (Pullback Red Candle)")
     if ex["take_pct"]:
@@ -582,8 +587,9 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
     def bull(i):
         return sar[i] is not None and engine.js_round(c[i], 3) > engine.js_round(sar[i], 3)
 
+    cl = ex["entry_close"]
     for i in range(BT_START, n - 1):
-        entry_px = o[i + 1]
+        entry_px = c[i] if cl else o[i + 1]
         if not entry_px or entry_px <= 0:
             continue
         for hz in BT_HORIZONS:
@@ -596,12 +602,12 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
                 b[2] += r > 0
 
     i = BT_START
-    while i < n - 1:  # 最后一天的信号 = 今天的信号，还没有"隔天开盘"，不算进回测
-        if not entry[i] or not o[i + 1] or o[i + 1] <= 0:
+    while i < (n if cl else n - 1):  # 隔天开盘进场：最后一天的信号还没有"隔天开盘"，不算进回测；收盘价进场：今天的信号也算
+        if not entry[i] or not (c[i] if cl else o[i + 1]) or (c[i] if cl else o[i + 1]) <= 0:
             i += 1
             continue
-        e = i + 1
-        entry_px = o[e]
+        e = i if cl else i + 1
+        entry_px = c[e] if cl else o[e]
         swing_p = latest_pivot(piv, k, i) if piv else None
         swing = lo[swing_p] if swing_p is not None else None
         red = red_candle_low(o, c, lo, i) if ex["red_candle"] else None
@@ -611,16 +617,23 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
                              entry_px * (1 - ex["stop_pct"] / 100) if ex["stop_pct"] else None) if x is not None and x < entry_px]
         risk_line = swing if swing is not None and swing < entry_px else max(stops) if stops else None
         risk = (entry_px - risk_line) / entry_px * 100 if risk_line is not None else None
-        hi, low_ = h[e], lo[e]
-        j, reason = e, "open"
-        while True:
+        if ex["max_risk"] and risk is not None and risk > ex["max_risk"]:  # 风险太大：这个信号不进
+            i += 1
+            continue
+        hi, low_ = (entry_px, entry_px) if cl else (h[e], lo[e])
+        j, reason, alert = e, "open", None
+        while j < n:
+            if cl and j == e:  # 收盘价进场：进场那天不检查离场，从隔天起
+                if e == n - 1:
+                    break
+                j += 1
             hi, low_ = max(hi, h[j]), min(low_, lo[j])
             if piv and j - 1 - k > (swing_p if swing_p is not None else -1) and j - 1 - k >= 0 and piv[j - 1 - k]:
                 swing_p = j - 1 - k
                 swing = lo[swing_p] if swing is None else max(swing, lo[swing_p])  # 只往上移 (跟踪止损)
             if ex["stop_pct"] and c[j] <= entry_px * (1 - ex["stop_pct"] / 100):
                 reason = "stop"
-            elif ex["swing_low"] and swing is not None and c[j] < swing:
+            elif ex["swing_low"] and swing is not None and c[j] < swing and not ex["swing_alert"]:
                 reason = "swing"
             elif red is not None and c[j] < red:
                 reason = "red"
@@ -635,31 +648,33 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False):
                 reason = "high"
             elif res_t is not None and c[j] >= res_t:
                 reason = "res"
-            elif ex["max_hold"] and j - e + 1 >= ex["max_hold"]:
+            elif ex["max_hold"] and j - e + (0 if cl else 1) >= ex["max_hold"]:
                 reason = "time"
+            if ex["swing_alert"] and ex["swing_low"] and swing is not None and c[j] < swing and alert is None:
+                alert = {"date": dates[j], "price": c[j], "hl": swing}  # 跌破最近回调低点：提醒，等 SAR / EMA 确认才离场
             if reason != "open" or j == n - 1:
                 break
             j += 1
         horizons = {}
         for hz in BT_HORIZONS:
-            q = e + hz - 1
+            q = e + hz - (0 if cl else 1)
             horizons[hz] = _r((c[q] / entry_px - 1) * 100) if q < n else None
         ret = (c[j] / entry_px - 1) * 100
         out["trades"].append({
             "sig": dates[i], "sig_ago": n - 1 - i, "entry_date": dates[e], "entry": entry_px, "exit": c[j], "exit_date": dates[j],
-            "days": j - e + 1, "reason": reason, "ret": _r(ret), "net": _r(ret - cost),
+            "days": j - e + (0 if cl else 1), "reason": reason, "ret": _r(ret), "net": _r(ret - cost),
             "mfe": _r((hi / entry_px - 1) * 100), "mae": _r((low_ / entry_px - 1) * 100),
-            "risk": _r(risk) if risk else None, "h": horizons, "strats": entry[i], "rvol": _r(rel_volume_at(v, i), 4),
+            "risk": _r(risk) if risk else None, "alert": alert, "h": horizons, "strats": entry[i], "rvol": _r(rel_volume_at(v, i), 4),
             "fresh": 1 if i == 0 or not entry[i - 1] else 0,  # 新出现的信号 (前一天还没有)；满仓跳过只数这种
         })
         i = i + 1 if every_signal else j + 1
     return out
 
 
-def portfolio_trades(trades, slots):
+def portfolio_trades(trades, slots, prior=()):
     """账户模式 (网页 portfolioTrades 同一套)：最多同时持有 slots 笔。按进场日排，同一天相对量高的先、再按代码；
     同一支股票还拿着就不重复买；满了就跳过 (等止盈 / 止损结算后，隔天起才有空位)。返回 (买进的, 满仓跳过几个)"""
-    held, taken, skipped = [], [], 0
+    held, taken, skipped = list(prior), [], 0  # prior = 账本里已经买进的 (占着仓位)，只挑 trades 里新的
     for t in sorted(trades, key=lambda t: (t["entry_date"], -t["rvol"], t.get("code", ""))):
         held = [x for x in held if x["reason"] == "open" or x["exit_date"] >= t["entry_date"]]
         if any(x.get("code") == t.get("code") for x in held):
@@ -758,17 +773,46 @@ def month_windows(last_day):
             ("both", "合计", prev_start, last_day)]
 
 
+def numpy_busday(a, b):
+    import numpy as np
+    return np.busday_count(a, b)
+
+
+LEDGER_PATH = os.path.join(DOCS_DIR, "backtest_ledger.json")
+
+
+def strategy_signature():
+    """账本对应的策略指纹：进场条件、离场规则、成本、仓位数任何一样改了，账本就重新从头建 (只改每笔金额不算)"""
+    body = json.dumps({"s": [(s["match"], s["min"], s["rules"]) for s in STRATEGY["strategies"]], "e": STRATEGY["exit"],
+                       "c": STRATEGY["cost"], "n": STRATEGY["slots"]}, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(body.encode("utf-8")).hexdigest()[:12]
+
+
+def load_ledger():
+    try:
+        with open(LEDGER_PATH, encoding="utf-8") as f:
+            led = json.load(f)
+        if led.get("v") == 1 and led.get("sig") == strategy_signature() and isinstance(led.get("trades"), list):
+            for t in led["trades"]:
+                t["h"] = {int(k): x for k, x in (t.get("h") or {}).items()}
+            led["base"] = {int(k): v for k, v in led["base"].items()}
+            return led
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
 def summarize_backtest(stocks):
-    """每支股票的回测合起来 → 页面上"策略回测"区块要的数字。没有任何数据返回 None"""
-    trades, base = [], {h: [0.0, 0, 0] for h in BT_HORIZONS}
+    """回测统计。数字来自「账本」(docs/backtest_ledger.json)，不是每天拿当天报告里的股票重算：
+    第一次 (或策略改了) 用手上的日线建账本；之后只会 ① 让持有中的交易继续走 / 结算 ② 加进账本建好之后新出现的信号 (按仓位数挑)。
+    已经结算的交易、以及后来才进报告的股票的旧信号，都不会再改动 → 统计数字只在有新交易 / 持有的交易结算时才变。"""
+    raw, base = [], {h: [0.0, 0, 0] for h in BT_HORIZONS}
     first_day = last_day = None
-    n_stocks = 0
     for st in stocks:
         data = st.get("data")
         bt = data and data.get("backtest")
         if not bt:
             continue
-        n_stocks += 1
         if bt.get("from"):
             first_day = min(first_day or bt["from"], bt["from"])
         for hz, (tot, cnt, win) in bt["base"].items():
@@ -776,15 +820,40 @@ def summarize_backtest(stocks):
             base[hz][1] += cnt
             base[hz][2] += win
         for t in bt["trades"]:
-            trades.append(dict(t, code=st["symbol"].split(".")[0], name=st["name"]))
+            raw.append(dict(t, code=st["symbol"].split(".")[0], name=st["name"]))
         if data.get("last_date"):
             last_day = max(last_day or data["last_date"], data["last_date"])
-    if not n_stocks or not last_day:
+    if not last_day:
         return None
     slots = STRATEGY["slots"]
-    n_signals, skipped = sum(t.get("fresh", 1) for t in trades), 0  # 信号个数 = 新出现的 (连续几天成立算一次)
-    if slots:  # 账户模式：最多同时 slots 笔，满了跳过
-        trades, skipped = portfolio_trades(trades, slots)
+    cap = slots or 10 ** 6
+    led = load_ledger()
+    if led is None:  # 建账本：手上所有日线里的信号一次收进来
+        taken, skipped = portfolio_trades(raw, cap)
+        led = {"v": 1, "sig": strategy_signature(), "from": first_day, "base": base, "trades": taken,
+               "signals": sum(t.get("fresh", 1) for t in raw), "skipped": skipped}
+    else:
+        by_key = {(t["code"], t["sig"]): t for t in raw}
+        led["trades"] = [by_key.get((t["code"], t["sig"]), t) if t["reason"] == "open" else t for t in led["trades"]]  # 持有中的继续走
+        seen = {(t["code"], t["sig"]) for t in led["trades"]}
+        new = [t for t in raw if (t["code"], t["sig"]) not in seen and t["sig"] > led["last"]]  # 只收账本建好以后才出现的信号
+        taken, skipped = portfolio_trades(new, cap, prior=led["trades"])
+        led["trades"] += taken
+        led["signals"] += sum(t.get("fresh", 1) for t in new)
+        led["skipped"] += skipped
+    led["last"] = max(last_day, led.get("last") or last_day)
+    last_day = led["last"]
+    for t in led["trades"]:  # 距今几个交易日 (周末以外的休市日不扣，够用)
+        t["sig_ago"] = int(numpy_busday(t["sig"], last_day))
+    try:
+        os.makedirs(os.path.dirname(LEDGER_PATH) or ".", exist_ok=True)
+        with open(LEDGER_PATH, "w", encoding="utf-8") as f:
+            json.dump(led, f, ensure_ascii=False, separators=(",", ":"))
+    except OSError as e:
+        print(f"⚠️ 回测账本写不了 ({e})")
+    trades, base, first_day = led["trades"], led["base"], led["from"]
+    n_stocks = len({t["code"] for t in trades})
+    n_signals, skipped = led["signals"], led["skipped"]
     horizons = []
     for hz in BT_HORIZONS:
         rs = [t["h"][hz] for t in trades if t["h"].get(hz) is not None]
@@ -806,7 +875,7 @@ def summarize_backtest(stocks):
     monthly = [dict(month=mth, **trade_stats(ts, slots)) for mth, ts in sorted(months.items())]
     return {
         "stocks": n_stocks, "from": first_day, "to": last_day, "cost": STRATEGY["cost"], "position": STRATEGY["position"],
-        "slots": slots, "signals": n_signals, "skipped": skipped,
+        "slots": slots, "signals": n_signals, "skipped": skipped, "sig": led["sig"],
         "name": STRATEGY["name"], "strategies": [st["name"] for st in STRATEGY["strategies"]], "exit": STRATEGY["exit"],
         "all": trade_stats(trades, slots), "windows": windows, "monthly": monthly, "horizons": horizons, "dist": dist,
         "recent": sorted((t for t in trades if t["sig_ago"] <= BT_RECENT_BARS), key=lambda t: (t["sig_ago"], -t["ret"]))[:40],
@@ -957,7 +1026,7 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 "rule_tags": [(STRATEGY["strategies"][k]["name"], rule_tags(ctx, STRATEGY["strategies"][k])) for k in hit_idx] or None,
                 "stop_ref": (round(stop_ref[0], 4), stop_ref[1]) if stop_ref else None,
                 "last_date": bar_dates[-1] if bar_dates else None,
-                "backtest": backtest_stock(bars, bar_dates, entry, ex, STRATEGY["cost"], series, every_signal=bool(STRATEGY["slots"])),
+                "backtest": backtest_stock(bars, bar_dates, entry, ex, STRATEGY["cost"], series, every_signal=True),
                 "daily_bars": compact_bars(df, intraday=False),  # 点开看完整图表 + 网页上的选股条件用 (只有表格股票会写进 table.json)
                 "candles": candles,
                 "ema20": ema20,

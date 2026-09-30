@@ -3632,7 +3632,7 @@
   // 跟同期"任意一天买进"比 (看信号有没有比随便买好)。统计按月份分：上一个完整月份 = 基准，本月到今天另外算。
   // 用报告里每支股票最近 6 个月的日线 (信号股页面上带的是 2 年，也只取最后 6 个月，跟后台一样)，全部在浏览器里算
   var BT_HORIZONS = [5, 10, 20], BT_START = 25, BT_RECENT_BARS = 20, BT_DIST_EDGES = [-10, -5, 0, 5, 10];
-  var EXIT_DEFAULT = { sar: true, ema_cross: [5, 20], swing_low: 2, max_hold: 30, stop_pct: 0, take_pct: 0, red_candle: false, prior_high: false, resistance: false };
+  var EXIT_DEFAULT = { sar: true, ema_cross: [5, 20], swing_low: 2, max_hold: 30, stop_pct: 0, take_pct: 0, red_candle: false, prior_high: false, resistance: false, swing_alert: false, entry_close: false, max_risk: 0 };
   var EXIT_REASONS = { // main.py EXIT_REASON_LABELS 同一份
     stop: ['止损', 'Stop Loss'], swing: ['浮动 HL', 'Trailing HL'], red: ['回调红K', 'Pullback Red Candle'], sar: ['SAR 转空', 'SAR Flip'],
     ema: ['EMA 死叉', 'EMA Cross-down'], take: ['止盈', 'Take Profit'], high: ['历史高点', 'Prior High'], res: ['近期阻力', 'Resistance'],
@@ -3674,13 +3674,16 @@
       take_pct: floatIn(ex.take_pct === undefined ? 0 : ex.take_pct, 0, 1000, 0),
       red_candle: !!ex.red_candle,
       prior_high: !!ex.prior_high,
-      resistance: !!ex.resistance
+      resistance: !!ex.resistance,
+      entry_close: !!ex.entry_close, // 信号日收盘价进场 (否则隔天开盘)
+      max_risk: floatIn(ex.max_risk === undefined ? 0 : ex.max_risk, 0, 90, 0), // 入场风险超过这个 % 不进，0 = 不限
+      swing_alert: !!ex.swing_alert // 跌破浮动 HL 只提醒 (记在交易上)，不离场
     };
   }
   function exitLabels(ex) { // main.py exit_labels 同一个顺序：止损 → 止盈 → 趋势 / 时间
     var out = [];
     if (ex.stop_pct) out.push('止损 -' + fmtG(ex.stop_pct) + '% (Stop Loss)');
-    if (ex.swing_low) out.push('跌破浮动 HL，左右 ' + ex.swing_low + ' 根 (Trailing HL)');
+    if (ex.swing_low) out.push('跌破浮动 HL，左右 ' + ex.swing_low + ' 根 (Trailing HL)' + (ex.swing_alert ? '：只提醒不离场 (Alert only)' : ''));
     if (ex.red_candle) out.push('跌破回调红K低点 (Pullback Red Candle)');
     if (ex.take_pct) out.push('止盈 +' + fmtG(ex.take_pct) + '% (Take Profit)');
     if (ex.prior_high) out.push('涨到历史高点 (Prior High)');
@@ -3793,8 +3796,9 @@
     var k = ex.swing_low || HL_K_DEFAULT, piv = pivotLows(lo, k), phi = ex.resistance ? pivotHighs(h, RES_K) : null;
     function bull(i) { return sar[i] !== null && sar[i] !== undefined && rnd3(c[i]) > rnd3(sar[i]); }
     var i, j, hz;
+    var cl = !!ex.entry_close;
     for (i = BT_START; i < n - 1; i++) {
-      var px = o[i + 1];
+      var px = cl ? c[i] : o[i + 1];
       if (!(px > 0)) continue;
       for (hz = 0; hz < BT_HORIZONS.length; hz++) {
         j = i + BT_HORIZONS[hz];
@@ -3805,9 +3809,9 @@
       }
     }
     i = BT_START;
-    while (i < n - 1) { // 最后一天的信号 = 今天的信号，还没有"隔天开盘"，不算进回测
-      if (!entry[i] || !(o[i + 1] > 0)) { i++; continue; }
-      var e = i + 1, entryPx = o[e];
+    while (i < (cl ? n : n - 1)) { // 隔天开盘进场：今天的信号不算；收盘价进场：今天的信号也算
+      if (!entry[i] || !((cl ? c[i] : o[i + 1]) > 0)) { i++; continue; }
+      var e = cl ? i : i + 1, entryPx = cl ? c[e] : o[e];
       var swingP = piv ? latestPivot(piv, k, i) : null;
       var swing = swingP !== null ? lo[swingP] : null;
       var red = ex.red_candle ? redCandleLow(o, c, lo, i) : null;
@@ -3817,10 +3821,12 @@
         .filter(function (x) { return x !== null && x !== undefined && x < entryPx; });
       var riskLine = swing !== null && swing < entryPx ? swing : stops.length ? Math.max.apply(null, stops) : null;
       var risk = riskLine !== null ? (entryPx - riskLine) / entryPx * 100 : null;
-      var hi = h[e], low = lo[e], reason = 'open';
+      if (ex.max_risk && risk !== null && risk > ex.max_risk) { i++; continue; } // 风险太大不进
+      var hi = cl ? entryPx : h[e], low = cl ? entryPx : lo[e], reason = 'open', alert = null;
       var hl = ex.swing_low && swing !== null ? [[dates[i], swing]] : []; // 追溯图上画浮动 HL：从信号日 (已经知道这条线) 画到离场
       j = e;
       for (;;) {
+        if (cl && j === e) { if (e === n - 1) break; j++; } // 收盘价进场：进场那天不检查离场
         hi = Math.max(hi, h[j]);
         low = Math.min(low, lo[j]);
         var q = j - 1 - k;
@@ -3830,7 +3836,7 @@
         }
         if (ex.swing_low && swing !== null && (!hl.length || hl[hl.length - 1][1] !== swing)) hl.push([dates[j], swing]); // 追溯图上画浮动 HL 用
         if (ex.stop_pct && c[j] <= entryPx * (1 - ex.stop_pct / 100)) reason = 'stop';
-        else if (ex.swing_low && swing !== null && c[j] < swing) reason = 'swing';
+        else if (ex.swing_low && swing !== null && c[j] < swing && !ex.swing_alert) reason = 'swing';
         else if (red !== null && c[j] < red) reason = 'red';
         else if (ex.sar && bull(j - 1) && !bull(j)) reason = 'sar';
         else if (ex.ema_cross && j >= 1 && emaF[j] !== null && emaS[j] !== null && emaF[j - 1] !== null && emaS[j - 1] !== null &&
@@ -3838,18 +3844,19 @@
         else if (ex.take_pct && c[j] >= entryPx * (1 + ex.take_pct / 100)) reason = 'take';
         else if (tg.high !== null && c[j] >= tg.high) reason = 'high';
         else if (tg.res !== null && c[j] >= tg.res) reason = 'res';
-        else if (ex.max_hold && j - e + 1 >= ex.max_hold) reason = 'time';
+        else if (ex.max_hold && j - e + (cl ? 0 : 1) >= ex.max_hold) reason = 'time';
+        if (ex.swing_alert && ex.swing_low && swing !== null && c[j] < swing && alert === null) alert = { date: dates[j], price: c[j], hl: swing };
         if (reason !== 'open' || j === n - 1) break;
         j++;
       }
       if (hl.length && hl[hl.length - 1][0] !== dates[j]) hl.push([dates[j], hl[hl.length - 1][1]]);
       var hzr = {};
-      BT_HORIZONS.forEach(function (x) { var qq = e + x - 1; hzr[x] = qq < n ? rd((c[qq] / entryPx - 1) * 100) : null; });
+      BT_HORIZONS.forEach(function (x) { var qq = e + x - (cl ? 0 : 1); hzr[x] = qq < n ? rd((c[qq] / entryPx - 1) * 100) : null; });
       var ret = (c[j] / entryPx - 1) * 100;
       out.trades.push({
-        sig: dates[i], sig_ago: n - 1 - i, entry_date: dates[e], entry: entryPx, exit: c[j], exit_date: dates[j], days: j - e + 1, reason: reason,
+        sig: dates[i], sig_ago: n - 1 - i, entry_date: dates[e], entry: entryPx, exit: c[j], exit_date: dates[j], days: j - e + (cl ? 0 : 1), reason: reason,
         ret: rd(ret), net: rd(ret - cost), mfe: rd((hi / entryPx - 1) * 100), mae: rd((low / entryPx - 1) * 100),
-        risk: risk ? rd(risk) : null, h: hzr, strats: entry[i], rvol: rd(relVolumeAt(vol, i), 4), fresh: i === 0 || !entry[i - 1] ? 1 : 0,
+        risk: risk ? rd(risk) : null, alert: alert, h: hzr, strats: entry[i], rvol: rd(relVolumeAt(vol, i), 4), fresh: i === 0 || !entry[i - 1] ? 1 : 0,
         // 追溯图表用 (后台版本没有)：浮动 HL 每次往上移的日期和价位、回调红K 低点、历史高点 / 近期阻力目标
         lv: { hl: hl, red: red, high: tg.high, res: tg.res }
       });
@@ -3952,6 +3959,14 @@
     return [['prev', '上个月 ' + pm + '\u00a0月', prevStart, prevEnd], ['cur', '本月至今 ' + m + '\u00a0月', y + '-' + p2(m) + '-01', lastDay],
       ['both', '合计', prevStart, lastDay]];
   }
+  var ledgerPromise = null;
+  function loadLedger() { // 拿不到 / 策略指纹对不上 (账本还没按新策略重建) → null，退回用报告里的股票重算
+    if (!ledgerPromise) {
+      ledgerPromise = fetch('backtest_ledger.json', { cache: 'no-cache' }).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { return j && j.v === 1 && j.sig === (META.strategy && META.strategy.sig) && isArr(j.trades) ? j : null; }, function () { return null; });
+    }
+    return ledgerPromise;
+  }
   // 报告里每支股票跑一遍 → 跟后台 summarize_backtest 一样的统计 (没有任何数据返回 null)
   // strategies = [{compiled (都是没错的条件), spec}]：任何一套命中就是信号 (entry 用位元记哪几套)；slots = 最多同时持有几笔 (0 = 不限)
   function runBacktest(universe, strategies, exit, cost, position, slots) {
@@ -3979,6 +3994,18 @@
     if (!nStocks || !last) return null;
     var nSignals = sumOf(trades.map(function (t) { return t.fresh === undefined ? 1 : t.fresh; })), skipped = 0; // 连续几天成立算一次
     if (slots) { var pf = portfolioTrades(trades, slots); trades = pf.trades; skipped = pf.skipped; }
+    return finishBacktest(trades, base, { stocks: nStocks, from: first, to: last, signals: nSignals, skipped: skipped }, ex, cost, position, slots);
+  }
+  // 后台账本 (docs/backtest_ledger.json，main.py summarize_backtest 写的)：交易是固定的，不随报告里的股票变；只有新交易 / 持有中的结算才会让数字变
+  function ledgerBacktest(led, ex, cost, position, slots) {
+    var base = BT_HORIZONS.map(function (x) { var b = led.base[x] || led.base[String(x)] || [0, 0, 0]; return [b[0], b[1], b[2]]; });
+    var codes = {};
+    led.trades.forEach(function (t) { codes[t.code] = 1; if (t.h) { var h = {}; BT_HORIZONS.forEach(function (x) { h[x] = t.h[x] === undefined ? t.h[String(x)] : t.h[x]; }); t.h = h; } });
+    return finishBacktest(led.trades.slice(), base, { stocks: Object.keys(codes).length, from: led.from, to: led.last, signals: led.signals, skipped: led.skipped },
+      ex, cost, position, slots);
+  }
+  function finishBacktest(trades, base, meta, ex, cost, position, slots) {
+    var nStocks = meta.stocks, first = meta.from, last = meta.to, nSignals = meta.signals, skipped = meta.skipped;
     var horizons = BT_HORIZONS.map(function (x, k) {
       var rs = trades.filter(function (t) { return t.h[x] !== null && t.h[x] !== undefined; }).map(function (t) { return t.h[x]; });
       var b = base[k];
@@ -4470,7 +4497,7 @@
         sar: ex.sar, ema_on: !!ex.ema_cross, ema_f: ex.ema_cross ? ex.ema_cross[0] : 5, ema_s: ex.ema_cross ? ex.ema_cross[1] : 20,
         swing_on: !!ex.swing_low, swing_k: ex.swing_low || 2, stop_on: !!ex.stop_pct, stop_pct: ex.stop_pct || 8,
         take_on: !!ex.take_pct, take_pct: ex.take_pct || 20, hold_on: !!ex.max_hold, max_hold: ex.max_hold || 30,
-        red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, cost: cost, pos: pos, slots: slots
+        red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, swing_alert: !!ex.swing_alert, entry_close: !!ex.entry_close, max_risk: ex.max_risk || 0, cost: cost, pos: pos, slots: slots
       };
     }
     var st = stateFrom(baseExit, be ? be.cost : COST_DEFAULT, POSITION_BACKEND, SLOTS_BACKEND);
@@ -4485,7 +4512,7 @@
       return cleanExit({
         sar: st.sar, ema_cross: st.ema_on ? [st.ema_f, st.ema_s] : null, swing_low: st.swing_on ? st.swing_k : 0,
         max_hold: st.hold_on ? st.max_hold : 0, stop_pct: st.stop_on ? st.stop_pct : 0, take_pct: st.take_on ? st.take_pct : 0,
-        red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on
+        red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on, swing_alert: st.swing_alert, entry_close: st.entry_close, max_risk: st.max_risk
       });
     }
     function costOf() { return floatIn(st.cost, 0, 10, COST_DEFAULT); }
@@ -4580,10 +4607,15 @@
       var id = ++runId;
       res.classList.add('busy');
       if (!res.firstChild) res.innerHTML = '<p class="sp-loading">回测中…</p>';
-      loadUniverse().then(function (u) {
+      // 后台信号 + 设定没改 → 用后台账本 (固定的交易记录)；改了设定 / 别的来源才用报告里的股票重算
+      var untouched = srcKey === 'backend' && be && META.strategy && META.strategy.sig && cost === be.cost && pos === POSITION_BACKEND && slots === SLOTS_BACKEND &&
+        JSON.stringify(ex) === JSON.stringify(baseExit);
+      var ledgerP = untouched ? loadLedger() : Promise.resolve(null);
+      Promise.all([ledgerP, loadUniverse()]).then(function (both) {
+        var u = both[1], led = both[0];
         setTimeout(function () { // 让"计算中"先画出来
           if (id !== runId || !root.isConnected) return;
-          var bt = runBacktest(u, strategies, ex, cost, pos, slots);
+          var bt = led ? ledgerBacktest(led, ex, cost, pos, slots) : runBacktest(u, strategies, ex, cost, pos, slots);
           res.classList.remove('busy');
           if (bt) bt.stratNames = strategies.map(function (x) { return x.name; });
           last = bt ? { src: src, ex: ex, cost: cost, pos: pos, slots: slots, bt: bt } : null;

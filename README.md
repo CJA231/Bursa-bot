@@ -289,3 +289,5 @@ Bursa-bot/
 ## License
 
 本仓库为 **All Rights Reserved**，详见 [`LICENSE`](./LICENSE)。仓库保持公开是为了使用免费版 GitHub Pages，并不代表开放授权使用；vendor 引入的第三方组件（TradingView Lightweight Charts）保留其原有的 Apache 2.0 授权。
+
+**回测账本 (Backtest ledger)**：后台回测的交易记录固定存在 `docs/backtest_ledger.json` (美股 `docs/us/`)，不会因为每天进报告的股票不同而重算。第一次 (或进场 / 离场规则、成本、仓位数改了) 用手上的日线建账本；之后只加账本建好以后新出现的信号、并让持有中的交易继续走到结算，已结算的交易不再改动。想手动重建，删掉这个文件即可。
