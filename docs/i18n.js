@@ -97,7 +97,7 @@
 
 
   Object.assign(EXACT, {
-    '笔': 'trades', '详情 ↗': 'Details ↗', '编辑': 'Edit', '筛选　排序　☆': 'Filter · Sort · ☆', '股票池': 'Universe', '计划 R/R': 'Plan R/R', '命中': 'Matches', '停损': 'Stop', '全部名词解释 ›': 'Full glossary ›', '合计': 'Total', '指标': 'Indicators', '我的筛选器': 'My screener', '点一下改名，自动保存': 'Tap to rename; auto-saved', '选股条件说明': 'About screen rules', '后台信号说明': 'About strategy signals',
+    '笔': 'trades', '是不是靠运气 Robustness': 'Robustness', '是不是靠运气': 'Is it luck?', '只算已平仓': 'Closed trades only', '净收益 (占本金)': 'Net return (% of capital)', '月度收益': 'Monthly return', '逐笔净收益分布': 'Trade return distribution', '账户权益 · 含每日持仓浮盈亏': 'Account equity · marked to market daily', '净收益 (扣成本，含持仓浮盈亏)': 'Net return (after costs, incl. open P/L)', '最大回撤 (每日权益)': 'Max drawdown (daily equity)', '已平仓 · 持有中': 'Closed · Open', '每笔期望值 / 中位数': 'Expectancy / median per trade', '样本少 (< 30 笔)': 'Small sample (< 30 trades)', '策略': 'Strategy', '基准：报告内全部股票等权持有': 'Benchmark: equal-weight all stocks in report', '去掉最赚 1 笔': 'Without the best trade', '去掉最赚 3 笔': 'Without the best 3 trades', '详情 ↗': 'Details ↗', '编辑': 'Edit', '筛选　排序　☆': 'Filter · Sort · ☆', '股票池': 'Universe', '计划 R/R': 'Plan R/R', '命中': 'Matches', '停损': 'Stop', '全部名词解释 ›': 'Full glossary ›', '合计': 'Total', '指标': 'Indicators', '我的筛选器': 'My screener', '点一下改名，自动保存': 'Tap to rename; auto-saved', '选股条件说明': 'About screen rules', '后台信号说明': 'About strategy signals',
     '策略回测说明': 'About the strategy backtest', '公司公告说明': 'About company filings', '其余股票说明': 'About other stocks', '今日走势 (虚线=昨收)': "Today's move (dashed = prev close)",
     '累计盈亏说明': 'About cumulative P/L', '月度表现说明': 'About monthly performance', '版权与免责声明': 'Copyright & disclaimer', '图表类型': 'Chart type',
     '导航：市场、概览、工具、自选、筛选器种类、下载': 'Menu: market, overview, tools, watchlist, screeners, downloads', '盘中信号：用的是还没收完的日线，收盘前可能消失': 'Intraday signal: uses the unfinished daily bar — may disappear before the close',
@@ -129,6 +129,12 @@
   // ---------- 2. 带数字的句型 (按顺序全部套用) ----------
   var PATTERNS = [
     // --- 整句 / 句首 (先套用) ---
+    [/^全部 (\d+) 笔$/, 'All $1 trades'], [/^成本 ([\d.]+)% \(\+([\d.]+)\)$/, 'Cost $1% (+$2)'], [/^向前模拟 \((\S+) 起\)$/, 'Forward sim (from $1)'], [/^向前模拟$/, 'Forward sim'],
+    [/本金 (RM\s?[\d,]+) \((\d+) 仓 × (RM\s?[\d,]+)\) · 来回成本 ([\d.]+)% · 收盘价进场/, 'capital $1 ($2 slots × $3) · round-trip cost $4% · enter at close'], [/最长没恢复 (\d+) 天(，还没恢复)?/, function (m, d, x) { return 'Longest underwater ' + d + 'd' + (x ? ' (not recovered)' : ''); }],
+    [/(\d+) 笔 · (\d+) 笔/, '$1 closed · $2 open'], [/95% 区间/, '95% CI'], [/占本金/g, 'of capital'], [/(\d+) 天恢复|\((\d+) 天\)/g, function (m, a, b) { return '(' + (a || b) + 'd)'; }],
+    [/最深回撤 (-?[\d.]+%)：(\S+) 高点 → (\S+) 谷底 → (?:(\S+) 恢复|还没恢复)/, function (m, dd, a, b, c) { return 'Deepest drawdown ' + dd + ': peak ' + a + ' → trough ' + b + ' → ' + (c ? 'recovered ' + c : 'not recovered'); }],
+    [/最赚 3 笔占全部盈利的 (\S+)。低价股的实际滑点常比 0.5% 大，看成本那几行。/, 'The best 3 trades make up $1 of all profit. Slippage on low-priced stocks is often larger than 0.5% — see the cost rows.'],
+    [/中位数 (\S+) \(虚线\) · n = (\d+)/, 'Median $1 (dashed) · n = $2'], [/(\d+) 笔没有逐日价格，只在结算日计入。/, '$1 trades have no daily prices and are counted on their settlement day only.'],
     [/最近 (\d+) 天内触发了离场规则/, 'Exit rule triggered in the last $1 days'],
     [/^默认计划：/, 'Default plan: '], [/^按你的计划：/, 'Your plan: '], [/R\/R = \(目标 − 进场\) ÷ \(进场 − 止损\)/, 'R/R = (target − entry) ÷ (entry − stop)'],
     [/默认计划：目标 = 2 倍风险。历史参考 \(回测同类信号期间最大涨幅中位数 ([^)]*)\) = 1 : ([\d.]+)，不是计划/, 'Default plan: target = 2× risk. Historical reference (median MFE of similar backtested signals $1) = 1 : $2 — not the plan'],

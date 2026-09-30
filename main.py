@@ -470,7 +470,7 @@ for _s in STRATEGY["strategies"]:
 def strategy_meta():
     """页面 #report-meta 里的后台策略 (网页内置模板、自定义回测、设为后台信号用)"""
     return {"name": STRATEGY["name"], "exit": STRATEGY["exit"], "cost": STRATEGY["cost"], "position": STRATEGY["position"],
-            "sig": strategy_signature(), "min_price": STRATEGY["min_price"], "max_mcap": STRATEGY["max_mcap"], "min_range": STRATEGY["min_range"],
+            "sig": strategy_signature(), "paper_start": STRATEGY.get("paper_start"), "min_price": STRATEGY["min_price"], "max_mcap": STRATEGY["max_mcap"], "min_range": STRATEGY["min_range"],
             "slots": STRATEGY["slots"],
             "strategies": [{"name": s["name"], "match": s["match"], "min": s["min"], "rules": s["rules"]} for s in STRATEGY["strategies"]],
             "file_strategies": STRATEGY["file_strategies"]}
@@ -3171,6 +3171,23 @@ MARKET_CSS = """
   .cbt-readout b { font-size: 0.95rem; margin-right: 0.35rem; }
   .cbt-eq { width: 100%; height: 280px; margin-bottom: 1.1rem; }
   .cbt-mo { width: 100%; }
+  /* 回测图表页 (结果 → 过程 → 原因) */
+  .ds-head { display: grid; gap: 0.1rem; margin: 0 0 0.6rem; } .ds-head span { font-size: 0.74rem; color: var(--muted); }
+  .ds-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 0.8rem; margin: 0 0 0.6rem; }
+  .ds-kpi dt { font-size: 0.72rem; color: var(--text-secondary); } .ds-kpi dd { margin: 0.05rem 0; font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ds-kpi small { display: block; font-size: 0.7rem; color: var(--muted); } .ds-warn { color: var(--ema); font-weight: 600; }
+  .ds-note { margin: 0.3rem 0 0.9rem; font-size: 0.74rem; color: var(--text-secondary); }
+  .ds-legend { display: flex; flex-wrap: wrap; gap: 0.2rem 0.9rem; margin: 0.3rem 0 0.4rem; font-size: 0.72rem; color: var(--muted); }
+  .ds-legend span::before { content: ""; display: inline-block; width: 1.2rem; height: 0; margin-right: 0.3rem; vertical-align: middle; border-top: 2px solid var(--ema); }
+  .ds-legend .lg-f::before { border-top-width: 3px; } .ds-legend .lg-b::before { border-top: 1px dashed var(--text-secondary); }
+  .ds-rob td small { display: block; color: var(--muted); font-size: 0.68rem; } .ds-rob th { font-weight: 500; text-align: left; }
+  .ds-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(5.2rem, 1fr)); gap: 0.35rem; margin: 0 0 1rem; }
+  .ds-tiles div { display: grid; padding: 0.4rem 0.5rem; border-radius: 8px; text-align: center; }
+  .ds-tiles span, .ds-tiles small { font-size: 0.7rem; color: var(--text-secondary); } .ds-tiles b { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+  .ds-hist-svg .mo-val { font-size: 11px; fill: var(--text-secondary); } .ds-hist-svg .mo-lbl { font-size: 11px; fill: var(--muted); }
+  .ds-hist-svg { display: block; overflow: visible; margin: 0 0 1rem; } .ds-hist-svg .mo-zero { stroke: var(--text-secondary); }
+  .ds-old { margin: 0.8rem 0; font-size: 0.8rem; } .ds-old summary { cursor: pointer; color: var(--text-secondary); }
+  .cbt-eq-old { height: 220px; }
   .cbt-mo-svg { display: block; overflow: visible; }
   .cbt-mo-svg .mo-zero { stroke: var(--gridline); stroke-width: 1; }
   .cbt-mo-svg path.up { fill: var(--up); }
