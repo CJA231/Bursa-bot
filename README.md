@@ -109,7 +109,7 @@ Bursa Bot 每个交易日自动扫描 **马来西亚交易所全部上市股票*
 2. 按「设为后台信号 ›」：内容自动复制，再按「打开 GitHub 编辑 strategy.json ›」
 3. 在 GitHub 把原来的内容全部换掉、贴上，按 **Commit changes** → 下一次自动运行起，信号卡片、策略回测、推送都用新的一组
 - 文件写错或删掉会自动退回默认策略 (EMA20 多头 + SAR 多头 + T3 形态突破)，不会让运行失败；运行日志第一行写着现在用的是哪一组、有没有写错
-- `exit` 里的离场规则：`stop_pct` 固定止损 %、`swing_low` 浮动止损 = 收盘跌破最近回调低点 (用收盘价；0 = 不用)，`swing_mode` 怎么确认回调低点 (`rebound` = 连续收跌之后第一根收涨那天确认；`t2` = 左右各 `swing_low` 根确认)，每确认一次更高的回调低点止损就往上移，`swing_alert: true` = 只提醒不离场；`max_risk` = 进场价到最近回调低点超过这个 % 就不进场 (不是止损)、`red_candle` 回调红K、`take_pct` 固定止盈 %、`prior_high` 历史高点、`resistance` 近期阻力、`sar` SAR 转空、`ema_cross` EMA 死叉 ([快, 慢]，null = 不用)、`max_hold` 最多持有天数 (0 = 不限)；可选 `cost_pct` 来回成本 %、`position_rm` 回测换算金额的每笔金额 (不写 = 20000)。用「设为后台信号」产生的内容会全部写好
+- `exit` 里的离场规则：`stop_pct` 固定止损 %、`swing_low` 浮动止损 = 收盘跌破最近回调低点 (用收盘价；0 = 不用)，`swing_mode` 怎么确认回调低点 (`rebound` = 连续收跌之后第一根收涨那天确认；`t2` = 左右各 `swing_low` 根确认)，每确认一次更高的回调低点止损就往上移，`swing_alert: true` = 只提醒不离场；`max_risk` = 进场价到最近回调低点超过这个 % 就不进场 (不是止损)、`red_candle` 回调红K、`take_pct` 固定止盈 % (`take_trail: true` = 涨到这个 % 不马上卖，开始锁利润，之后趋势健康检查坏掉任何 1 个就止盈)、`combo` 趋势健康检查 (按顺序：`st` 收盘跌破 Supertrend(`st_n`,`st_m`)、`sar` SAR 转空、`support` 跌破最新更高低点、`vol` 放量抛售 = 收跌且量 ≥ 20 天均量几倍、`emax` EMA`emax_f` < EMA`emax_s`、`ema` 收盘 < EMA；坏掉 `need` 个就离场)、`hold_st` Supertrend 还在价格下面就继续拿、`ema_break` 连续几天收盘 < EMA 全部离场、`prior_high` 历史高点、`resistance` 近期阻力、`sar` SAR 转空、`ema_cross` EMA 死叉 ([快, 慢]，null = 不用)、`max_hold` 最多持有天数 (0 = 不限)；可选 `cost_pct` 来回成本 %、`position_rm` 回测换算金额的每笔金额 (不写 = 20000)。用「设为后台信号」产生的内容会全部写好
 
 **后台信号**：符合 strategy.json 条件 (默认 = 下面「功能特色」里的四个条件) 的股票，每支一张卡片，做成**左右翻阅的卡片轮播**：
 - **上榜理由带数字**：例如「当前价格 > EMA(20) +2.8% · 当前价格 > SAR +5.2% · T3 形态突破 · 量 2.1×」(现价比 EMA20 / SAR 高多少、今天量是平时几倍)；交易时间内生成的报告标「盘中」(日线还没收完，收盘前信号可能消失)

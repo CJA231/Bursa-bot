@@ -3864,9 +3864,10 @@
   var BT_HORIZONS = [5, 10, 20], BT_START = 25, BT_RECENT_BARS = 20, BT_DIST_EDGES = [-10, -5, 0, 5, 10];
   var EXIT_DEFAULT = { sar: true, ema_cross: [5, 20], swing_low: 2, max_hold: 30, stop_pct: 0, take_pct: 0, red_candle: false, prior_high: false, resistance: false, swing_alert: false, entry_close: false, max_risk: 0 };
   var EXIT_REASONS = { // main.py EXIT_REASON_LABELS 同一份
-    stop: ['止损', 'Stop Loss'], swing: ['跌破回调低点', 'Trailing Stop'], red: ['回调红K', 'Pullback Red Candle'], sar: ['SAR 转空', 'SAR Flip'], combo: ['组合离场', 'Combined Exit'], emab: ['跌破 EMA 确认', 'EMA Break'],
+    stop: ['止损', 'Stop Loss'], swing: ['跌破回调低点', 'Trailing Stop'], red: ['回调红K', 'Pullback Red Candle'], sar: ['SAR 转空', 'SAR Flip'], combo: ['趋势转坏', 'Trend Health Exit'], emab: ['跌破 EMA 确认', 'EMA Break'],
     ema: ['EMA 死叉', 'EMA Cross-down'], take: ['止盈', 'Take Profit'], high: ['历史高点', 'Prior High'], res: ['近期阻力', 'Resistance'],
-    time: ['满期', 'Time Stop'], open: ['持有中', 'Open']
+    time: ['满期', 'Time Stop'], open: ['持有中', 'Open'],
+    mstop: ['我的停损', 'My Stop'], mtake: ['我的目标', 'My Target'] // 模拟账户自选股票自己设的价位 (只有网页有)
   };
   var COST_DEFAULT = isNum(META.cost_default) ? META.cost_default : MARKET.id === 'US' ? 0.1 : 0.5;
   // 金额：每笔投入 RM20,000 (strategy.json 的 position_rm / 自定义回测可以改)；1 笔 = 100 点，点 × 每笔金额 / 100 = RM
@@ -3913,6 +3914,7 @@
       max_hold: intIn(ex.max_hold === undefined ? EXIT_DEFAULT.max_hold : ex.max_hold, 0, 250, 30),
       stop_pct: floatIn(ex.stop_pct === undefined ? 0 : ex.stop_pct, 0, 90, 0),
       take_pct: floatIn(ex.take_pct === undefined ? 0 : ex.take_pct, 0, 1000, 0),
+      take_trail: !!ex.take_trail, // 涨到 take_pct 开始锁利润：之后趋势健康检查坏掉任何 1 个 (没开检查 = 跌破支撑) 就止盈
       red_candle: !!ex.red_candle,
       prior_high: !!ex.prior_high,
       resistance: !!ex.resistance,
@@ -3929,13 +3931,17 @@
       hold_st: ex.hold_st && typeof ex.hold_st === 'object' ? { n: intIn(ex.hold_st.n, 1, 200, 3), m: floatIn(ex.hold_st.m, 0.1, 20, 1.4) } : null
     };
   }
-  // 组合离场 (main.py clean_combo)：A 收盘跌破支撑 (最近回调低点) / B 收盘 < EMA(n) / C SAR 空头，同时成立 need 个就离场
+  // 趋势健康检查 (main.py clean_combo)，按顺序：① 收盘 < Supertrend(st_n, st_m) ② SAR 空头 ③ 跌破支撑 (最近更高低点)
+  // ④ 放量抛售 = 收跌、成交量 ≥ vol × 前 20 天平均 ⑤ EMA 快线 < 慢线 ⑥ 收盘 < EMA(n)；坏掉的同时有 need 个就离场
   function cleanCombo(c) {
     if (!c || typeof c !== 'object') return null;
     var ema = c.ema === undefined ? 20 : c.ema === null || c.ema === false || c.ema === 0 || c.ema === '0' ? 0 : intIn(c.ema, 0, 250, 20);
     var parts = { support: c.support === undefined ? true : !!c.support, ema: ema, sar: c.sar === undefined ? true : !!c.sar,
-      ema_days: intIn(c.ema_days === undefined ? 1 : c.ema_days, 1, 10, 1) }; // 连续几天收盘 < EMA 才算跌破
-    var on = (parts.support ? 1 : 0) + (parts.ema ? 1 : 0) + (parts.sar ? 1 : 0);
+      ema_days: intIn(c.ema_days === undefined ? 1 : c.ema_days, 1, 10, 1), // 连续几天收盘 < EMA 才算跌破
+      st: !!c.st, st_n: intIn(c.st_n === undefined ? 3 : c.st_n, 1, 200, 3), st_m: floatIn(c.st_m === undefined ? 1.4 : c.st_m, 0.1, 20, 1.4),
+      vol: floatIn(c.vol === undefined ? 0 : c.vol, 0, 20, 0),
+      emax: !!c.emax, emax_f: intIn(c.emax_f === undefined ? 5 : c.emax_f, 1, 249, 5), emax_s: intIn(c.emax_s === undefined ? 20 : c.emax_s, 2, 250, 20) };
+    var on = ['support', 'ema', 'sar', 'st', 'vol', 'emax'].filter(function (k) { return parts[k]; }).length;
     if (!on) return null;
     parts.need = intIn(c.need === undefined ? 2 : c.need, 1, on, Math.min(2, on));
     return parts;
@@ -3946,16 +3952,20 @@
     if (ex.swing_low) out.push('收盘跌破最近回调低点 (收盘价，' + (ex.swing_mode === 'rebound' ? '回调后第一根收涨确认' : '左右 ' + ex.swing_low + ' 根确认') + '，只往上移) (Trailing Stop)' + (ex.swing_alert ? '：只提醒不离场 (Alert only)' : ''));
     if (ex.combo) {
       var cb = ex.combo, nm = [];
-      if (cb.support) nm.push('收盘跌破支撑 (最近回调低点)');
-      if (cb.ema) nm.push('收盘 < EMA' + cb.ema + (cb.ema_days > 1 ? ' 连续 ' + cb.ema_days + ' 天' : ''));
+      if (cb.st) nm.push('收盘跌破 Supertrend(' + cb.st_n + ',' + fmtG(cb.st_m) + ')');
       if (cb.sar) nm.push('SAR 转空');
-      out.push('组合离场：' + nm.join(' / ') + ' 同时满足 ' + cb.need + ' 个 (Combined Exit)');
+      if (cb.support) nm.push('收盘跌破支撑 (最近更高低点)');
+      if (cb.vol) nm.push('放量抛售 (收跌、量 ≥ ' + fmtG(cb.vol) + ' 倍均量)');
+      if (cb.emax) nm.push('EMA' + cb.emax_f + ' < EMA' + cb.emax_s);
+      if (cb.ema) nm.push('收盘 < EMA' + cb.ema + (cb.ema_days > 1 ? ' 连续 ' + cb.ema_days + ' 天' : ''));
+      out.push('趋势健康检查：' + nm.join(' / ') + '，坏掉 ' + cb.need + ' 个就离场 (Trend Health Exit)');
     }
     if (ex.ema_break) out.push('收盘连续 ' + ex.ema_break.days + ' 天 < EMA' + ex.ema_break.n + ' 全部离场 (第一天只提醒，隔天收回就继续拿) (EMA Break)');
     if (ex.hold_st) out.push('Supertrend(' + ex.hold_st.n + ',' + fmtG(ex.hold_st.m) + ') 在价格下面就继续持有 (Supertrend Hold)');
     if (ex.red_candle) out.push('跌破回调红K低点 (Pullback Red Candle)');
     if (ex.max_risk) out.push('入场风险 > ' + fmtG(ex.max_risk) + '% 不进' + (ex.max_risk_surge ? ' (当天涨 ≥ ' + fmtG(ex.surge_pct) + '% 放宽到 ' + fmtG(ex.max_risk_surge) + '%)' : '') + ' (Max Entry Risk)');
-    if (ex.take_pct) out.push('止盈 +' + fmtG(ex.take_pct) + '% (Take Profit)');
+    if (ex.take_pct && ex.take_trail) out.push('涨到 +' + fmtG(ex.take_pct) + '% 开始锁利润：之后趋势坏掉任何 1 个就止盈 (Trailing Take Profit)');
+    else if (ex.take_pct) out.push('止盈 +' + fmtG(ex.take_pct) + '% (Take Profit)');
     if (ex.prior_high) out.push('涨到历史高点 (Prior High)');
     if (ex.resistance) out.push('涨到近期阻力 (Resistance)');
     if (ex.sar) out.push('SAR 转空 (SAR Flip)');
@@ -4099,12 +4109,16 @@
     var vol = p.ctx.series.volume;
     var trail = trailLevels(c, ex.swing_mode, ex.swing_low || HL_K_DEFAULT), phi = ex.resistance ? pivotHighs(h, RES_K) : null;
     var combo = ex.combo, emaC = combo && combo.ema ? seriesEMA(c, combo.ema) : null;
+    var cst = combo && combo.st ? seriesSupertrend(p.bars, combo.st_m, combo.st_n).value : null;
+    var cef = combo && combo.emax ? seriesEMA(c, combo.emax_f) : null, ces = combo && combo.emax ? seriesEMA(c, combo.emax_s) : null;
     var eb = ex.ema_break, emaB = eb ? seriesEMA(c, eb.n) : null;
     function below(ema, j, days) { // 收盘 < EMA 连续 days 天 (含第 j 天) (main.py below)
       for (var q = j - days + 1; q <= j; q++) if (q < 0 || ema[q] === null || ema[q] === undefined || !(c[q] < ema[q])) return false;
       return true;
     }
     var stHold = ex.hold_st ? seriesSupertrend(p.bars, ex.hold_st.m, ex.hold_st.n).value : null;
+    // 模拟账户自选股票：自己的买入价 / 停损 / 目标价 (盘中碰到就算成交，跳空就用开盘价；main.py 没有这个)
+    var fx = ex.fixed && typeof ex.fixed === 'object' ? ex.fixed : null;
     function bull(i) { return sar[i] !== null && sar[i] !== undefined && rnd3(c[i]) > rnd3(sar[i]); }
     var i, j, hz;
     var cl = !!ex.entry_close;
@@ -4122,7 +4136,7 @@
     i = BT_START;
     while (i < (cl ? n : n - 1)) { // 隔天开盘进场：今天的信号不算；收盘价进场：今天的信号也算
       if (!entry[i] || !((cl ? c[i] : o[i + 1]) > 0)) { i++; continue; }
-      var e = cl ? i : i + 1, entryPx = cl ? c[e] : o[e];
+      var e = cl ? i : i + 1, entryPx = fx && fx.px > 0 ? fx.px : cl ? c[e] : o[e];
       var swing = trail[i]; // 信号日收盘时最近一次回调低点 (收盘价)
       if (swing !== null && swing >= entryPx) swing = null; // 已经在进场价上面 = 不能当止损
       var red = ex.red_candle ? redCandleLow(o, c, lo, i) : null;
@@ -4136,6 +4150,7 @@
       if (cap && ex.max_risk_surge && i > 0 && c[i - 1] && (c[i] / c[i - 1] - 1) * 100 >= ex.surge_pct) cap = Math.max(cap, ex.max_risk_surge);
       if (cap && risk !== null && risk > cap) { i++; continue; } // 风险太大不进
       var hi = cl ? entryPx : h[e], low = cl ? entryPx : lo[e], reason = 'open', alert = null, exitHits = null;
+      var armed = false, xp = null; // armed = 已经涨到 take_pct (锁利润模式)；xp = 碰到自己的停损 / 目标的成交价
       var hl = ex.swing_low && swing !== null ? [[dates[i], swing]] : []; // 追溯图上画浮动 HL：从信号日 (已经知道这条线) 画到离场
       j = e;
       for (;;) {
@@ -4145,37 +4160,48 @@
         if (trail[j] !== null && (swing === null || trail[j] > swing) && trail[j] < c[j]) swing = trail[j]; // 更高的回调低点 → 止损往上移 (浮动止盈)
         if (ex.swing_low && swing !== null && (!hl.length || hl[hl.length - 1][1] !== swing)) hl.push([dates[j], swing]); // 追溯图上画浮动 HL 用
         var hits = [];
-        if (combo) { // 组合离场：A 跌破支撑 / B 收盘 < EMA / C SAR 空头
-          if (combo.support && swing !== null && c[j] < swing) hits.push('支撑');
-          if (combo.ema && below(emaC, j, combo.ema_days)) hits.push('EMA' + combo.ema);
+        if (combo) { // 趋势健康检查 (按顺序)，坏掉的同时有 need 个就离场
+          if (combo.st && cst[j] !== null && cst[j] !== undefined && c[j] < cst[j]) hits.push('Supertrend');
           if (combo.sar && sar[j] !== null && sar[j] !== undefined && !bull(j)) hits.push('SAR');
+          if (combo.support && swing !== null && c[j] < swing) hits.push('支撑');
+          if (combo.vol && j >= 20 && c[j] < c[j - 1]) {
+            var vs = 0;
+            for (var q = j - 20; q < j; q++) vs += vol[q];
+            if (vs / 20 > 0 && vol[j] >= combo.vol * (vs / 20)) hits.push('放量抛售');
+          }
+          if (combo.emax && cef[j] !== null && cef[j] !== undefined && ces[j] !== null && ces[j] !== undefined && cef[j] < ces[j]) hits.push('EMA' + combo.emax_f + '<' + combo.emax_s);
+          if (combo.ema && below(emaC, j, combo.ema_days)) hits.push('EMA' + combo.ema);
         }
         // Supertrend 护航：还在收盘价下面 (多头) 就继续拿，趋势类离场 (组合 / 回调低点 / 红K / SAR / EMA 死叉) 先不算
         var guard = stHold && stHold[j] !== null && stHold[j] !== undefined && stHold[j] < c[j];
-        if (ex.stop_pct && c[j] <= entryPx * (1 - ex.stop_pct / 100)) reason = 'stop';
+        if (fx && fx.stop > 0 && lo[j] <= fx.stop) { reason = 'mstop'; xp = Math.min(o[j], fx.stop); }
+        else if (fx && fx.target > 0 && h[j] >= fx.target) { reason = 'mtake'; xp = Math.max(o[j], fx.target); }
+        else if (ex.stop_pct && c[j] <= entryPx * (1 - ex.stop_pct / 100)) reason = 'stop';
         else if (eb && below(emaB, j, eb.days)) reason = 'emab'; // 跌破 EMA 连续 days 天：全部离场 (不受 Supertrend 护航影响)
+        else if (armed && (combo ? hits.length : swing !== null && c[j] < swing)) { reason = 'take'; exitHits = hits.length ? hits : null; } // 锁利润：趋势坏掉任何 1 个就止盈
         else if (!guard && combo && hits.length >= combo.need) { reason = 'combo'; exitHits = hits; }
         else if (!guard && ex.swing_low && swing !== null && c[j] < swing && !ex.swing_alert) reason = 'swing';
         else if (!guard && red !== null && c[j] < red) reason = 'red';
         else if (!guard && ex.sar && bull(j - 1) && !bull(j)) reason = 'sar';
         else if (!guard && ex.ema_cross && j >= 1 && emaF[j] !== null && emaS[j] !== null && emaF[j - 1] !== null && emaS[j - 1] !== null &&
           emaF[j] < emaS[j] && emaF[j - 1] >= emaS[j - 1]) reason = 'ema';
-        else if (ex.take_pct && c[j] >= entryPx * (1 + ex.take_pct / 100)) reason = 'take';
+        else if (ex.take_pct && !ex.take_trail && c[j] >= entryPx * (1 + ex.take_pct / 100)) reason = 'take';
         else if (tg.high !== null && c[j] >= tg.high) reason = 'high';
         else if (tg.res !== null && c[j] >= tg.res) reason = 'res';
         else if (ex.max_hold && j - e + (cl ? 0 : 1) >= ex.max_hold) reason = 'time';
         if (eb && reason === 'open' && alert === null && emaB[j] !== null && emaB[j] !== undefined && c[j] < emaB[j]) alert = { date: dates[j], price: c[j], ema: rd(emaB[j], 4), hits: ['EMA' + eb.n + ' 第 1 天'] }; // 先提醒
         if (combo && hits.length && reason === 'open' && alert === null) alert = { date: dates[j], price: c[j], hl: swing, hits: hits }; // 还不够离场，先提醒
         if (ex.swing_alert && ex.swing_low && swing !== null && c[j] < swing && alert === null) alert = { date: dates[j], price: c[j], hl: swing };
+        if (ex.take_trail && ex.take_pct && c[j] >= entryPx * (1 + ex.take_pct / 100)) armed = true; // 今天收盘到了目标：明天起趋势坏掉任何 1 个就止盈
         if (reason !== 'open' || j === n - 1) break;
         j++;
       }
       if (hl.length && hl[hl.length - 1][0] !== dates[j]) hl.push([dates[j], hl[hl.length - 1][1]]);
       var hzr = {};
       BT_HORIZONS.forEach(function (x) { var qq = e + x - (cl ? 0 : 1); hzr[x] = qq < n ? rd((c[qq] / entryPx - 1) * 100) : null; });
-      var ret = (c[j] / entryPx - 1) * 100;
+      var exitPx = xp !== null ? xp : c[j], ret = (exitPx / entryPx - 1) * 100;
       out.trades.push({
-        sig: dates[i], sig_ago: n - 1 - i, entry_date: dates[e], entry: entryPx, exit: c[j], exit_date: dates[j], days: j - e + (cl ? 0 : 1), reason: reason,
+        sig: dates[i], sig_ago: n - 1 - i, entry_date: dates[e], entry: entryPx, exit: exitPx, exit_date: dates[j], days: j - e + (cl ? 0 : 1), reason: reason,
         ret: rd(ret), net: rd(ret - cost), mfe: rd((hi / entryPx - 1) * 100), mae: rd((low / entryPx - 1) * 100),
         risk: risk ? rd(risk) : null, alert: alert, hits: exitHits, h: hzr, strats: entry[i], rm: p.rmask ? p.rmask[i] : null, rvol: rd(relVolumeAt(vol, i), 4), fresh: i === 0 || !entry[i - 1] ? 1 : 0,
         // 追溯图表用 (后台版本没有)：浮动 HL 每次往上移的日期和价位、回调红K 低点、历史高点 / 近期阻力目标
@@ -4325,22 +4351,33 @@
     out.allTrades = allTrades; // 模拟账户 (自选开始日 / 起始股票) 用
     return out;
   }
-  // 模拟账户：从 start 那天起才买 (之前的信号不算)；picks = 开始那天收盘先买进的股票 (不看进场条件 / 风险上限，占着仓位)，
-  // 之后照后台规则卖出，空出来的仓位按信号换进新股票 (同一天先买相对量高的)
+  // 风险报酬比：(目标 - 买入) ÷ (买入 - 停损)；停损要在买入价下面、目标在上面才算
+  function rrOf(px, stop, target) { return px > 0 && stop > 0 && target > 0 && stop < px && target > px ? (target - px) / (px - stop) : null; }
+  // 自选股票「只看我的价位」：策略的离场规则全部不用，只有自己的停损 / 目标
+  var MINE_ONLY_EXIT = { sar: false, ema_cross: null, swing_low: 0, max_hold: 0, stop_pct: 0, take_pct: 0 };
+  // 模拟账户：从 start 那天起才按信号买 (之前的信号不算)；picks = 自己选的股票 {code, date, px, stop, target, mode, note_in, note_out}：
+  // 那天 (没填 = 开始日) 用自己的价钱 (没填 = 收盘价) 买进，不看进场条件 / 风险上限，占着仓位；碰到自己的停损 / 目标就卖，
+  // mode = 'mine' 只看自己的价位，否则也照策略规则卖出；空出来的仓位按信号换进新股票 (同一天先买相对量高的)
   function simulateAccount(u, allTrades, ex, cost, slots, start, picks) {
     var forced = [];
-    picks.forEach(function (code) {
-      var it = u.items.filter(function (x) { return x.stock.code === code; })[0];
+    picks.forEach(function (pk) {
+      var it = u.items.filter(function (x) { return x.stock.code === pk.code; })[0];
       if (!it) return;
-      var p = btPrep(it), idx = -1;
-      for (var i = 0; i < p.dates.length; i++) if (p.dates[i] >= start) { idx = i; break; }
+      var p = btPrep(it), idx = -1, day = pk.date || start;
+      for (var i = 0; i < p.dates.length; i++) if (p.dates[i] >= day) { idx = i; break; }
       if (idx < 0) return;
-      var keep = p.rmask;
+      var keep = p.rmask, fx = { px: pk.px > 0 ? pk.px : 0, stop: pk.stop > 0 ? pk.stop : 0, target: pk.target > 0 ? pk.target : 0 };
       p.rmask = null;
-      var bt = backtestStock(p, p.bars.map(function (_, i) { return i === idx ? 1 : 0; }), Object.assign({}, ex, { max_risk: 0, entry_close: true }), cost, true);
+      var bt = backtestStock(p, p.bars.map(function (_, i) { return i === idx ? 1 : 0; }),
+        Object.assign({}, pk.mode === 'mine' ? cleanExit(MINE_ONLY_EXIT) : ex, { max_risk: 0, entry_close: true, fixed: fx }), cost, true);
       p.rmask = keep;
       var t = bt.trades[0];
-      if (t) { t.code = code; t.name = it.stock.name; t.picked = true; forced.push(t); }
+      if (t) {
+        t.code = pk.code; t.name = it.stock.name; t.picked = true;
+        t.plan = { stop: fx.stop || null, target: fx.target || null, rr: rrOf(t.entry, fx.stop, fx.target), mode: pk.mode === 'mine' ? 'mine' : 'both',
+          note_in: pk.note_in || '', note_out: pk.note_out || '' };
+        forced.push(t);
+      }
     });
     var pf = portfolioTrades(allTrades.filter(function (t) { return t.sig >= start; }), slots || 1e6, forced);
     var trades = forced.concat(pf.trades).sort(function (a, b) { // 按买进顺序；同一天起始股票排前面
@@ -4405,14 +4442,21 @@
       '<span>胜率 <b>' + (isNum(stats.win_rate) ? stats.win_rate.toFixed(1) + '%' : '—') + '</b></span>' +
       (done.length ? '<span>最大回撤 <b>' + fmtPct(stats.mdd_pct, 1) + '</b></span>' : '') + '</div>';
     if (!trades.length) return kpi;
-    return kpi + '<div class="bt-table-wrap"><table class="bt-table bt-recent cbt-acct"><thead><tr><th>股票</th><th>买进</th><th>卖出 / 现价</th>' +
+    return kpi + '<div class="bt-table-wrap"><table class="bt-table bt-recent all cbt-acct"><thead><tr><th>股票</th><th>买进</th><th>卖出 / 现价</th>' +
       '<th class="num">收益</th><th>状态</th></tr></thead><tbody>' + trades.map(function (t) {
-        var np = namePair(t.code, t.name), done1 = isClosedTrade(t), v = done1 ? t.net : t.ret;
-        return '<tr data-code="' + escapeHtml(t.code) + '" tabindex="0"><td><b>' + escapeHtml(np[0]) + '</b>' + (t.picked ? ' <em class="cbt-pick">起始</em>' : '') +
+        var np = namePair(t.code, t.name), done1 = isClosedTrade(t), v = done1 ? t.net : t.ret, pl = t.plan;
+        // 自选股票：停损 / 目标 / 风险报酬比 / 备注另起一行
+        var plan = pl ? '<tr class="cbt-plan"><td colspan="5">' + [
+          pl.stop ? '停损 <b>' + fmtPrice(pl.stop) + '</b>' : '', pl.target ? '目标 <b>' + fmtPrice(pl.target) + '</b>' : '',
+          pl.rr !== null ? '风险报酬比 <b>1 : ' + pl.rr.toFixed(1) + '</b>' : '', pl.mode === 'mine' ? '只看我的价位' : '',
+          pl.note_in ? '进场：' + escapeHtml(pl.note_in) : '', pl.note_out ? '出场：' + escapeHtml(pl.note_out) : ''
+        ].filter(Boolean).join('<i>·</i>') + '</td></tr>' : '';
+        if (plan === '<tr class="cbt-plan"><td colspan="5"></td></tr>') plan = '';
+        return '<tr data-code="' + escapeHtml(t.code) + '" tabindex="0"' + (plan ? ' class="has-plan"' : '') + '><td><b>' + escapeHtml(np[0]) + '</b>' + (t.picked ? ' <em class="cbt-pick">自选</em>' : '') +
           '<small>' + escapeHtml(np[1]) + '</small></td><td>' + md(t.entry_date) + '<small>' + fmtPrice(t.entry) + '</small></td>' +
           '<td>' + (done1 ? md(t.exit_date) : '今天') + '<small>' + fmtPrice(t.exit) + '</small></td>' +
           '<td class="num ' + cls(v) + '">' + fmtPct(v, 1) + '<small>' + fmtRM(v, pos) + '</small></td>' +
-          '<td><span class="bt-st ' + t.reason + '">' + EXIT_REASONS[t.reason][0] + '</span><small>' + t.days + ' 天</small></td></tr>';
+          '<td><span class="bt-st ' + t.reason + '">' + EXIT_REASONS[t.reason][0] + '</span><small>' + t.days + ' 天</small></td></tr>' + plan;
       }).join('') + '</tbody></table></div>';
   }
   function backtestResultHtml(bt) {
@@ -4970,10 +5014,13 @@
       return {
         sar: ex.sar, ema_on: !!ex.ema_cross, ema_f: ex.ema_cross ? ex.ema_cross[0] : 5, ema_s: ex.ema_cross ? ex.ema_cross[1] : 20,
         swing_on: !!ex.swing_low, swing_k: ex.swing_low || 2, stop_on: !!ex.stop_pct, stop_pct: ex.stop_pct || 8,
-        take_on: !!ex.take_pct, take_pct: ex.take_pct || 20, hold_on: !!ex.max_hold, max_hold: ex.max_hold || 30,
+        take_on: !!ex.take_pct, take_pct: ex.take_pct || 20, take_trail: !!ex.take_trail, hold_on: !!ex.max_hold, max_hold: ex.max_hold || 30,
         red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, swing_alert: !!ex.swing_alert, swing_mode: ex.swing_mode || 't2', entry_close: !!ex.entry_close, max_risk: ex.max_risk || 0, max_risk_surge: ex.max_risk_surge || 0, surge_pct: ex.surge_pct || 10,
         combo_on: !!ex.combo, combo_support: ex.combo ? ex.combo.support : true, combo_ema_on: ex.combo ? !!ex.combo.ema : true, combo_ema: ex.combo && ex.combo.ema || 20,
         combo_sar: ex.combo ? ex.combo.sar : true, combo_need: ex.combo ? ex.combo.need : 2,
+        combo_st: ex.combo ? !!ex.combo.st : true, combo_st_n: ex.combo ? ex.combo.st_n : 3, combo_st_m: ex.combo ? ex.combo.st_m : 1.4,
+        combo_vol_on: ex.combo ? !!ex.combo.vol : true, combo_vol: ex.combo && ex.combo.vol || 2,
+        combo_emax: ex.combo ? !!ex.combo.emax : true, combo_emax_f: ex.combo ? ex.combo.emax_f : 5, combo_emax_s: ex.combo ? ex.combo.emax_s : 20,
         ebk_on: !!ex.ema_break, ebk_n: ex.ema_break ? ex.ema_break.n : 20, ebk_days: ex.ema_break ? ex.ema_break.days : 2, combo_ema_days: ex.combo ? ex.combo.ema_days : 1,
         sth_on: !!ex.hold_st, sth_n: ex.hold_st ? ex.hold_st.n : 3, sth_m: ex.hold_st ? ex.hold_st.m : 1.4, cost: cost, pos: pos, slots: slots
       };
@@ -4991,9 +5038,10 @@
     function exitOf() {
       return cleanExit({
         sar: st.sar, ema_cross: st.ema_on ? [st.ema_f, st.ema_s] : null, swing_low: st.swing_on ? st.swing_k : 0,
-        max_hold: st.hold_on ? st.max_hold : 0, stop_pct: st.stop_on ? st.stop_pct : 0, take_pct: st.take_on ? st.take_pct : 0,
+        max_hold: st.hold_on ? st.max_hold : 0, stop_pct: st.stop_on ? st.stop_pct : 0, take_pct: st.take_on ? st.take_pct : 0, take_trail: st.take_trail,
         red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on, swing_alert: st.swing_alert, swing_mode: st.swing_mode, entry_close: st.entry_close, max_risk: st.max_risk, max_risk_surge: st.max_risk_surge, surge_pct: st.surge_pct,
-        combo: st.combo_on ? { support: st.combo_support, ema: st.combo_ema_on ? st.combo_ema : 0, sar: st.combo_sar, need: st.combo_need, ema_days: st.combo_ema_days } : null,
+        combo: st.combo_on ? { st: st.combo_st, st_n: st.combo_st_n, st_m: st.combo_st_m, sar: st.combo_sar, support: st.combo_support, vol: st.combo_vol_on ? st.combo_vol : 0,
+          emax: st.combo_emax, emax_f: st.combo_emax_f, emax_s: st.combo_emax_s, ema: st.combo_ema_on ? st.combo_ema : 0, ema_days: st.combo_ema_days, need: st.combo_need } : null,
         hold_st: st.sth_on ? { n: st.sth_n, m: st.sth_m } : null,
         ema_break: st.ebk_on ? { n: st.ebk_n, days: st.ebk_days } : null
       });
@@ -5024,12 +5072,21 @@
           '<span class="cbt-p">' + numIn('max_risk', st.max_risk, 0, 90, 0.5, '进场价到最近回调低点超过几 % 就不进，0 = 不限') + ' %</span></div>' +
         '<div class="cbt-x cbt-cost"><span>暴涨日放宽 <i>Surge Day</i></span>' +
           '<span class="cbt-p">涨 ≥ ' + numIn('surge_pct', st.surge_pct, 0.5, 100, 0.5, '信号日涨几 % 算暴涨') + ' % 时 ' + numIn('max_risk_surge', st.max_risk_surge, 0, 90, 0.5, '暴涨日风险上限，0 = 不放宽') + ' %</span></div>' +
-        '<p class="cbt-xh">组合离场 <i>Combined Exit</i></p>' +
-        '<label class="cbt-x">' + check('combo_on', st.combo_on, '组合离场') + '<span>下面几个同时成立才离场 <i>Combined</i></span></label>' +
-        '<div class="cbt-x cbt-combo"><label>' + check('combo_support', st.combo_support, '跌破支撑') + '<span>跌破支撑</span></label>' +
-          '<label>' + check('combo_ema_on', st.combo_ema_on, '跌破 EMA') + '<span>跌破 EMA</span></label>' + numIn('combo_ema', st.combo_ema, 2, 250, 1, 'EMA 长度') +
-          '<label>' + check('combo_sar', st.combo_sar, 'SAR 转空') + '<span>SAR 转空</span></label>' +
-          '<span class="cbt-p">满足 ' + numIn('combo_need', st.combo_need, 1, 3, 1, '同时满足几个') + ' 个</span></div>' +
+        '<p class="cbt-xh">趋势健康检查 <i>Trend Health</i></p>' +
+        '<div class="cbt-x"><label>' + check('combo_on', st.combo_on, '趋势健康检查') + '<span>按顺序检查，坏掉几个就离场 <i>Trend Health Exit</i></span></label>' +
+          '<span class="cbt-p">坏 ' + numIn('combo_need', st.combo_need, 1, 6, 1, '坏掉几个就离场') + ' 个</span></div>' +
+        '<ol class="cbt-health">' +
+          '<li><label>' + check('combo_st', st.combo_st, 'Supertrend 跌破') + '<span>跌破 Supertrend</span></label>' +
+            '<span class="cbt-p">' + numIn('combo_st_n', st.combo_st_n, 1, 200, 1, 'Supertrend ATR 长度') + ' , ' + numIn('combo_st_m', st.combo_st_m, 0.1, 20, 0.1, 'Supertrend 倍数') + '</span></li>' +
+          '<li><label>' + check('combo_sar', st.combo_sar, 'SAR 转空') + '<span>SAR 转空 (不再是绿)</span></label></li>' +
+          '<li><label>' + check('combo_support', st.combo_support, '跌破支撑') + '<span>跌破最新更高低点 (支撑)</span></label></li>' +
+          '<li><label>' + check('combo_vol_on', st.combo_vol_on, '放量抛售') + '<span>放量抛售：收跌、量 ≥</span></label>' +
+            '<span class="cbt-p">' + numIn('combo_vol', st.combo_vol, 1, 20, 0.5, '成交量是 20 天平均的几倍') + ' 倍</span></li>' +
+          '<li><label>' + check('combo_emax', st.combo_emax, 'EMA 快线跌到慢线下面') + '<span>EMA 快 &lt; 慢</span></label>' +
+            '<span class="cbt-p">' + numIn('combo_emax_f', st.combo_emax_f, 1, 249, 1, '快线长度') + ' &lt; ' + numIn('combo_emax_s', st.combo_emax_s, 2, 250, 1, '慢线长度') + '</span></li>' +
+          '<li><label>' + check('combo_ema_on', st.combo_ema_on, '收盘跌破 EMA') + '<span>收盘 &lt; EMA</span></label>' +
+            '<span class="cbt-p">' + numIn('combo_ema', st.combo_ema, 2, 250, 1, 'EMA 长度') + '</span></li>' +
+        '</ol>' +
         '<div class="cbt-x"><label>' + check('ebk_on', st.ebk_on, '跌破 EMA 确认离场') + '<span>跌破 EMA 确认离场 <i>EMA Break</i></span></label>' +
           '<span class="cbt-p">EMA ' + numIn('ebk_n', st.ebk_n, 2, 250, 1, 'EMA 长度') + ' 连续 ' + numIn('ebk_days', st.ebk_days, 1, 10, 1, '连续几天收盘在 EMA 下面') + ' 天</span></div>' +
         '<div class="cbt-x"><label>' + check('sth_on', st.sth_on, 'Supertrend 护航') + '<span>Supertrend 在价格下面就继续拿 <i>Supertrend Hold</i></span></label>' +
@@ -5047,6 +5104,7 @@
         '<p class="cbt-xh">止盈 <i>Target</i></p>' +
         '<div class="cbt-x"><label>' + check('take_on', st.take_on, '固定止盈') + '<span>固定止盈 <i>Take Profit</i></span></label>' +
           '<span class="cbt-p">+' + numIn('take_pct', st.take_pct, 1, 1000, 1, '止盈百分比') + ' %</span></div>' +
+        '<label class="cbt-x">' + check('take_trail', st.take_trail, '到了先不卖，锁利润') + '<span>到了先不卖：之后趋势坏 1 个才止盈 <i>Trail</i></span></label>' +
         '<label class="cbt-x">' + check('high_on', st.high_on, '历史高点') + '<span>历史高点 <i>Prior High</i></span></label>' +
         '<label class="cbt-x">' + check('res_on', st.res_on, '近期阻力') + '<span>近期阻力 <i>Resistance</i></span></label>' +
         '<p class="cbt-xh">趋势 · 时间 <i>Trend · Time</i></p>' +
@@ -5080,44 +5138,97 @@
     }
     function save() { saveJSON(BT_KEY, { src: srcKey, st: st }); }
     var timer = null, runId = 0, last = null, rolls = [];
-    // 模拟账户 · 轮仓：自己选开始日、开始那天先买哪几只 (存在这台设备)
+    // 模拟账户 · 轮仓：自己选开始日、自己买哪几只 (买入日 / 价钱 / 停损 / 目标 / 备注) (存在这台设备)
     var SIM_KEY = 'bursa_sim_v1_' + MARKET.id, simState = loadJSON(SIM_KEY, {}) || {}, simCtx = null;
-    if (!isArr(simState.picks)) simState.picks = [];
+    // 以前只存代码 → 换成一笔笔的买入计划
+    simState.picks = (isArr(simState.picks) ? simState.picks : []).map(function (x) { return typeof x === 'string' ? { code: x } : x; })
+      .filter(function (x) { return x && typeof x.code === 'string'; });
     function saveSim() { saveJSON(SIM_KEY, { start: simState.start || null, picks: simState.picks }); }
     function monthStart(d, back) {
       var y = +d.slice(0, 4), m = +d.slice(5, 7) - (back || 0);
       while (m < 1) { m += 12; y--; }
       return y + '-' + (m < 10 ? '0' : '') + m + '-01';
     }
+    function simStart(c) { return simState.start && simState.start >= c.from && simState.start <= c.to ? simState.start : c.to; }
+    function simPicks(c) {
+      return simState.picks.filter(function (pk) { return c.u.items.some(function (it) { return it.stock.code === pk.code; }); }).slice(0, c.slots || 10);
+    }
+    // 那一天 (没有就往后找第一个交易日) 的收盘价：买入价没填就用这个
+    function closeOn(c, code, day) {
+      var it = c.u.items.filter(function (x) { return x.stock.code === code; })[0];
+      if (!it) return null;
+      var p = btPrep(it);
+      for (var i = 0; i < p.dates.length; i++) if (p.dates[i] >= day) return { date: p.dates[i], close: p.bars[i].close, low: p.bars[i].low, high: p.bars[i].high };
+      return null;
+    }
+    function simResultHtml(c) {
+      var start = simStart(c), r = simulateAccount(c.u, c.all, c.ex, c.cost, c.slots, start, simPicks(c));
+      return '<p class="hint">' + md(start) + ' 收盘起按信号买：自选的股票照自己填的日子和价钱先买 (占着仓位)，碰到自己的停损 / 目标就卖，其余照后台离场规则；空出来的仓位按新信号换进 (最多同时 ' + (c.slots || '不限') + ' 笔' +
+        (r.skipped ? '，满仓跳过 ' + r.skipped + ' 个信号' : '') + ')。用今天报告里的股票算。</p>' + accountHtml(r.trades, r.stats, c.slots, c.pos);
+    }
+    function pickHtml(c, pk, k, start, nameOf) {
+      var day = pk.date || start, cl = closeOn(c, pk.code, day), px = pk.px > 0 ? pk.px : cl ? cl.close : null;
+      var rr = rrOf(px, pk.stop, pk.target), np = namePair(pk.code, nameOf[pk.code]);
+      function num(f, v, ph, label) {
+        return '<label><span>' + label + '</span><input class="cbt-num" type="number" inputmode="decimal" step="any" min="0" data-pk="' + f + '" value="' + (v > 0 ? v : '') + '" placeholder="' + ph + '"></label>';
+      }
+      var risk = px && pk.stop > 0 && pk.stop < px ? (pk.stop / px - 1) * 100 : null, gain = px && pk.target > px ? (pk.target / px - 1) * 100 : null;
+      return '<div class="cbt-pk" data-k="' + k + '"><div class="cbt-pk-h"><b>' + escapeHtml(np[0]) + '</b><small>' + escapeHtml(np[1]) + '</small>' +
+        '<span class="cbt-pk-rr' + (rr === null ? '' : rr >= 2 ? ' good' : rr < 1 ? ' bad' : '') + '">' + (rr === null ? '风险报酬比 —' : '风险报酬比 1 : ' + rr.toFixed(1)) + '</span>' +
+        '<button type="button" class="cbt-pk-del" data-simdel="' + k + '" aria-label="拿掉 ' + escapeHtml(np[0]) + '">×</button></div>' +
+        '<div class="cbt-pk-g"><label><span>买入日</span><input class="cbt-num cbt-date" type="date" data-pk="date" min="' + c.from + '" max="' + c.to + '" value="' + day + '"></label>' +
+          num('px', pk.px, cl ? fmtPrice(cl.close) + ' 收盘' : '收盘价', '买入价') +
+          num('stop', pk.stop, '不设', '停损') + num('target', pk.target, '不设', '目标 / 止盈') + '</div>' +
+        '<p class="cbt-pk-sum">' + (cl && pk.px > 0 && (pk.px < cl.low - 1e-9 || pk.px > cl.high + 1e-9) ?
+          '<span class="change-down">' + md(cl.date) + ' 价格在 ' + fmtPrice(cl.low) + '–' + fmtPrice(cl.high) + '，买不到这个价</span>' : '') + (risk !== null ? '<span class="change-down">风险 ' + fmtPct(risk, 1) + '</span>' : '<span>停损要低于买入价</span>') +
+          (gain !== null ? '<span class="change-up">报酬 ' + fmtPct(gain, 1) + '</span>' : '<span>目标要高于买入价</span>') + '</p>' +
+        '<label class="cbt-pk-mode"><span>怎么卖</span><select class="cbt-num cbt-wide" data-pk="mode">' +
+          '<option value="both"' + (pk.mode !== 'mine' ? ' selected' : '') + '>策略离场规则 + 我的停损 / 目标</option>' +
+          '<option value="mine"' + (pk.mode === 'mine' ? ' selected' : '') + '>只看我的停损 / 目标</option></select></label>' +
+        '<input class="cbt-pk-note" type="text" maxlength="200" data-pk="note_in" value="' + escapeHtml(pk.note_in || '') + '" placeholder="进场备注：为什么买、怎么进" aria-label="进场备注">' +
+        '<input class="cbt-pk-note" type="text" maxlength="200" data-pk="note_out" value="' + escapeHtml(pk.note_out || '') + '" placeholder="出场备注：什么情况卖" aria-label="出场备注"></div>';
+    }
     function renderSim() {
       var box = res.querySelector('.cbt-sim'), c = simCtx;
       if (!box || !c) return;
       if (!c.all) c.all = (runBacktest(c.u, c.strategies, c.ex, c.cost, c.pos, 0) || {}).allTrades || [];
-      var start = simState.start && simState.start >= c.from && simState.start <= c.to ? simState.start : c.to;
-      var maxPicks = c.slots || 10;
-      var picks = simState.picks.filter(function (code) { return c.u.items.some(function (it) { return it.stock.code === code; }); }).slice(0, maxPicks);
-      var r = simulateAccount(c.u, c.all, c.ex, c.cost, c.slots, start, picks);
+      var start = simStart(c), maxPicks = c.slots || 10, picks = simPicks(c);
       var quick = [['今天', c.to], ['本月初', monthStart(c.to, 0)], ['上个月初', monthStart(c.to, 1)], ['3 个月前', monthStart(c.to, 3)], ['最早', c.from]]
         .filter(function (q) { return q[1] >= c.from && q[1] <= c.to; });
       var nameOf = {};
       c.u.items.forEach(function (it) { nameOf[it.stock.code] = it.stock.name; });
-      box.innerHTML = '<h5>模拟账户 · 轮仓 <small>Paper Trading · 自己选开始日 / 起始股票</small></h5>' +
+      box.innerHTML = '<h5>模拟账户 · 轮仓 <small>Paper Trading · 自己选开始日 / 自己买哪几只</small></h5>' +
         '<div class="cbt-sim-ctl"><label>从 <input type="date" class="cbt-num cbt-date" data-sim="start" min="' + c.from + '" max="' + c.to + '" value="' + start + '"> 开始</label>' +
         quick.map(function (q) { return '<button type="button" class="sp-btn cbt-simq' + (q[1] === start ? ' on' : '') + '" data-simq="' + q[1] + '">' + q[0] + '</button>'; }).join('') + '</div>' +
-        '<div class="cbt-sim-picks"><span>开始那天先买</span>' + picks.map(function (code) {
-          return '<span class="cbt-pickchip">' + escapeHtml(namePair(code, nameOf[code])[0]) + '<button type="button" data-simdel="' + escapeHtml(code) + '" aria-label="拿掉 ' + escapeHtml(code) + '">×</button></span>';
-        }).join('') + (picks.length < maxPicks ? '<input class="cbt-num cbt-wide" list="cbt-sim-dl" data-sim="add" placeholder="代码或名称" aria-label="加一支开始那天先买的股票">' +
-          '<datalist id="cbt-sim-dl">' + c.u.items.map(function (it) { return '<option value="' + escapeHtml(it.stock.code + ' ' + it.stock.name) + '">'; }).join('') + '</datalist>' : '') + '</div>' +
-        '<p class="hint">' + md(start) + ' 收盘起才买：先买上面选的股票 (占着仓位)，之后照后台离场规则卖出，空出来的仓位按新信号换进 (最多同时 ' + (c.slots || '不限') + ' 笔' +
-        (r.skipped ? '，满仓跳过 ' + r.skipped + ' 个信号' : '') + ')。用今天报告里的股票算。</p>' + accountHtml(r.trades, r.stats, c.slots, c.pos);
+        '<div class="cbt-pks">' + picks.map(function (pk) { return pickHtml(c, pk, simState.picks.indexOf(pk), start, nameOf); }).join('') + '</div>' +
+        (picks.length < maxPicks ? '<div class="cbt-sim-picks"><span>自己买一只</span><input class="cbt-num cbt-wide" list="cbt-sim-dl" data-sim="add" placeholder="代码或名称" aria-label="加一支自己买的股票">' +
+          '<datalist id="cbt-sim-dl">' + c.u.items.map(function (it) { return '<option value="' + escapeHtml(it.stock.code + ' ' + it.stock.name) + '">'; }).join('') + '</datalist></div>' : '') +
+        '<div class="cbt-sim-res">' + simResultHtml(c) + '</div>';
     }
     res.addEventListener('change', function (e) {
       var t = e.target;
-      if (!t.dataset || !t.dataset.sim) return;
+      if (!t.dataset) return;
+      if (t.dataset.pk) { // 改自选股票的买入日 / 价钱 / 停损 / 目标 / 怎么卖 / 备注
+        var card = t.closest('.cbt-pk'), pk = card && simState.picks[+card.dataset.k], f = t.dataset.pk;
+        if (!pk) return;
+        if (f === 'note_in' || f === 'note_out') {
+          pk[f] = t.value.trim().slice(0, 200); saveSim();
+          if (simCtx) res.querySelector('.cbt-sim-res').innerHTML = simResultHtml(simCtx); // 只换下面的结果，打字的框不要被换掉
+          return;
+        }
+        if (f === 'date') pk.date = t.value || null;
+        else if (f === 'mode') pk.mode = t.value === 'mine' ? 'mine' : 'both';
+        else { var v = parseFloat(t.value); if (isNum(v) && v > 0) pk[f] = v; else delete pk[f]; }
+        saveSim(); renderSim();
+        return;
+      }
+      if (!t.dataset.sim) return;
       if (t.dataset.sim === 'start' && t.value) { simState.start = t.value; saveSim(); renderSim(); }
       if (t.dataset.sim === 'add') {
         var code = t.value.trim().split(/\s+/)[0].toUpperCase();
-        if (simCtx && simCtx.u.items.some(function (it) { return it.stock.code === code; }) && simState.picks.indexOf(code) === -1) { simState.picks.push(code); saveSim(); }
+        if (simCtx && simCtx.u.items.some(function (it) { return it.stock.code === code; }) && !simState.picks.some(function (x) { return x.code === code; })) {
+          simState.picks.push({ code: code, mode: 'both' }); saveSim();
+        }
         renderSim();
         var again = res.querySelector('[data-sim="add"]');
         if (again) again.focus();
@@ -5127,7 +5238,7 @@
       var q = e.target.closest('[data-simq]');
       if (q) { simState.start = q.dataset.simq; saveSim(); renderSim(); return; }
       var d = e.target.closest('[data-simdel]');
-      if (d) { simState.picks = simState.picks.filter(function (x) { return x !== d.dataset.simdel; }); saveSim(); renderSim(); }
+      if (d) { simState.picks.splice(+d.dataset.simdel, 1); saveSim(); renderSim(); }
     });
     function schedule() { clearTimeout(timer); timer = setTimeout(run, 250); }
     function run() {
@@ -5249,7 +5360,7 @@
         var v = parseFloat(e.target.value);
         if (isNum(v)) st[f] = v;
         // 在参数框里改了数字 = 顺便勾上那一条
-        var on = { ebk_n: 'ebk_on', ebk_days: 'ebk_on', sth_n: 'sth_on', sth_m: 'sth_on', combo_ema: 'combo_ema_on', combo_need: 'combo_on', ema_f: 'ema_on', ema_s: 'ema_on', swing_k: 'swing_on', stop_pct: 'stop_on', take_pct: 'take_on', max_hold: 'hold_on' }[f];
+        var on = { ebk_n: 'ebk_on', ebk_days: 'ebk_on', sth_n: 'sth_on', sth_m: 'sth_on', combo_ema: 'combo_ema_on', combo_need: 'combo_on', combo_st_n: 'combo_st', combo_st_m: 'combo_st', combo_vol: 'combo_vol_on', combo_emax_f: 'combo_emax', combo_emax_s: 'combo_emax', ema_f: 'ema_on', ema_s: 'ema_on', swing_k: 'swing_on', stop_pct: 'stop_on', take_pct: 'take_on', max_hold: 'hold_on' }[f];
         if (on && !st[on]) { st[on] = true; root.querySelector('[data-f="' + on + '"]').checked = true; }
       }
       save();

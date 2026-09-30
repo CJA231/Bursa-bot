@@ -471,7 +471,7 @@ def detect_t3_pattern(df):
 
 **strategy.json (仓库根目录) = 后台信号 + 回测用的策略**
 - 内容：`name`、`match` (all / any)、`rules` (跟网页选股条件同一个格式)、`exit` (离场规则)、可选 `cost_pct` (数字，或 `{"MY": 0.3, "US": 0.1}`；不写用 `MARKETS[..]["round_trip_cost_pct"]`)。马股、美股**共用同一个文件**
-- `exit`：`sar` (true = SAR 转空离场)、`ema_cross` ([快, 慢] = 快线下穿慢线离场，null = 不用)、`swing_low` (N = 收盘跌破最近一个左右各 N 根确认的波段低点离场，持有期间只往上移 = 跟踪止损；0 = 不用)、`max_hold` (最多持有几个交易日，0 = 不限)、`stop_pct` / `take_pct` (固定止损 / 止盈 %，0 = 不用)。`clean_exit()` 清洗 (网页 `cleanExit` 同一套)
+- `exit`：`sar` (true = SAR 转空离场)、`ema_cross` ([快, 慢] = 快线下穿慢线离场，null = 不用)、`swing_low` (N = 收盘跌破最近一个左右各 N 根确认的波段低点离场，持有期间只往上移 = 跟踪止损；0 = 不用)、`max_hold` (最多持有几个交易日，0 = 不限)、`stop_pct` / `take_pct` (固定止损 / 止盈 %，0 = 不用；`take_trail: true` = 到了先锁利润，趋势坏 1 个才止盈)、`combo` (趋势健康检查：`st` / `sar` / `support` / `vol` / `emax` / `ema`，坏掉 `need` 个就离场)。`clean_exit()` 清洗 (网页 `cleanExit` 同一套)
 - `load_strategy()`：文件没有 / JSON 坏了 / 最外层不是 {} / 没有能用的条件 → 退回 `DEFAULT_STRATEGY` (= 以前写死的 EMA20 + SAR + T3)，**不会让运行失败**，原因写在日志第二行 `⚠️`；部分条件写错 → 那几条不参与，日志列出来
 - 日志第一行 `🎯 后台策略「…」：条件… ；离场: …；成本 x%` (默认策略后面标 "(默认策略)")
 - 后台算条件用的K线 = `df_to_bars(df)` (跟 table.json 一样取到 3 位小数)，所以后台跟网页对表格股票逐根K线一致

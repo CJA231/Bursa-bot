@@ -303,14 +303,19 @@ def _float_in(v, lo, hi, default):
 
 
 def clean_combo(c):
-    """组合离场 (网页 cleanCombo 同一套)：每天收盘看三个信号——A 收盘跌破支撑 (最近回调低点，只往上移)、
-    B 收盘 < EMA(n)、C SAR 在价格上面 (空头)——同时成立 need 个就离场。None = 不用"""
+    """趋势健康检查 (网页 cleanCombo 同一套)：每天收盘按顺序看 Supertrend / SAR / 支撑 (最近更高低点，只往上移) /
+    放量抛售 / EMA 快慢线 / 收盘 < EMA，坏掉的同时有 need 个就离场。None = 不用"""
     if not isinstance(c, dict):
         return None
     ema = _int_in(c.get("ema", 20), 0, 250, 20) if c.get("ema") not in (None, False, 0, "0") else 0
     parts = {"support": bool(c.get("support", True)), "ema": ema, "sar": bool(c.get("sar", True)),
-             "ema_days": _int_in(c.get("ema_days", 1), 1, 10, 1)}  # 连续几天收盘 < EMA 才算跌破 (2 = 隔天收回来就不算)
-    on = sum(1 for k in ("support", "ema", "sar") if parts[k])
+             "ema_days": _int_in(c.get("ema_days", 1), 1, 10, 1),  # 连续几天收盘 < EMA 才算跌破 (2 = 隔天收回来就不算)
+             # 趋势健康检查 (按顺序)：① 收盘 < Supertrend(st_n, st_m) ② SAR 空头 ③ 跌破支撑 (最近更高低点)
+             # ④ 放量抛售 = 收跌、成交量 ≥ vol × 前 20 天平均 ⑤ EMA 快线 < 慢线 (EMA5 < EMA20)
+             "st": bool(c.get("st", False)), "st_n": _int_in(c.get("st_n", 3), 1, 200, 3), "st_m": _float_in(c.get("st_m", 1.4), 0.1, 20, 1.4),
+             "vol": _float_in(c.get("vol", 0), 0, 20, 0),
+             "emax": bool(c.get("emax", False)), "emax_f": _int_in(c.get("emax_f", 5), 1, 249, 5), "emax_s": _int_in(c.get("emax_s", 20), 2, 250, 20)}
+    on = sum(1 for k in ("support", "ema", "sar", "st", "vol", "emax") if parts[k])
     if not on:
         return None
     parts["need"] = _int_in(c.get("need", 2), 1, on, min(2, on))
@@ -335,6 +340,8 @@ def clean_exit(ex):
         "max_hold": _int_in(ex.get("max_hold", EXIT_DEFAULT["max_hold"]), 0, 250, 30),
         "stop_pct": _float_in(ex.get("stop_pct", 0), 0, 90, 0),
         "take_pct": _float_in(ex.get("take_pct", 0), 0, 1000, 0),
+        # True = 涨到 take_pct 不马上卖，改成锁利润：之后趋势健康检查坏掉任何 1 个 (没开检查 = 跌破支撑) 就止盈
+        "take_trail": bool(ex.get("take_trail", False)),
         "red_candle": bool(ex.get("red_candle", False)),
         "prior_high": bool(ex.get("prior_high", False)),
         "resistance": bool(ex.get("resistance", False)),
@@ -479,8 +486,11 @@ def exit_labels(ex):
         out.append(f"收盘跌破最近回调低点 (收盘价，{how}，只往上移) (Trailing Stop)" + ("：只提醒不离场 (Alert only)" if ex["swing_alert"] else ""))
     if ex["combo"]:
         cb = ex["combo"]
-        names = [x for x, on in (("收盘跌破支撑 (最近回调低点)", cb["support"]), (f"收盘 < EMA{cb['ema']}" + (f" 连续 {cb['ema_days']} 天" if cb["ema_days"] > 1 else ""), cb["ema"]), ("SAR 转空", cb["sar"])) if on]
-        out.append(f"组合离场：{' / '.join(names)} 同时满足 {cb['need']} 个 (Combined Exit)")
+        names = [x for x, on in ((f"收盘跌破 Supertrend({cb['st_n']},{cb['st_m']:g})", cb["st"]), ("SAR 转空", cb["sar"]),
+                                 ("收盘跌破支撑 (最近更高低点)", cb["support"]), (f"放量抛售 (收跌、量 ≥ {cb['vol']:g} 倍均量)", cb["vol"]),
+                                 (f"EMA{cb['emax_f']} < EMA{cb['emax_s']}", cb["emax"]),
+                                 (f"收盘 < EMA{cb['ema']}" + (f" 连续 {cb['ema_days']} 天" if cb["ema_days"] > 1 else ""), cb["ema"])) if on]
+        out.append(f"趋势健康检查：{' / '.join(names)}，坏掉 {cb['need']} 个就离场 (Trend Health Exit)")
     if ex["ema_break"]:
         out.append(f"收盘连续 {ex['ema_break']['days']} 天 < EMA{ex['ema_break']['n']} 全部离场 (第一天只提醒，隔天收回就继续拿) (EMA Break)")
     if ex["hold_st"]:
@@ -489,7 +499,9 @@ def exit_labels(ex):
         out.append("跌破回调红K低点 (Pullback Red Candle)")
     if ex["max_risk"]:
         out.append(f"入场风险 > {ex['max_risk']:g}% 不进" + (f" (当天涨 ≥ {ex['surge_pct']:g}% 放宽到 {ex['max_risk_surge']:g}%)" if ex["max_risk_surge"] else "") + " (Max Entry Risk)")
-    if ex["take_pct"]:
+    if ex["take_pct"] and ex["take_trail"]:
+        out.append(f"涨到 +{ex['take_pct']:g}% 开始锁利润：之后趋势坏掉任何 1 个就止盈 (Trailing Take Profit)")
+    elif ex["take_pct"]:
         out.append(f"止盈 +{ex['take_pct']:g}% (Take Profit)")
     if ex["prior_high"]:
         out.append("涨到历史高点 (Prior High)")
@@ -547,7 +559,7 @@ BT_DIST_EDGES = (-10, -5, 0, 5, 10)  # 收益分布: < -10%、-10~-5、-5~0、0~
 CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
 EXIT_REASON_LABELS = {  # (中文, 英文)；网页 report.js EXIT_REASONS 同一份
     "stop": ("止损", "Stop Loss"), "swing": ("跌破回调低点", "Trailing Stop"), "red": ("回调红K", "Pullback Red Candle"),
-    "sar": ("SAR 转空", "SAR Flip"), "combo": ("组合离场", "Combined Exit"), "emab": ("跌破 EMA 确认", "EMA Break"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
+    "sar": ("SAR 转空", "SAR Flip"), "combo": ("趋势转坏", "Trend Health Exit"), "emab": ("跌破 EMA 确认", "EMA Break"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
     "high": ("历史高点", "Prior High"), "res": ("近期阻力", "Resistance"), "time": ("满期", "Time Stop"), "open": ("持有中", "Open"),
 }
 
@@ -615,6 +627,10 @@ def exit_series(bars, ex, ctx):
         "ema_f": engine.series_ema(c, ex["ema_cross"][0]) if ex["ema_cross"] else None,
         "ema_s": engine.series_ema(c, ex["ema_cross"][1]) if ex["ema_cross"] else None,
         "ema_combo": engine.series_ema(c, ex["combo"]["ema"]) if ex["combo"] and ex["combo"]["ema"] else None,
+        "combo_st": engine.series_supertrend(ctx.series["high"], ctx.series["low"], ctx.series["close"], ex["combo"]["st_m"], ex["combo"]["st_n"])
+                    if ex["combo"] and ex["combo"]["st"] else None,
+        "combo_ef": engine.series_ema(c, ex["combo"]["emax_f"]) if ex["combo"] and ex["combo"]["emax"] else None,
+        "combo_es": engine.series_ema(c, ex["combo"]["emax_s"]) if ex["combo"] and ex["combo"]["emax"] else None,
         "ema_break": engine.series_ema(c, ex["ema_break"]["n"]) if ex["ema_break"] else None,
         "st_hold": engine.series_supertrend(ctx.series["high"], ctx.series["low"], ctx.series["close"], ex["hold_st"]["m"], ex["hold_st"]["n"])
                    if ex["hold_st"] else None,
@@ -683,6 +699,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
     v = [b["volume"] for b in bars]
     sar, ema_f, ema_s, trail, phi = series["sar"], series["ema_f"], series["ema_s"], series["trail"], series.get("phi")
     combo, ema_c, st_hold = ex["combo"], series.get("ema_combo"), series.get("st_hold")
+    cst, cef, ces = series.get("combo_st"), series.get("combo_ef"), series.get("combo_es")
     ema_b, eb = series.get("ema_break"), ex["ema_break"]
 
     def below(ema, j, days):
@@ -730,6 +747,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
             continue
         hi, low_ = (entry_px, entry_px) if cl else (h[e], lo[e])
         j, reason, alert, exit_hits = e, "open", None, None
+        armed = False  # 已经涨到 take_pct (锁利润模式)
         while j < n:
             if cl and j == e:  # 收盘价进场：进场那天不检查离场，从隔天起
                 if e == n - 1:
@@ -739,19 +757,29 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
             if trail[j] is not None and (swing is None or trail[j] > swing) and trail[j] < c[j]:
                 swing = trail[j]  # 新确认的回调低点更高 → 止损往上移 (浮动止盈)，只升不降
             hits = []
-            if combo:  # 组合离场：A 跌破支撑 / B 收盘 < EMA / C SAR 空头，同时成立 need 个
-                if combo["support"] and swing is not None and c[j] < swing:
-                    hits.append("支撑")
-                if combo["ema"] and below(ema_c, j, combo["ema_days"]):
-                    hits.append(f"EMA{combo['ema']}")
+            if combo:  # 趋势健康检查 (按顺序)，坏掉的同时有 need 个就离场
+                if combo["st"] and cst[j] is not None and c[j] < cst[j]:
+                    hits.append("Supertrend")
                 if combo["sar"] and sar[j] is not None and not bull(j):
                     hits.append("SAR")
+                if combo["support"] and swing is not None and c[j] < swing:
+                    hits.append("支撑")
+                if combo["vol"] and j >= 20 and c[j] < c[j - 1]:
+                    avg = sum(v[j - 20:j]) / 20
+                    if avg > 0 and v[j] >= combo["vol"] * avg:
+                        hits.append("放量抛售")
+                if combo["emax"] and cef[j] is not None and ces[j] is not None and cef[j] < ces[j]:
+                    hits.append(f"EMA{combo['emax_f']}<{combo['emax_s']}")
+                if combo["ema"] and below(ema_c, j, combo["ema_days"]):
+                    hits.append(f"EMA{combo['ema']}")
             # Supertrend 护航：还在收盘价下面 (多头) 就继续拿，趋势类离场 (组合 / 回调低点 / 红K / SAR / EMA 死叉) 先不算
             guard = st_hold is not None and st_hold[j] is not None and st_hold[j] < c[j]
             if ex["stop_pct"] and c[j] <= entry_px * (1 - ex["stop_pct"] / 100):
                 reason = "stop"
             elif eb and below(ema_b, j, eb["days"]):  # 跌破 EMA 连续 days 天：全部离场 (不受 Supertrend 护航影响)
                 reason = "emab"
+            elif armed and (hits if combo else swing is not None and c[j] < swing):  # 锁利润：趋势坏掉任何 1 个就止盈
+                reason, exit_hits = "take", hits or None
             elif not guard and combo and len(hits) >= combo["need"]:
                 reason, exit_hits = "combo", hits
             elif not guard and ex["swing_low"] and swing is not None and c[j] < swing and not ex["swing_alert"]:
@@ -763,7 +791,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
             elif (not guard and ex["ema_cross"] and j >= 1 and None not in (ema_f[j], ema_s[j], ema_f[j - 1], ema_s[j - 1])
                   and ema_f[j] < ema_s[j] and ema_f[j - 1] >= ema_s[j - 1]):
                 reason = "ema"
-            elif ex["take_pct"] and c[j] >= entry_px * (1 + ex["take_pct"] / 100):
+            elif ex["take_pct"] and not ex["take_trail"] and c[j] >= entry_px * (1 + ex["take_pct"] / 100):
                 reason = "take"
             elif high_t is not None and c[j] >= high_t:
                 reason = "high"
@@ -777,6 +805,8 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
                 alert = {"date": dates[j], "price": c[j], "hl": swing, "hits": hits}
             if ex["swing_alert"] and ex["swing_low"] and swing is not None and c[j] < swing and alert is None:
                 alert = {"date": dates[j], "price": c[j], "hl": swing}  # 跌破最近回调低点：提醒，等 SAR / EMA 确认才离场
+            if ex["take_trail"] and ex["take_pct"] and c[j] >= entry_px * (1 + ex["take_pct"] / 100):
+                armed = True  # 今天收盘到了目标：明天起趋势坏掉任何 1 个就止盈
             if reason != "open" or j == n - 1:
                 break
             j += 1
@@ -2878,6 +2908,27 @@ MARKET_CSS = """
   .cbt-pickchip button { font: inherit; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 0.2rem; font-size: 0.9rem; line-height: 1; }
   .cbt-pick { font-style: normal; font-size: 0.62rem; font-weight: 600; color: var(--ema); border: 1px solid currentColor; border-radius: 999px; padding: 0 0.3rem; margin-left: 0.2rem; }
   .cbt-acct td small { display: block; color: var(--muted); font-size: 0.7rem; }
+  .cbt-acct tr.has-plan td { border-bottom: 0; }
+  .cbt-acct tr.cbt-plan td { white-space: normal; padding-top: 0; font-size: 0.72rem; color: var(--text-secondary); cursor: default; }
+  .cbt-acct tr.cbt-plan i { font-style: normal; color: var(--muted); margin: 0 0.35rem; }
+  .cbt-acct tr.cbt-plan:hover { background: none; }
+  /* 模拟账户自选股票：买入日 / 价钱 / 停损 / 目标 / 怎么卖 / 备注 */
+  .cbt-pks { display: grid; gap: 0.5rem; margin: 0 0 0.5rem; }
+  .cbt-pk { padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--page); font-size: 0.78rem; }
+  .cbt-pk-h { display: flex; align-items: baseline; gap: 0.4rem; margin: 0 0 0.4rem; }
+  .cbt-pk-h small { color: var(--muted); font-size: 0.7rem; }
+  .cbt-pk-rr { margin-left: auto; font-size: 0.74rem; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+  .cbt-pk-rr.good { color: var(--up); } .cbt-pk-rr.bad { color: var(--down); }
+  .cbt-pk-del { font: inherit; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 0.15rem; font-size: 1rem; line-height: 1; }
+  .cbt-pk-g { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.35rem 0.5rem; }
+  .dlg .cbt-pk-g label, .dlg .cbt-pk-mode { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.7rem; color: var(--text-secondary); min-width: 0; }
+  .cbt-pk-g .cbt-num { width: 100%; min-width: 0; text-align: left; }
+  .cbt-pk-sum { display: flex; gap: 0.8rem; margin: 0.35rem 0; font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .dlg .cbt-pk-mode { margin: 0 0 0.35rem; }
+  .cbt-pk-mode .cbt-num.cbt-wide { width: 100%; text-align: left; }
+  .cbt-pk-note { display: block; width: 100%; box-sizing: border-box; margin: 0.3rem 0 0; padding: 0.35rem 0.5rem; font: inherit; font-size: 16px;
+    color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+  @media (max-width: 640px) { .cbt-pk-g { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .bt-every { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--text-secondary); }
   .bt-every small { color: var(--muted); font-size: 0.7rem; }
   .bt-every b { font-variant-numeric: tabular-nums; }
@@ -2946,6 +2997,13 @@ MARKET_CSS = """
   .cbt-xh:first-child { margin-top: 0.1rem; }
   .cbt-xh i { font-style: normal; font-weight: 400; color: var(--muted); margin-left: 0.2rem; }
   .cbt-combo { justify-content: flex-start; } .cbt-combo label { display: inline-flex; align-items: center; gap: 0.3rem; }
+  .cbt-health { margin: 0 0 0.3rem; padding: 0; list-style: none; counter-reset: hc; font-size: 0.82rem; }
+  .cbt-health li { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.15rem 0; counter-increment: hc; }
+  .cbt-health li::before { content: counter(hc); flex: none; width: 1.1rem; color: var(--muted); font-size: 0.72rem; }
+  .cbt-health li > label { margin-right: auto; }
+  .cbt-health .cbt-p { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; flex: none; }
+  .cbt-health .cbt-num { width: 3.8rem; }
+  .dlg .cbt-health label { display: inline-flex; align-items: center; gap: 0.3rem; flex-direction: row; }
   .cbt-x { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.3rem 0.8rem; padding: 0.5rem 0;
     border-bottom: 1px solid var(--border); font-size: 0.82rem; }
   .dlg .cbt-x label, .dlg label.cbt-x { display: flex; flex-direction: row; align-items: center; gap: 0.55rem; cursor: pointer;
