@@ -2588,6 +2588,10 @@ REPORT_JS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs"
 FOLD_JS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "fold.js")  # 首页收纳 (区块折叠 + 顶部目录)，在 report.js 之前载入
 
 
+I18N_JS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "i18n.js")  # 中文 / English 切换 (右上角 EN 按钮)，在 report.js 之前载入 (名词解释要先换好)
+I18N_GLOSS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "i18n-gloss.js")  # 名词解释的英文版
+
+
 def report_js_version(path=REPORT_JS_PATH):
     try:
         with open(path, "rb") as f:
@@ -4656,6 +4660,8 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 <script id="chart-data" type="application/json">{chart_json}</script>
 <script id="report-meta" type="application/json">{meta_json}</script>
 <script src="{ASSET_PREFIX}fold.js?v={report_js_version(FOLD_JS_PATH)}"></script>
+<script src="{ASSET_PREFIX}i18n-gloss.js?v={report_js_version(I18N_GLOSS_PATH)}"></script>
+<script src="{ASSET_PREFIX}i18n.js?v={report_js_version(I18N_JS_PATH)}"></script>
 <script src="{ASSET_PREFIX}report.js?v={report_js_version()}"></script>
 </body>
 </html>"""
