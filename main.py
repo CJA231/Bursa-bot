@@ -262,11 +262,18 @@ DEFAULT_STRATEGY = {
         {"a": {"k": "close"}, "op": ">", "b": {"k": "sar"}},
         {"a": {"k": "t3"}, "op": "is"},
     ],
-    # 离场规则 (回测用，哪一个先发生就按那天收盘价结算)：SAR 转空、EMA 快线下穿慢线、收盘跌破最近的波段低点 (HL)、
-    # 最多持有几天；另外可选固定止损 / 止盈 % (0 = 不用)
-    "exit": {"sar": True, "ema_cross": [5, 20], "swing_low": 2, "max_hold": 30, "stop_pct": 0, "take_pct": 0},
+    # 离场规则 (回测用，每天收盘检查，哪一个先发生就按那天收盘价结算)：
+    #   止损：固定 % (stop_pct)、浮动 HL (swing_low = 左右各几根确认的波段低点，出现更高的低点就往上移)、回调红K 的低点 (red_candle)
+    #   止盈：固定 % (take_pct)、历史高点 (prior_high)、近期阻力 (resistance)
+    #   趋势 / 时间：SAR 转空、EMA 快线下穿慢线、最多持有几天 (0 / false = 不用那一条)
+    "exit": {"sar": True, "ema_cross": [5, 20], "swing_low": 2, "max_hold": 30, "stop_pct": 0, "take_pct": 0,
+             "red_candle": False, "prior_high": False, "resistance": False},
 }
 EXIT_DEFAULT = DEFAULT_STRATEGY["exit"]
+POSITION_DEFAULT = 20000  # 回测换算成金额：每笔投入 RM20,000 (strategy.json 的 position_rm 可以改)
+RED_LOOKBACK = 10     # 回调红K：信号日前 10 根K线里最近的一根红K (收盘 < 开盘)，跌破它的最低价离场
+RES_K = 2             # 近期阻力：波段高点 = 比左边 2 根都高、不低于右边 2 根 (跟浮动 HL 一样要等右边走完才确认)
+RES_LOOKBACK = 60     # 近期阻力只看信号日前 60 根K线 (约 3 个月) 里的波段高点
 
 
 def _int_in(v, lo, hi, default):
@@ -303,6 +310,9 @@ def clean_exit(ex):
         "max_hold": _int_in(ex.get("max_hold", EXIT_DEFAULT["max_hold"]), 0, 250, 30),
         "stop_pct": _float_in(ex.get("stop_pct", 0), 0, 90, 0),
         "take_pct": _float_in(ex.get("take_pct", 0), 0, 1000, 0),
+        "red_candle": bool(ex.get("red_candle", False)),
+        "prior_high": bool(ex.get("prior_high", False)),
+        "resistance": bool(ex.get("resistance", False)),
     }
 
 
@@ -338,6 +348,7 @@ def load_strategy():
         "rules": rules,
         "exit": clean_exit(strat.get("exit")),
         "cost": _float_in(cost, 0, 10, MKT["round_trip_cost_pct"]) if cost is not None else MKT["round_trip_cost_pct"],
+        "position": _float_in(strat.get("position_rm", POSITION_DEFAULT), 100, 1e8, POSITION_DEFAULT),
         "custom": raw is not None and strat is not DEFAULT_STRATEGY,
     }, compiled, note
 
@@ -349,16 +360,22 @@ STRATEGY_LABELS = [engine.rule_label(r) for r, _, err in STRATEGY_COMPILED if no
 def exit_labels(ex):
     """离场规则的中文 + 英文说明 (页面上、日志里都用)"""
     out = []
+    if ex["stop_pct"]:
+        out.append(f"止损 -{ex['stop_pct']:g}% (Stop Loss)")
+    if ex["swing_low"]:
+        out.append(f"跌破浮动 HL，左右 {ex['swing_low']} 根 (Trailing HL)")
+    if ex["red_candle"]:
+        out.append("跌破回调红K低点 (Pullback Red Candle)")
+    if ex["take_pct"]:
+        out.append(f"止盈 +{ex['take_pct']:g}% (Take Profit)")
+    if ex["prior_high"]:
+        out.append("涨到历史高点 (Prior High)")
+    if ex["resistance"]:
+        out.append("涨到近期阻力 (Resistance)")
     if ex["sar"]:
         out.append("SAR 转空 (SAR Flip)")
     if ex["ema_cross"]:
         out.append(f"EMA{ex['ema_cross'][0]} 下穿 EMA{ex['ema_cross'][1]} (EMA Cross-down)")
-    if ex["swing_low"]:
-        out.append("跌破最近波段低点 HL (Swing-Low Break)")
-    if ex["stop_pct"]:
-        out.append(f"止损 -{ex['stop_pct']:g}% (Stop Loss)")
-    if ex["take_pct"]:
-        out.append(f"止盈 +{ex['take_pct']:g}% (Take Profit)")
     out.append(f"最多持有 {ex['max_hold']} 天 (Time Stop)" if ex["max_hold"] else "不限持有天数")
     return out
 
@@ -400,9 +417,10 @@ BT_START = 25             # 前 25 根K线当暖身 (指标还没算出来)，�
 BT_RECENT_BARS = 20       # "最近信号"列出最近 20 个交易日里出现过的信号
 BT_RECENT_SHOW = 10       # 先显示 10 条，其余按「显示全部」(CSS .bt-recent:not(.all) 藏起来)
 BT_DIST_EDGES = (-10, -5, 0, 5, 10)  # 收益分布: < -10%、-10~-5、-5~0、0~5、5~10、> 10%
-EXIT_REASON_LABELS = {
-    "stop": "止损 Stop Loss", "swing": "跌破波段低点 Swing-Low Break", "sar": "SAR 转空 SAR Flip",
-    "ema": "EMA 死叉 EMA Cross-down", "take": "止盈 Take Profit", "time": "满期 Time Stop", "open": "持有中 Open",
+EXIT_REASON_LABELS = {  # (中文, 英文)；网页 report.js EXIT_REASONS 同一份
+    "stop": ("止损", "Stop Loss"), "swing": ("浮动 HL", "Trailing HL"), "red": ("回调红K", "Pullback Red Candle"),
+    "sar": ("SAR 转空", "SAR Flip"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
+    "high": ("历史高点", "Prior High"), "res": ("近期阻力", "Resistance"), "time": ("满期", "Time Stop"), "open": ("持有中", "Open"),
 }
 
 
@@ -426,15 +444,49 @@ def pivot_lows(low, k):
     return out
 
 
+def pivot_highs(high, k):
+    """波段高点: 比左边 k 根都高、不低于右边 k 根的那一根 (pivot_lows 反过来)"""
+    n = len(high)
+    out = [False] * n
+    for p in range(k, n - k):
+        if all(high[p] > high[q] for q in range(p - k, p)) and all(high[p] >= high[q] for q in range(p + 1, p + k + 1)):
+            out[p] = True
+    return out
+
+
 def exit_series(bars, ex, ctx):
-    """回测要用的序列 (SAR、两条 EMA、波段低点)"""
+    """回测要用的序列 (SAR、两条 EMA、波段低点 / 高点)"""
     c = [b["close"] for b in bars]
     return {
         "sar": engine.series_psar(ctx.series["high"], ctx.series["low"], ctx.series["close"]),
         "ema_f": engine.series_ema(c, ex["ema_cross"][0]) if ex["ema_cross"] else None,
         "ema_s": engine.series_ema(c, ex["ema_cross"][1]) if ex["ema_cross"] else None,
         "piv": pivot_lows([b["low"] for b in bars], ex["swing_low"]) if ex["swing_low"] else None,
+        "phi": pivot_highs([b["high"] for b in bars], RES_K) if ex["resistance"] else None,
     }
+
+
+def red_candle_low(o, c, lo, i):
+    """回调红K：第 i 天 (信号日) 之前 RED_LOOKBACK 根里最近的一根红K (收盘 < 开盘) 的最低价，没有返回 None"""
+    for r in range(i - 1, max(i - RED_LOOKBACK, 0) - 1, -1):
+        if c[r] < o[r]:
+            return lo[r]
+    return None
+
+
+def exit_targets(h, phi, i, entry_px, ex):
+    """止盈目标 (都要在计入价上面才算数)：历史高点 = 信号日之前的最高价 (回测数据最多约 6 个月)；
+    近期阻力 = 信号日前 RES_LOOKBACK 根里已经确认的波段高点，在计入价上面、离现在最近的那一个"""
+    high_t = res_t = None
+    if ex["prior_high"] and i > 0:
+        m = max(h[:i])
+        high_t = m if m > entry_px else None
+    if ex["resistance"] and phi:
+        for p in range(i - RES_K, max(i - RES_LOOKBACK, 0) - 1, -1):
+            if phi[p] and h[p] > entry_px:
+                res_t = h[p]
+                break
+    return high_t, res_t
 
 
 def latest_pivot(piv, k, upto):
@@ -460,7 +512,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series):
     h = [b["high"] for b in bars]
     lo = [b["low"] for b in bars]
     c = [b["close"] for b in bars]
-    sar, ema_f, ema_s, piv = series["sar"], series["ema_f"], series["ema_s"], series["piv"]
+    sar, ema_f, ema_s, piv, phi = series["sar"], series["ema_f"], series["ema_s"], series["piv"], series.get("phi")
     k = ex["swing_low"]
 
     def bull(i):
@@ -488,7 +540,9 @@ def backtest_stock(bars, dates, entry, ex, cost, series):
         entry_px = o[e]
         swing_p = latest_pivot(piv, k, i) if piv else None
         swing = lo[swing_p] if swing_p is not None else None
-        stops = [x for x in (swing if ex["swing_low"] else None,
+        red = red_candle_low(o, c, lo, i) if ex["red_candle"] else None
+        high_t, res_t = exit_targets(h, phi, i, entry_px, ex)
+        stops = [x for x in (swing if ex["swing_low"] else None, red,
                              sar[i] if ex["sar"] and sar[i] is not None else None,
                              entry_px * (1 - ex["stop_pct"] / 100) if ex["stop_pct"] else None) if x is not None and x < entry_px]
         risk = (entry_px - max(stops)) / entry_px * 100 if stops else None
@@ -503,6 +557,8 @@ def backtest_stock(bars, dates, entry, ex, cost, series):
                 reason = "stop"
             elif ex["swing_low"] and swing is not None and c[j] < swing:
                 reason = "swing"
+            elif red is not None and c[j] < red:
+                reason = "red"
             elif ex["sar"] and bull(j - 1) and not bull(j):
                 reason = "sar"
             elif (ex["ema_cross"] and j >= 1 and None not in (ema_f[j], ema_s[j], ema_f[j - 1], ema_s[j - 1])
@@ -510,6 +566,10 @@ def backtest_stock(bars, dates, entry, ex, cost, series):
                 reason = "ema"
             elif ex["take_pct"] and c[j] >= entry_px * (1 + ex["take_pct"] / 100):
                 reason = "take"
+            elif high_t is not None and c[j] >= high_t:
+                reason = "high"
+            elif res_t is not None and c[j] >= res_t:
+                reason = "res"
             elif ex["max_hold"] and j - e + 1 >= ex["max_hold"]:
                 reason = "time"
             if reason != "open" or j == n - 1:
@@ -538,8 +598,20 @@ def _median(xs):
     return xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2
 
 
+def max_slots(trades):
+    """同时最多持有几笔 (进场日到离场日都算占着一笔，持有中的算到最后一天)"""
+    events = sorted([(t["entry_date"], 0) for t in trades] + [(t["exit_date"], 1) for t in trades])  # 同一天先进后出
+    cur = top = 0
+    for _, kind in events:
+        cur += 1 if kind == 0 else -1
+        top = max(top, cur)
+    return top
+
+
 def trade_stats(trades):
-    """一组交易的统计 (网页 tradeStats 同一套)：已结算的算胜率等，持有中的另外给浮动平均"""
+    """一组交易的统计 (网页 tradeStats 同一套)：已结算的算胜率等，持有中的另外给浮动平均。
+    金额：每笔同样本金 (1 笔 = 100 点，乘上每笔金额 / 100 就是 RM)；本金 = 同时最多持有几笔 × 每笔金额，
+    最大回撤 % = 本金加上已结算的盈亏，从最高点往下掉最多的百分比 (跟每笔金额多少无关)"""
     closed = [t for t in trades if t["reason"] != "open"]
     opened = [t for t in trades if t["reason"] == "open"]
     nets = [t["net"] for t in closed]
@@ -553,10 +625,15 @@ def trade_stats(trades):
         max_streak = max(max_streak, streak)
         day_net[t["exit_date"]] = day_net.get(t["exit_date"], 0.0) + t["net"]
     # 最大回撤看每天收盘后的累计 (同一天结算的几笔一起算)，跟网页「图表」里的累计收益曲线同一条
+    slots = max_slots(trades)
+    base = 100.0 * slots
+    mdd_pct = 0.0
     for d in day_net:  # 按上面排好的顺序加进去的，日期已经由小到大
         equity += day_net[d]
         peak = max(peak, equity)
         mdd = min(mdd, equity - peak)
+        if base + peak > 0:
+            mdd_pct = min(mdd_pct, (equity - peak) / (base + peak) * 100)
     mean = sum(nets) / len(nets) if nets else None
     sd = (sum((x - mean) ** 2 for x in nets) / (len(nets) - 1)) ** 0.5 if len(nets) > 1 else None
     risks = [t["risk"] for t in closed if t["risk"]]
@@ -576,6 +653,7 @@ def trade_stats(trades):
         "avg_days": _r(sum(t["days"] for t in closed) / len(closed), 1) if closed else None,
         "best": _r(max(nets)) if nets else None, "worst": _r(min(nets)) if nets else None,
         "max_streak": max_streak, "mdd": _r(mdd) if nets else None,
+        "mdd_pct": _r(mdd_pct) if nets else None, "slots": slots, "total": _r(sum(nets)) if nets else None,
         "sqn": _r(math.sqrt(min(len(nets), 100)) * mean / sd) if sd else None,
         "mfe_median": _r(_median([t["mfe"] for t in closed])) if closed else None,
         "mae_median": _r(_median([t["mae"] for t in closed])) if closed else None,
@@ -640,7 +718,7 @@ def summarize_backtest(stocks):
         months.setdefault(t["sig"][:7], []).append(t)
     monthly = [dict(month=mth, **trade_stats(ts)) for mth, ts in sorted(months.items())]
     return {
-        "stocks": n_stocks, "from": first_day, "to": last_day, "cost": STRATEGY["cost"],
+        "stocks": n_stocks, "from": first_day, "to": last_day, "cost": STRATEGY["cost"], "position": STRATEGY["position"],
         "name": STRATEGY["name"], "rules": STRATEGY_LABELS, "match": STRATEGY["match"], "exit": STRATEGY["exit"],
         "all": trade_stats(trades), "windows": windows, "monthly": monthly, "horizons": horizons, "dist": dist,
         "recent": sorted((t for t in trades if t["sig_ago"] <= BT_RECENT_BARS), key=lambda t: (t["sig_ago"], -t["ret"]))[:40],
@@ -746,7 +824,7 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             entry = engine.rules_truth(bars, STRATEGY_COMPILED, STRATEGY["match"], ctx)
             ex = STRATEGY["exit"]
             series = exit_series(bars, ex, ctx)
-            # 离场线 (风险参考)：现价下方最近的一条 —— SAR、最近的波段低点、固定止损 % (strategy.json 开了哪几条就看哪几条)
+            # 离场线 (风险参考)：现价下方最近的一条 —— SAR、浮动 HL、回调红K 低点、固定止损 % (strategy.json 开了哪几条就看哪几条)
             last_close = bars[-1]["close"] if bars else None
             stop_refs = []
             if last_close:
@@ -755,7 +833,11 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 if ex["swing_low"] and series["piv"]:
                     p = latest_pivot(series["piv"], ex["swing_low"], len(bars) - 1)
                     if p is not None and bars[p]["low"] < last_close:
-                        stop_refs.append((bars[p]["low"], "波段低点"))
+                        stop_refs.append((bars[p]["low"], "浮动 HL"))
+                if ex["red_candle"]:
+                    red = red_candle_low([b["open"] for b in bars], [b["close"] for b in bars], [b["low"] for b in bars], len(bars) - 1)
+                    if red is not None and red < last_close:
+                        stop_refs.append((red, "回调红K"))
                 if ex["stop_pct"]:
                     stop_refs.append((last_close * (1 - ex["stop_pct"] / 100), f"止损 {ex['stop_pct']:g}%"))
             stop_ref = max(stop_refs) if stop_refs else None
@@ -1639,6 +1721,14 @@ def pct_text(v, digits=1, plus=True):
     return f"{'+' if plus and v > 0 else ''}{v:.{digits}f}%"
 
 
+def rm_text(points, position, plus=True):
+    """回测的"点" (每笔本金 = 100 点) 换成金额：每笔投入 position 令吉时是多少 RM (四舍五入跟网页 Math.round 一样)"""
+    if points is None:
+        return "—"
+    r = math.floor(points * position / 100 + 0.5)
+    return f"RM\u00a0{'+' if plus and r > 0 else '-' if r < 0 else ''}{abs(r):,}"
+
+
 def fmt_num(v, pattern, missing="—"):
     """数字格式化；None / NaN 显示成 "—"。价格 14 天没动的股票 RSI 会是 NaN (0/0)，以前表格里直接显示 "nan"。"""
     if v is None or (isinstance(v, float) and v != v):
@@ -2354,7 +2444,7 @@ MARKET_CSS = """
   .bt-tiles > div, .bt-risk > div { background: var(--page); border-radius: 8px; padding: 0.5rem 0.65rem; min-width: 0; }
   .bt-tiles dt, .bt-risk dt { font-size: 0.7rem; color: var(--text-secondary); }
   .bt-tiles dd { margin: 0.1rem 0 0; font-size: 1.2rem; font-weight: 650; font-variant-numeric: tabular-nums; }
-  .bt-tiles small, .bt-risk small { display: block; margin-top: 0.1rem; font-size: 0.66rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bt-tiles small, .bt-risk small { display: block; margin-top: 0.1rem; font-size: 0.66rem; line-height: 1.35; color: var(--muted); overflow-wrap: anywhere; }
   /* 10 日平均 / 基准 / 超额: 一排三个小数字 */
   .bt-vs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; margin: 0.6rem 0 0; padding: 0.5rem 0.7rem;
     background: var(--page); border-radius: 8px; }
@@ -2407,6 +2497,10 @@ MARKET_CSS = """
   .cbt-rules { margin: 0.55rem 0 0; }
   .cbt-edit { margin-top: 0.55rem; }
   .cbt-exits { display: grid; margin-bottom: 0.55rem; }
+  /* 离场规则分组小标题：止损 / 止盈 / 趋势 · 时间 / 成本 · 金额 */
+  .cbt-xh { margin: 0.7rem 0 0; font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); }
+  .cbt-xh:first-child { margin-top: 0.1rem; }
+  .cbt-xh i { font-style: normal; font-weight: 400; color: var(--muted); margin-left: 0.2rem; }
   .cbt-x { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.3rem 0.8rem; padding: 0.5rem 0;
     border-bottom: 1px solid var(--border); font-size: 0.82rem; }
   .dlg .cbt-x label, .dlg label.cbt-x { display: flex; flex-direction: row; align-items: center; gap: 0.55rem; cursor: pointer;
@@ -2419,6 +2513,7 @@ MARKET_CSS = """
   .cbt-p { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; color: var(--text-secondary); font-size: 0.78rem; }
   .cbt-num { width: 4.4rem; font: inherit; font-size: 0.86rem; padding: 0.28rem 0.4rem; border: 1px solid var(--border); border-radius: 6px;
     background: var(--surface); color: var(--text-primary); text-align: right; font-variant-numeric: tabular-nums; }
+  .cbt-num.cbt-wide { width: 6.4rem; }
   .cbt-warn { color: var(--down); font-size: 0.76rem; margin: 0 0 0.5rem; }
   .cbt-res { transition: opacity 0.15s; }
   .cbt-res.busy { opacity: 0.5; }
@@ -2447,7 +2542,7 @@ MARKET_CSS = """
   .cbt-log-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
   .cbt-log-bar .cbt-seg { margin-bottom: 0.5rem; }
   .dlg .cbt-dl { padding: 0.3rem 0.65rem; font-size: 0.78rem; white-space: nowrap; }
-  .cbt-log td small, .cbt-gtable th small { display: block; font-size: 0.66rem; color: var(--muted); font-weight: 400; }
+  .cbt-log td small, .cbt-gtable th small, .cbt-gtable td small { display: block; font-size: 0.66rem; color: var(--muted); font-weight: 400; }
   .cbt-log tbody tr, .cbt-gtable tbody tr[data-code] { cursor: pointer; }
   .cbt-log tbody tr:hover, .cbt-gtable tbody tr[data-code]:hover { background: var(--page); }
   .cbt-log tbody tr:focus-visible, .cbt-gtable tbody tr:focus-visible { outline: 2px solid var(--ema); outline-offset: -2px; }
@@ -2558,6 +2653,7 @@ MARKET_CSS = """
     /* iPhone 输入框字号小于 16px 一点就会自动放大整页 */
     .dlg .cbt-src, .dlg .cbt-num { font-size: 16px; }
     .cbt-num { width: 4.6rem; }
+    .cbt-num.cbt-wide { width: 6.8rem; }
     .cbt-x .cbt-p { padding-left: 1.65rem; }
     .cbt-cost .cbt-p { padding-left: 0; }
   }
@@ -3307,9 +3403,11 @@ def build_backtest_html(bt):
     def pct(v, d=1):
         return "—" if v is None else f"{v:.{d}f}%"
 
-    def pts(v):
-        # 最大回撤是"每笔同样本金、收益一笔一笔加起来"的回落，单位是百分点 (单笔本金 = 100 点)，写成 % 会被看成亏超过 100%
-        return "—" if v is None else f"{v:.1f} 点"
+    pos = bt.get("position") or POSITION_DEFAULT
+
+    def rm(v, plus=True):
+        # 每笔投入 pos 令吉 (默认 RM20,000) 时的金额
+        return rm_text(v, pos, plus)
 
     def diff(x, y):
         return None if x is None or y is None else x - y
@@ -3326,10 +3424,13 @@ def build_backtest_html(bt):
     rows = [
         ("信号笔数", "Trades", "", lambda w: f'{w["n"]}' + (f'<small>持有 {w["open"]}</small>' if w["open"] else ""), lambda w: ""),
         ("胜率", "Win Rate", "winrate", lambda w: pct(w["win_rate"]), lambda w: ""),
-        ("期望值", "Expectancy", "expectancy", lambda w: pct_text(w["avg"], 2), lambda w: cls(w["avg"])),
+        ("期望值", "Expectancy", "expectancy", lambda w: pct_text(w["avg"], 2) + (f'<small>{rm(w["avg"])}</small>' if w["avg"] is not None else ""),
+         lambda w: cls(w["avg"])),
+        ("合计盈亏", "Net P/L (RM)", "netpl", lambda w: rm(w["total"]).replace("RM\u00a0", ""), lambda w: cls(w["total"])),
         ("盈亏比", "Payoff Ratio", "payoff", lambda w: num(w["payoff"]), lambda w: ""),
         ("获利因子", "Profit Factor", "pf", lambda w: num(w["pf"]), lambda w: ""),
-        ("最大回撤", "Max Drawdown", "mdd", lambda w: pts(w["mdd"]), lambda w: "change-down" if w["mdd"] else ""),
+        ("最大回撤", "Max Drawdown", "mdd", lambda w: pct_text(w["mdd_pct"], 1) + (f'<small>{rm(w["mdd"])}</small>' if w["mdd"] else ""),
+         lambda w: "change-down" if w["mdd"] else ""),
         ("持有中浮动", "Open P/L", "openpl", lambda w: pct_text(w["open_avg"], 2) if w["open"] else "—", lambda w: cls(w["open_avg"]) if w["open"] else ""),
     ]
     heads = "".join(f'<th class="num"><b>{html.escape(w["label"])}</b><small>{w["start"][5:].replace("-", "/")} ~ {w["end"][5:].replace("-", "/")}</small></th>'
@@ -3349,10 +3450,12 @@ def build_backtest_html(bt):
 
     tiles = [
         ("胜率", "Win Rate", "winrate", pct(a["win_rate"]), "", f'已结算 {a["closed"]} 笔'),
-        ("期望值", "Expectancy", "expectancy", pct_text(a["avg"], 2), cls(a["avg"]), f'中位 {pct_text(a["median"], 2)}'),
+        ("期望值", "Expectancy", "expectancy", pct_text(a["avg"], 2), cls(a["avg"]), f'每笔 {rm(a["avg"])} · 中位\u00a0{pct_text(a["median"], 2)}'),
+        ("合计盈亏", "Net P/L", "netpl", rm(a["total"]), cls(a["total"]), f'每笔投入 {rm(100, False)}'),
         ("盈亏比", "Payoff Ratio", "payoff", num(a["payoff"]), "", f'{pct_text(a["avg_win"], 1)} / {pct_text(a["avg_loss"], 1)}'),
         ("获利因子", "Profit Factor", "pf", num(a["pf"]), "", ""),
-        ("最大回撤", "Max Drawdown", "mdd", pts(a["mdd"]), "change-down" if a["mdd"] else "", ""),
+        ("最大回撤", "Max Drawdown", "mdd", pct_text(a["mdd_pct"], 1), "change-down" if a["mdd"] else "",
+         f'{rm(a["mdd"])} · 同时最多 {a["slots"]}\u00a0笔' if a["mdd"] is not None else ""),
         ("平均持有", "Avg Holding", "", f'{num(a["avg_days"], 1)} 天' if a["avg_days"] is not None else "—", "", ""),
         ("系统品质", "SQN", "sqn", num(a["sqn"]), "", ""),
         ("最多连亏", "Max Losing Streak", "", f'{a["max_streak"]} 笔', "", ""),
@@ -3372,7 +3475,7 @@ def build_backtest_html(bt):
         ("最好 / 最差", "Best / Worst", "", f'{pct_text(a["best"], 1)} / {pct_text(a["worst"], 1)}'),
     ]
     risk_html = "".join(f'<div{tip_attrs(g) if g else ""}><dt><span class="tl">{zh}</span> <i>{en}</i></dt><dd>{v}</dd></div>' for zh, en, g, v in risk)
-    exits = "".join(f'<span class="bt-chip">{EXIT_REASON_LABELS[k].split(" ")[0]} <b>{v}</b></span>'
+    exits = "".join(f'<span class="bt-chip">{EXIT_REASON_LABELS[k][0]} <b>{v}</b></span>'
                     for k, v in sorted(a["exits"].items(), key=lambda kv: -kv[1])) or '<span class="hint">—</span>'
     labels = ["< -10%", "-10~-5%", "-5~0%", "0~5%", "5~10%", "> 10%"]
     peak = max(bt["dist"]) or 1
@@ -3381,8 +3484,8 @@ def build_backtest_html(bt):
     month_rows = "".join(
         f'<tr><th scope="row">{m["month"]}</th><td class="num">{m["n"]}</td><td class="num">{pct(m["win_rate"])}</td>'
         f'<td class="num {cls(m["avg"])}">{pct_text(m["avg"], 2)}</td><td class="num">{num(m["pf"])}</td>'
-        f'<td class="num">{pts(m["mdd"])}</td></tr>' for m in reversed(bt["monthly"]))
-    status = {k: v.split(" ")[0] for k, v in EXIT_REASON_LABELS.items()}
+        f'<td class="num">{pct_text(m["mdd_pct"], 1)}</td></tr>' for m in reversed(bt["monthly"]))
+    status = {k: v[0] for k, v in EXIT_REASON_LABELS.items()}
     recent_rows = "".join(
         f'<tr data-code="{html.escape(t["code"])}" tabindex="0"><td><b>{html.escape(name_pair(t["code"], t["name"])[0])}</b> <small>{html.escape(name_pair(t["code"], t["name"])[1])}</small></td>'
         f'<td>{t["sig"][5:].replace("-", "/")}</td><td class="num bt-hide-sm">{fmt_price(t["entry"])}</td><td class="num">{fmt_price(t["exit"])}</td>'
@@ -3399,7 +3502,7 @@ def build_backtest_html(bt):
     period = f'{bt["from"][5:].replace("-", "/")} ~ {bt["to"][5:].replace("-", "/")}' if bt["from"] else "近 6 个月"
     rule_tip = "\n".join([f"进场：{'、'.join(bt['rules'])} ({'任一满足' if bt['match'] == 'any' else '全部满足'})",
                           f"离场：{' / '.join(exit_labels(bt['exit']))}",
-                          f"成本：来回 {bt['cost']:g}% · {period} · {bt['stocks']} 支"])
+                          f"成本：来回 {bt['cost']:g}% · 每笔 {rm(100, False)} · {period} · {bt['stocks']} 支"])
     return f"""<div class="bt" id="sec-backtest">
   <div class="bt-head"><h4>策略回测 <i>Backtest</i>{info_btn("backtest", "策略回测", rule_tip)}</h4>
     <span class="bt-sub">{period} · {a['n']} 笔</span>
@@ -3579,7 +3682,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
         if rel_vol is not None:
             tag_parts.append((f"量 {rel_vol:.1f}×", "今天成交量是前 20 天平均的几倍"))
         tags_html = " · ".join(f'<span title="{t}">{html.escape(x)}</span>' for x, t in tag_parts)
-        # 风险报酬 (都是数字，不是建议)：风险 = 现价跌到最近的离场线 (SAR / 波段低点 / 止损 %) 要跌多少；
+        # 风险报酬 (都是数字，不是建议)：风险 = 现价跌到最近的离场线 (SAR / 浮动 HL / 回调红K / 止损 %) 要跌多少；
         # 报酬参考 = 回测里同类信号期间最大涨幅的中位数
         stop_ref = data.get("stop_ref")
         risk = (close - stop_ref[0]) / close * 100 if stop_ref and stop_ref[0] < close else None
@@ -3634,7 +3737,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
                  "usd_myr": (market or {}).get("usd_myr"),
                  "bt": {k: backtest["all"].get(k) for k in ("mfe_median", "risk_median", "win_rate", "avg")} if backtest else None,
                  # 后台策略 (strategy.json)：网页「后台默认策略」模板、「自定义回测」的默认值、「设为后台信号」都读这一份
-                 "strategy": {k: STRATEGY[k] for k in ("name", "match", "rules", "exit", "cost")}, "repo": REPO_SLUG,
+                 "strategy": {k: STRATEGY[k] for k in ("name", "match", "rules", "exit", "cost", "position")}, "repo": REPO_SLUG,
                  "cost_default": MKT["round_trip_cost_pct"]}
     meta_json = json.dumps(page_meta, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     market_html = build_market_html(market, stocks)
@@ -4219,7 +4322,8 @@ def main():
         if backtest:
             a = backtest["all"]
             print(f"🧪 策略回测 ({backtest['from']} ~ {backtest['to']}，{backtest['stocks']} 支): {a['n']} 笔 "
-                  f"(已结算 {a['closed']})，胜率 {a['win_rate']}%，每笔平均 {a['avg']}% (已扣成本 {backtest['cost']}%)；"
+                  f"(已结算 {a['closed']})，胜率 {a['win_rate']}%，每笔平均 {a['avg']}% = {rm_text(a['avg'], STRATEGY['position'])} "
+                  f"(每笔 {rm_text(100, STRATEGY['position'], False)}，已扣成本 {backtest['cost']}%)，最大回撤 {a['mdd_pct']}% (同时最多 {a['slots']} 笔)；"
                   + "；".join(f"{w['label']} {w['n']} 笔 胜率 {w['win_rate']}% 平均 {w['avg']}%" for w in backtest["windows"]))
     except Exception as e:
         print(f"⚠️ 策略回测失败 ({type(e).__name__}: {e})")

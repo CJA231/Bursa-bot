@@ -92,6 +92,14 @@
     if (!isNum(v)) return '—';
     return (plus !== false && v > 0 ? '+' : '') + v.toFixed(digits === undefined ? 1 : digits) + '%';
   }
+  // 金额 (令吉，取到整数)：RM +1,234
+  function fmtRMAmount(v, plus) {
+    if (!isNum(v)) return '—';
+    var r = Math.round(v) + 0;
+    return 'RM\u00a0' + (plus !== false && r > 0 ? '+' : r < 0 ? '-' : '') + String(Math.abs(r)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  // 回测的"点" (每笔本金 = 100 点) 换成金额：每笔投入 position 令吉时是多少 RM (main.py rm_text)
+  function fmtRM(points, position, plus) { return isNum(points) ? fmtRMAmount(points * position / 100, plus) : '—'; }
   function fmtMoney2(v) { // 金额到仙 / 分: 1,234.56
     if (!isNum(v)) return '—';
     return (v < 0 ? '-' : '') + Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -1895,6 +1903,26 @@
     for (i = bars.length - 1; i >= 0; i--) if (bars[i].time <= ts) return bars[i].time; // 日线 = 那一天；周 / 月线 = 包含那天的那一根
     return null;
   }
+  // 追溯那一笔的离场线：浮动 HL = 阶梯线 (出现更高的低点就往上跳)，回调红K / 历史高点 / 近期阻力 = 水平虚线 (只画在日线)
+  function applyLevels(st, lv, hide) {
+    if (st.levelLines) { st.levelLines.forEach(function (l) { try { st.main.removePriceLine(l); } catch (e) { /* 旧的已经不在 */ } }); }
+    st.levelLines = [];
+    if (hide || !lv) { if (st.hlSeries) st.hlSeries.setData([]); return; }
+    var pts = (lv.hl || []).map(function (x) { return { time: dayTs(x[0]), value: x[1] }; });
+    if (pts.length) {
+      if (!st.hlSeries) {
+        st.hlSeries = st.chart.addSeries(LWC.LineSeries, {
+          color: colors.down, lineWidth: 2, lineType: LWC.LineType.WithSteps, lineStyle: LWC.LineStyle.Solid,
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, title: '浮动 HL'
+        });
+      }
+      st.hlSeries.setData(pts);
+    } else if (st.hlSeries) st.hlSeries.setData([]);
+    [['red', '回调红K', colors.down], ['high', '历史高点', colors.up], ['res', '近期阻力', colors.up]].forEach(function (x) {
+      if (!isNum(lv[x[0]])) return;
+      st.levelLines.push(st.main.createPriceLine({ price: lv[x[0]], color: x[2], lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: true, title: x[1] }));
+    });
+  }
   function applyMarks(st) {
     var dm = data[st.id], marks = dm && dm.marks;
     if (!marks || !LWC.createSeriesMarkers) return;
@@ -1908,6 +1936,7 @@
     list.sort(function (a, b) { return a.time - b.time; });
     if (st.markerApi) st.markerApi.setMarkers(list);
     else st.markerApi = LWC.createSeriesMarkers(st.main, list);
+    applyLevels(st, dm.levels, intra || st.tf.id !== 'D');
     if (dm.focus && !st.focused && !intra) {
       st.focused = true;
       var f = dm.focus;
@@ -2923,7 +2952,7 @@
         if (j < 0 || j >= ctx.list.length) return;
         var keep = dlg.close({ keep: true }); // 同一格 history 留给下一支，按返回一次就回到页面
         var extra = { reuse: keep, previousFocus: keep && keep.previousFocus };
-        if (ctx.marksFor) { var mk = ctx.marksFor(ctx.list[j].code); extra.marks = mk.marks; extra.focus = mk.focus; }
+        if (ctx.marksFor) { var mk = ctx.marksFor(ctx.list[j].code); extra.marks = mk.marks; extra.focus = mk.focus; extra.levels = mk.levels; }
         openReportStock(ctx.list[j], { list: ctx.list, i: j, marksFor: ctx.marksFor }, extra);
       }
     });
@@ -2948,7 +2977,7 @@
       data[id] = { bars: bars };
       var src = opts.sourceChartId && data[opts.sourceChartId];
       if (src && src.iu) { data[id].intra = src.intra; data[id].iu = src.iu; } // 信号股的分时文件共用 (下载一次，卡片和详情都有)
-      if (opts.marks) { data[id].marks = opts.marks; data[id].focus = opts.focus; }
+      if (opts.marks) { data[id].marks = opts.marks; data[id].focus = opts.focus; data[id].levels = opts.levels || null; }
       msg.hidden = !shortHistory;
       msg.textContent = shortHistory ? '暂时只有近 6 个月日线' : '';
       renderChart(id);
@@ -3529,12 +3558,17 @@
   // 跟同期"任意一天买进"比 (看信号有没有比随便买好)。统计按月份分：上一个完整月份 = 基准，本月到今天另外算。
   // 用报告里每支股票最近 6 个月的日线 (信号股页面上带的是 2 年，也只取最后 6 个月，跟后台一样)，全部在浏览器里算
   var BT_HORIZONS = [5, 10, 20], BT_START = 25, BT_RECENT_BARS = 20, BT_DIST_EDGES = [-10, -5, 0, 5, 10];
-  var EXIT_DEFAULT = { sar: true, ema_cross: [5, 20], swing_low: 2, max_hold: 30, stop_pct: 0, take_pct: 0 };
-  var EXIT_REASONS = {
-    stop: ['止损', 'Stop Loss'], swing: ['跌破波段低点', 'Swing-Low Break'], sar: ['SAR 转空', 'SAR Flip'],
-    ema: ['EMA 死叉', 'EMA Cross-down'], take: ['止盈', 'Take Profit'], time: ['满期', 'Time Stop'], open: ['持有中', 'Open']
+  var EXIT_DEFAULT = { sar: true, ema_cross: [5, 20], swing_low: 2, max_hold: 30, stop_pct: 0, take_pct: 0, red_candle: false, prior_high: false, resistance: false };
+  var EXIT_REASONS = { // main.py EXIT_REASON_LABELS 同一份
+    stop: ['止损', 'Stop Loss'], swing: ['浮动 HL', 'Trailing HL'], red: ['回调红K', 'Pullback Red Candle'], sar: ['SAR 转空', 'SAR Flip'],
+    ema: ['EMA 死叉', 'EMA Cross-down'], take: ['止盈', 'Take Profit'], high: ['历史高点', 'Prior High'], res: ['近期阻力', 'Resistance'],
+    time: ['满期', 'Time Stop'], open: ['持有中', 'Open']
   };
   var COST_DEFAULT = isNum(META.cost_default) ? META.cost_default : MARKET.id === 'US' ? 0.1 : 0.5;
+  // 金额：每笔投入 RM20,000 (strategy.json 的 position_rm / 自定义回测可以改)；1 笔 = 100 点，点 × 每笔金额 / 100 = RM
+  var POSITION_DEFAULT = 20000;
+  var POSITION_BACKEND = META.strategy && isNum(META.strategy.position) ? META.strategy.position : POSITION_DEFAULT;
+  var RED_LOOKBACK = 10, RES_K = 2, RES_LOOKBACK = 60; // main.py 同名常数
   // Python 的 float(v)：null / 空字符串 / 不是数字 → NaN (后台 _int_in / _float_in 退回默认值)
   function pyNum(v) {
     if (v === null || v === undefined || typeof v === 'object') return NaN;
@@ -3561,16 +3595,22 @@
       swing_low: sw,
       max_hold: intIn(ex.max_hold === undefined ? EXIT_DEFAULT.max_hold : ex.max_hold, 0, 250, 30),
       stop_pct: floatIn(ex.stop_pct === undefined ? 0 : ex.stop_pct, 0, 90, 0),
-      take_pct: floatIn(ex.take_pct === undefined ? 0 : ex.take_pct, 0, 1000, 0)
+      take_pct: floatIn(ex.take_pct === undefined ? 0 : ex.take_pct, 0, 1000, 0),
+      red_candle: !!ex.red_candle,
+      prior_high: !!ex.prior_high,
+      resistance: !!ex.resistance
     };
   }
-  function exitLabels(ex) {
+  function exitLabels(ex) { // main.py exit_labels 同一个顺序：止损 → 止盈 → 趋势 / 时间
     var out = [];
+    if (ex.stop_pct) out.push('止损 -' + fmtG(ex.stop_pct) + '% (Stop Loss)');
+    if (ex.swing_low) out.push('跌破浮动 HL，左右 ' + ex.swing_low + ' 根 (Trailing HL)');
+    if (ex.red_candle) out.push('跌破回调红K低点 (Pullback Red Candle)');
+    if (ex.take_pct) out.push('止盈 +' + fmtG(ex.take_pct) + '% (Take Profit)');
+    if (ex.prior_high) out.push('涨到历史高点 (Prior High)');
+    if (ex.resistance) out.push('涨到近期阻力 (Resistance)');
     if (ex.sar) out.push('SAR 转空 (SAR Flip)');
     if (ex.ema_cross) out.push('EMA' + ex.ema_cross[0] + ' 下穿 EMA' + ex.ema_cross[1] + ' (EMA Cross-down)');
-    if (ex.swing_low) out.push('跌破最近波段低点 HL (Swing-Low Break)');
-    if (ex.stop_pct) out.push('止损 -' + fmtG(ex.stop_pct) + '% (Stop Loss)');
-    if (ex.take_pct) out.push('止盈 +' + fmtG(ex.take_pct) + '% (Take Profit)');
     out.push(ex.max_hold ? '最多持有 ' + ex.max_hold + ' 天 (Time Stop)' : '不限持有天数');
     return out;
   }
@@ -3628,6 +3668,35 @@
     for (var p = Math.min(upto - k, piv.length - 1); p >= 0; p--) if (piv[p]) return p;
     return null;
   }
+  // 波段高点: 比左边 k 根都高、不低于右边 k 根 (main.py pivot_highs)
+  function pivotHighs(high, k) {
+    var n = high.length, out = new Array(n).fill(false);
+    for (var p = k; p < n - k; p++) {
+      var ok = true, q;
+      for (q = p - k; q < p && ok; q++) ok = high[p] > high[q];
+      for (q = p + 1; q <= p + k && ok; q++) ok = high[p] >= high[q];
+      out[p] = ok;
+    }
+    return out;
+  }
+  // 回调红K：信号日之前 RED_LOOKBACK 根里最近的一根红K (收盘 < 开盘) 的最低价 (main.py red_candle_low)
+  function redCandleLow(o, c, lo, i) {
+    for (var r = i - 1; r >= Math.max(i - RED_LOOKBACK, 0); r--) if (c[r] < o[r]) return lo[r];
+    return null;
+  }
+  // 止盈目标 (要在计入价上面才算)：历史高点 = 信号日之前的最高价；近期阻力 = 信号日前 60 根里已确认、在计入价上面、最近的波段高点 (main.py exit_targets)
+  function exitTargets(h, phi, i, entryPx, ex) {
+    var high = null, res = null;
+    if (ex.prior_high && i > 0) {
+      var m = -Infinity;
+      for (var q = 0; q < i; q++) if (h[q] > m) m = h[q];
+      high = m > entryPx ? m : null;
+    }
+    if (ex.resistance && phi) {
+      for (var p = i - RES_K; p >= Math.max(i - RES_LOOKBACK, 0); p--) if (phi[p] && h[p] > entryPx) { res = h[p]; break; }
+    }
+    return { high: high, res: res };
+  }
   // 跟后台 _r 一样的四舍五入 (JS toFixed = 按二进制的精确值，正好一半往绝对值大的那边；Python 那边用 engine.js_round 对齐)
   function rd(x, d) { return Number(x.toFixed(d === undefined ? 2 : d)) + 0; }
   function rnd3(v) { return Number(v.toFixed(3)); }
@@ -3639,7 +3708,7 @@
     var o = p.ctx.series.open, h = p.ctx.series.high, lo = p.ctx.series.low, c = p.ctx.series.close;
     var sar = seriesPSAR(h, lo, c);
     var emaF = ex.ema_cross ? seriesEMA(c, ex.ema_cross[0]) : null, emaS = ex.ema_cross ? seriesEMA(c, ex.ema_cross[1]) : null;
-    var k = ex.swing_low, piv = k ? pivotLows(lo, k) : null;
+    var k = ex.swing_low, piv = k ? pivotLows(lo, k) : null, phi = ex.resistance ? pivotHighs(h, RES_K) : null;
     function bull(i) { return sar[i] !== null && sar[i] !== undefined && rnd3(c[i]) > rnd3(sar[i]); }
     var i, j, hz;
     for (i = BT_START; i < n - 1; i++) {
@@ -3659,10 +3728,13 @@
       var e = i + 1, entryPx = o[e];
       var swingP = piv ? latestPivot(piv, k, i) : null;
       var swing = swingP !== null ? lo[swingP] : null;
-      var stops = [k ? swing : null, ex.sar && sar[i] !== null ? sar[i] : null, ex.stop_pct ? entryPx * (1 - ex.stop_pct / 100) : null]
+      var red = ex.red_candle ? redCandleLow(o, c, lo, i) : null;
+      var tg = exitTargets(h, phi, i, entryPx, ex);
+      var stops = [k ? swing : null, red, ex.sar && sar[i] !== null ? sar[i] : null, ex.stop_pct ? entryPx * (1 - ex.stop_pct / 100) : null]
         .filter(function (x) { return x !== null && x !== undefined && x < entryPx; });
       var risk = stops.length ? (entryPx - Math.max.apply(null, stops)) / entryPx * 100 : null;
       var hi = h[e], low = lo[e], reason = 'open';
+      var hl = k && swing !== null ? [[dates[i], swing]] : []; // 追溯图上画浮动 HL：从信号日 (已经知道这条线) 画到离场
       j = e;
       for (;;) {
         hi = Math.max(hi, h[j]);
@@ -3670,25 +3742,32 @@
         var q = j - 1 - k;
         if (piv && q > (swingP !== null ? swingP : -1) && q >= 0 && piv[q]) {
           swingP = q;
-          swing = swing === null ? lo[q] : Math.max(swing, lo[q]); // 只往上移 (跟踪止损)
+          swing = swing === null ? lo[q] : Math.max(swing, lo[q]); // 只往上移 (跟踪止损 = 浮动 HL)
         }
+        if (k && swing !== null && (!hl.length || hl[hl.length - 1][1] !== swing)) hl.push([dates[j], swing]); // 追溯图上画浮动 HL 用
         if (ex.stop_pct && c[j] <= entryPx * (1 - ex.stop_pct / 100)) reason = 'stop';
         else if (k && swing !== null && c[j] < swing) reason = 'swing';
+        else if (red !== null && c[j] < red) reason = 'red';
         else if (ex.sar && bull(j - 1) && !bull(j)) reason = 'sar';
         else if (ex.ema_cross && j >= 1 && emaF[j] !== null && emaS[j] !== null && emaF[j - 1] !== null && emaS[j - 1] !== null &&
           emaF[j] < emaS[j] && emaF[j - 1] >= emaS[j - 1]) reason = 'ema';
         else if (ex.take_pct && c[j] >= entryPx * (1 + ex.take_pct / 100)) reason = 'take';
+        else if (tg.high !== null && c[j] >= tg.high) reason = 'high';
+        else if (tg.res !== null && c[j] >= tg.res) reason = 'res';
         else if (ex.max_hold && j - e + 1 >= ex.max_hold) reason = 'time';
         if (reason !== 'open' || j === n - 1) break;
         j++;
       }
+      if (hl.length && hl[hl.length - 1][0] !== dates[j]) hl.push([dates[j], hl[hl.length - 1][1]]);
       var hzr = {};
       BT_HORIZONS.forEach(function (x) { var qq = e + x - 1; hzr[x] = qq < n ? rd((c[qq] / entryPx - 1) * 100) : null; });
       var ret = (c[j] / entryPx - 1) * 100;
       out.trades.push({
         sig: dates[i], sig_ago: n - 1 - i, entry_date: dates[e], entry: entryPx, exit: c[j], exit_date: dates[j], days: j - e + 1, reason: reason,
         ret: rd(ret), net: rd(ret - cost), mfe: rd((hi / entryPx - 1) * 100), mae: rd((low / entryPx - 1) * 100),
-        risk: risk ? rd(risk) : null, h: hzr
+        risk: risk ? rd(risk) : null, h: hzr,
+        // 追溯图表用 (后台版本没有)：浮动 HL 每次往上移的日期和价位、回调红K 低点、历史高点 / 近期阻力目标
+        lv: { hl: hl, red: red, high: tg.high, res: tg.res }
       });
       i = j + 1;
     }
@@ -3702,7 +3781,17 @@
   }
   function sumOf(xs) { return xs.reduce(function (a, b) { return a + b; }, 0); }
   function nr(v, f) { return v === null || v === undefined ? null : (f || r2)(v); }
-  // 一组交易的统计 (main.py trade_stats)：已结算的算胜率等，持有中的另外给浮动平均
+  // 同时最多持有几笔 (进场日到离场日都算占着一笔；同一天先进后出) (main.py max_slots)
+  function maxSlots(trades) {
+    var ev = [];
+    trades.forEach(function (t) { ev.push([t.entry_date, 0]); ev.push([t.exit_date, 1]); });
+    ev.sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]; });
+    var cur = 0, top = 0;
+    ev.forEach(function (x) { cur += x[1] === 0 ? 1 : -1; top = Math.max(top, cur); });
+    return top;
+  }
+  // 一组交易的统计 (main.py trade_stats)：已结算的算胜率等，持有中的另外给浮动平均。
+  // 金额：1 笔 = 100 点 (× 每笔金额 / 100 = RM)；本金 = 同时最多持有几笔 × 每笔金额，最大回撤 % = 本金加上已结算盈亏从最高点往下掉最多的百分比
   function tradeStats(trades) {
     var closed = trades.filter(function (t) { return t.reason !== 'open'; }), opened = trades.filter(function (t) { return t.reason === 'open'; });
     var nets = closed.map(function (t) { return t.net; });
@@ -3722,10 +3811,12 @@
         dayNet[t.exit_date] += t.net;
       });
     // 最大回撤看每天收盘后的累计 (同一天结算的几笔一起算)，跟「图表」里的累计收益曲线同一条
+    var slots = maxSlots(trades), base = 100 * slots, mddPct = 0;
     days.forEach(function (d) {
       equity += dayNet[d];
       peak = Math.max(peak, equity);
       mdd = Math.min(mdd, equity - peak);
+      if (base + peak > 0) mddPct = Math.min(mddPct, (equity - peak) / (base + peak) * 100);
     });
     var mean = nets.length ? sumOf(nets) / nets.length : null;
     var sd = nets.length > 1 ? Math.sqrt(sumOf(nets.map(function (x) { return (x - mean) * (x - mean); })) / (nets.length - 1)) : null;
@@ -3745,6 +3836,7 @@
       avg_days: closed.length ? rd(sumOf(closed.map(function (t) { return t.days; })) / closed.length, 1) : null,
       best: nets.length ? rd(Math.max.apply(null, nets)) : null, worst: nets.length ? rd(Math.min.apply(null, nets)) : null,
       max_streak: maxStreak, mdd: nets.length ? rd(mdd) : null,
+      mdd_pct: nets.length ? rd(mddPct) : null, slots: slots, total: nets.length ? rd(sumOf(nets)) : null,
       sqn: sd ? rd(Math.sqrt(Math.min(nets.length, 100)) * mean / sd) : null,
       mfe_median: closed.length ? nr(median(closed.map(function (t) { return t.mfe; }))) : null,
       mae_median: closed.length ? nr(median(closed.map(function (t) { return t.mae; }))) : null,
@@ -3763,7 +3855,7 @@
       ['both', '合计', prevStart, lastDay]];
   }
   // 报告里每支股票跑一遍 → 跟后台 summarize_backtest 一样的统计 (没有任何数据返回 null)
-  function runBacktest(universe, compiled, match, exit, cost) {
+  function runBacktest(universe, compiled, match, exit, cost, position) {
     var ex = cleanExit(exit);
     var trades = [], base = BT_HORIZONS.map(function () { return [0, 0, 0]; });
     var first = null, last = null, nStocks = 0;
@@ -3800,7 +3892,8 @@
     var monthly = Object.keys(months).sort().map(function (m) { var s = tradeStats(months[m]); s.month = m; return s; });
     return {
       trades: trades, // 全部交易 (分类、追溯、图表、CSV 用；后台版本不带这个)
-      stocks: nStocks, from: first, to: last, cost: cost, exit: ex, all: tradeStats(trades), windows: windows, monthly: monthly,
+      stocks: nStocks, from: first, to: last, cost: cost, position: isNum(position) ? position : POSITION_BACKEND, exit: ex,
+      all: tradeStats(trades), windows: windows, monthly: monthly,
       horizons: horizons, dist: dist,
       recent: trades.filter(function (t) { return t.sig_ago <= BT_RECENT_BARS; })
         .sort(function (a, b) { return a.sig_ago - b.sig_ago || b.ret - a.ret; }).slice(0, 40)
@@ -3817,7 +3910,8 @@
     function pct(v, d) { return isNum(v) ? v.toFixed(d === undefined ? 1 : d) + '%' : '—'; }
     function sp(v, d) { return fmtPct(v, d === undefined ? 1 : d); }
     function diff(x, y) { return isNum(x) && isNum(y) ? x - y : null; }
-    function pts(v) { return isNum(v) ? v.toFixed(1) + ' 点' : '—'; } // 最大回撤：单笔本金 = 100 点 (见 main.py 同名函数)
+    var pos = isNum(bt.position) ? bt.position : POSITION_BACKEND;
+    function rm(v, plus) { return fmtRM(v, pos, plus); } // 每笔投入 pos 令吉 (默认 RM20,000) 时的金额
     // 名称：有名词解释的带虚线，点一下弹出说明 (main.py tip_attrs)
     function tipAttrs(g) { return g ? ' class="has-tip" tabindex="0" role="button" aria-expanded="false" data-gloss="' + g + '"' : ''; }
     function label(zh, g) { return g ? '<span' + tipAttrs(g) + '><span class="tl">' + zh + '</span></span>' : zh; }
@@ -3825,10 +3919,12 @@
     var rows = [
       ['信号笔数', 'Trades', '', function (w) { return w.n + (w.open ? '<small>持有 ' + w.open + '</small>' : ''); }, function () { return ''; }],
       ['胜率', 'Win Rate', 'winrate', function (w) { return pct(w.win_rate); }, function () { return ''; }],
-      ['期望值', 'Expectancy', 'expectancy', function (w) { return sp(w.avg, 2); }, function (w) { return cls(w.avg); }],
+      ['期望值', 'Expectancy', 'expectancy', function (w) { return sp(w.avg, 2) + (isNum(w.avg) ? '<small>' + rm(w.avg) + '</small>' : ''); }, function (w) { return cls(w.avg); }],
+      ['合计盈亏', 'Net P/L (RM)', 'netpl', function (w) { return rm(w.total).replace('RM\u00a0', ''); }, function (w) { return cls(w.total); }],
       ['盈亏比', 'Payoff Ratio', 'payoff', function (w) { return num(w.payoff); }, function () { return ''; }],
       ['获利因子', 'Profit Factor', 'pf', function (w) { return num(w.pf); }, function () { return ''; }],
-      ['最大回撤', 'Max Drawdown', 'mdd', function (w) { return pts(w.mdd); }, function (w) { return w.mdd ? 'change-down' : ''; }],
+      ['最大回撤', 'Max Drawdown', 'mdd', function (w) { return sp(w.mdd_pct, 1) + (w.mdd ? '<small>' + rm(w.mdd) + '</small>' : ''); },
+        function (w) { return w.mdd ? 'change-down' : ''; }],
       ['持有中浮动', 'Open P/L', 'openpl', function (w) { return w.open ? sp(w.open_avg, 2) : '—'; }, function (w) { return w.open ? cls(w.open_avg) : ''; }]
     ];
     var html = '<div class="bt-table-wrap"><table class="bt-table bt-win"><thead><tr><th>指标</th>' + bt.windows.map(function (w) {
@@ -3848,10 +3944,11 @@
     var period = bt.from ? md(bt.from) + ' ~ ' + md(bt.to) : '近 6 个月';
     var tiles = [
       ['胜率', 'Win Rate', 'winrate', pct(a.win_rate), '', '已结算 ' + a.closed + ' 笔'],
-      ['期望值', 'Expectancy', 'expectancy', sp(a.avg, 2), cls(a.avg), '中位 ' + sp(a.median, 2)],
+      ['期望值', 'Expectancy', 'expectancy', sp(a.avg, 2), cls(a.avg), '每笔 ' + rm(a.avg) + ' · 中位\u00a0' + sp(a.median, 2)],
+      ['合计盈亏', 'Net P/L', 'netpl', rm(a.total), cls(a.total), '每笔投入 ' + rm(100, false)],
       ['盈亏比', 'Payoff Ratio', 'payoff', num(a.payoff), '', sp(a.avg_win, 1) + ' / ' + sp(a.avg_loss, 1)],
       ['获利因子', 'Profit Factor', 'pf', num(a.pf), '', ''],
-      ['最大回撤', 'Max Drawdown', 'mdd', pts(a.mdd), a.mdd ? 'change-down' : '', ''],
+      ['最大回撤', 'Max Drawdown', 'mdd', sp(a.mdd_pct, 1), a.mdd ? 'change-down' : '', isNum(a.mdd) ? rm(a.mdd) + ' · 同时最多 ' + a.slots + '\u00a0笔' : ''],
       ['平均持有', 'Avg Holding', '', isNum(a.avg_days) ? num(a.avg_days, 1) + ' 天' : '—', '', ''],
       ['系统品质', 'SQN', 'sqn', num(a.sqn), '', ''],
       ['最多连亏', 'Max Losing Streak', '', a.max_streak + ' 笔', '', '']
@@ -3875,7 +3972,7 @@
       '<th class="num">笔数</th><th class="num">胜率</th><th class="num">期望值</th><th class="num">PF</th><th class="num">回撤</th></tr></thead><tbody>' +
       bt.monthly.slice().reverse().map(function (m) {
         return '<tr><th scope="row">' + m.month + '</th><td class="num">' + m.n + '</td><td class="num">' + pct(m.win_rate) + '</td><td class="num ' + cls(m.avg) + '">' +
-          sp(m.avg, 2) + '</td><td class="num">' + num(m.pf) + '</td><td class="num">' + pts(m.mdd) + '</td></tr>';
+          sp(m.avg, 2) + '</td><td class="num">' + num(m.pf) + '</td><td class="num">' + sp(m.mdd_pct, 1) + '</td></tr>';
       }).join('') + '</tbody></table></div>' +
       h5('固定天数涨跌', 'Forward Returns', 'forward') + '<div class="bt-table-wrap"><table class="bt-table"><thead><tr><th>持有</th>' +
       '<th class="num">信号平均</th><th class="num">胜率</th><th class="num">基准</th><th class="num">超额</th><th class="num">笔数</th></tr></thead><tbody>' +
@@ -3921,12 +4018,12 @@
   function dayTs(d) { return Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 1000; }
   var HOLD_BUCKETS = [[1, 2, '1–2 天'], [3, 5, '3–5 天'], [6, 10, '6–10 天'], [11, 20, '11–20 天'], [21, 1e9, '21 天以上']];
   var BT_GROUPS = [['reason', '离场原因'], ['stock', '股票'], ['days', '持有天数'], ['month', '月份']];
-  // 分类：按离场原因 / 股票 / 持有天数 / 信号月份分组，每组笔数、胜率、期望值、合计 (点)
+  // 分类：按离场原因 / 股票 / 持有天数 / 信号月份分组，每组笔数、胜率、期望值、合计 (RM)
   function groupTrades(trades, by) {
     var groups = {}, order = [];
     trades.forEach(function (t) {
       var key, label;
-      if (by === 'reason') { key = t.reason; label = EXIT_REASONS[t.reason][0] + ' ' + EXIT_REASONS[t.reason][1]; }
+      if (by === 'reason') { key = t.reason; label = EXIT_REASONS[t.reason][0]; }
       else if (by === 'stock') { key = t.code; label = namePair(t.code, t.name)[0]; }
       else if (by === 'days') {
         if (!isClosedTrade(t)) { key = 'open'; label = '持有中'; }
@@ -3941,10 +4038,9 @@
     var rows = order.map(function (k) {
       var g = groups[k], s = tradeStats(g.trades);
       s.key = k; s.label = g.label;
-      s.total = rd(sumOf(g.trades.filter(isClosedTrade).map(function (t) { return t.net; })), 1);
       return s;
     });
-    if (by === 'stock') rows.sort(function (a, b) { return b.total - a.total || b.n - a.n; });
+    if (by === 'stock') rows.sort(function (a, b) { return (b.total || 0) - (a.total || 0) || b.n - a.n; });
     else if (by === 'reason') rows.sort(function (a, b) { return b.n - a.n; });
     else if (by === 'month') rows.sort(function (a, b) { return a.key < b.key ? 1 : -1; });
     else rows.sort(function (a, b) {
@@ -3955,19 +4051,20 @@
   }
   function btCls(v) { return !isNum(v) ? '' : v > 0 ? 'change-up' : v < 0 ? 'change-down' : 'change-neutral'; }
   function btGroupHtml(bt, by, showAll) {
-    var rows = groupTrades(bt.trades, by), LIMIT = 15;
+    var rows = groupTrades(bt.trades, by), LIMIT = 15, pos = bt.position;
     var shown = showAll || by !== 'stock' ? rows : rows.slice(0, LIMIT);
     var html = '<div class="cbt-seg" role="tablist" aria-label="分类方式">' + BT_GROUPS.map(function (g) {
       return '<button type="button" role="tab" data-g="' + g[0] + '" aria-selected="' + (g[0] === by) + '">' + g[1] + '</button>';
     }).join('') + '</div>' +
       '<div class="bt-table-wrap"><table class="bt-table cbt-gtable"><thead><tr><th>' + escapeHtml(BT_GROUPS.filter(function (g) { return g[0] === by; })[0][1]) + '</th>' +
-      '<th class="num">笔数</th><th class="num">胜率</th><th class="num">期望值</th><th class="num">合计 (点)</th></tr></thead><tbody>' +
+      '<th class="num">笔数</th><th class="num">胜率</th><th class="num">期望值</th><th class="num">合计 RM</th></tr></thead><tbody>' +
       shown.map(function (r) {
         return '<tr' + (by === 'stock' ? ' data-code="' + escapeHtml(r.key) + '" tabindex="0"' : '') + '><th scope="row">' + escapeHtml(r.label) +
+          (by === 'reason' ? '<small>' + EXIT_REASONS[r.key][1] + '</small>' : '') +
           (r.open && r.closed ? '<small>持有 ' + r.open + '</small>' : '') + '</th><td class="num">' + r.n + '</td>' +
           '<td class="num">' + (isNum(r.win_rate) ? r.win_rate.toFixed(1) + '%' : '—') + '</td>' +
-          '<td class="num ' + btCls(r.avg) + '">' + fmtPct(r.avg, 2) + '</td>' +
-          '<td class="num ' + btCls(r.total) + '">' + (r.closed ? (r.total > 0 ? '+' : '') + r.total.toFixed(1) : '—') + '</td></tr>';
+          '<td class="num ' + btCls(r.avg) + '">' + fmtPct(r.avg, 2) + (isNum(r.avg) ? '<small>' + fmtRM(r.avg, pos) + '</small>' : '') + '</td>' +
+          '<td class="num ' + btCls(r.total) + '">' + fmtRM(r.total, pos).replace(/^RM\u00a0/, '') + '</td></tr>';
       }).join('') + '</tbody></table></div>';
     if (shown.length < rows.length) html += '<button type="button" class="sp-btn cbt-more" data-act="g-all">显示全部 ' + rows.length + ' 支</button>';
     return html;
@@ -3997,7 +4094,7 @@
         var t = bt.trades[i], np = namePair(t.code, t.name), done = isClosedTrade(t), v = done ? t.net : t.ret;
         return '<tr data-t="' + i + '" tabindex="0"><td><b>' + escapeHtml(np[0]) + '</b><small>' + escapeHtml(np[1]) + '</small></td>' +
           '<td>' + md(t.sig) + '</td><td>' + (done ? md(t.exit_date) : '—') + '<small>' + t.days + ' 天</small></td>' +
-          '<td class="num ' + btCls(v) + '">' + fmtPct(v, 1) + '</td>' +
+          '<td class="num ' + btCls(v) + '">' + fmtPct(v, 1) + '<small>' + fmtRM(v, bt.position) + '</small></td>' +
           '<td><span class="bt-st ' + t.reason + '">' + EXIT_REASONS[t.reason][0] + '</span></td></tr>';
       }).join('') + '</tbody></table></div>';
     if (idx.length > limit) html += '<button type="button" class="sp-btn cbt-more" data-act="log-more">再显示 ' + Math.min(50, idx.length - limit) + ' 笔 (还有 ' + (idx.length - limit) + ' 笔)</button>';
@@ -4012,7 +4109,11 @@
       if (isClosedTrade(t)) marks.push({ time: dayTs(t.exit_date), kind: 'out', text: '出 ' + fmtPct(t.net, 1), win: t.net > 0 });
     });
     var ft = focusTrade;
-    return { marks: marks, focus: ft ? { from: dayTs(ft.sig) - 40 * DAY, to: dayTs(ft.exit_date) + 20 * DAY } : null };
+    return {
+      marks: marks, focus: ft ? { from: dayTs(ft.sig) - 40 * DAY, to: dayTs(ft.exit_date) + 20 * DAY } : null,
+      // 被点的那一笔：浮动 HL 怎么往上移 (阶梯线)、回调红K 低点、历史高点 / 近期阻力目标 (水平线)
+      levels: ft && ft.lv ? { hl: ft.lv.hl, red: ft.lv.red, high: ft.lv.high, res: ft.lv.res, from: ft.entry_date, to: ft.exit_date } : null
+    };
   }
   function openTradeChart(bt, t, idxList) {
     var e = entryByCode(t.code);
@@ -4022,7 +4123,8 @@
     if (codes.indexOf(t.code) === -1) codes.unshift(t.code);
     var list = codes.map(entryByCode).filter(Boolean);
     var mk = tradeMarks(bt, t.code, t);
-    openReportStock(e, { list: list, i: list.indexOf(e), marksFor: function (code) { return tradeMarks(bt, code, null); } }, { marks: mk.marks, focus: mk.focus });
+    openReportStock(e, { list: list, i: list.indexOf(e), marksFor: function (code) { return tradeMarks(bt, code, null); } },
+      { marks: mk.marks, focus: mk.focus, levels: mk.levels });
   }
   // CSV (Excel 直接打开：UTF-8 带 BOM)
   function csvCell(v) {
@@ -4031,11 +4133,13 @@
   }
   function btTradesCsv(bt) {
     var head = ['代码 Code', '名称 Name', '信号日 Signal', '进场日 Entry Date', '进场价 Entry', '离场日 Exit Date', '离场价/现价 Exit', '持有天数 Days',
-      '离场原因 Exit Reason', '收益% Return', '扣成本% Net', 'MFE%', 'MAE%', '初始风险% Initial Risk', 'R 倍数 R', '5日% 5D', '10日% 10D', '20日% 20D'];
+      '离场原因 Exit Reason', '收益% Return', '扣成本% Net', '盈亏 RM P/L (每笔 RM' + fmtG(bt.position) + ')', 'MFE%', 'MAE%', '初始风险% Initial Risk', 'R 倍数 R',
+      '5日% 5D', '10日% 10D', '20日% 20D'];
     var rows = bt.trades.slice().sort(function (a, b) { return a.sig < b.sig ? -1 : a.sig > b.sig ? 1 : a.code < b.code ? -1 : 1; }).map(function (t) {
       var done = isClosedTrade(t);
       return [t.code, t.name, t.sig, t.entry_date, t.entry, done ? t.exit_date : '', t.exit, t.days, EXIT_REASONS[t.reason][0] + ' ' + EXIT_REASONS[t.reason][1],
-        t.ret, done ? t.net : '', t.mfe, t.mae, t.risk, done && t.risk ? rd(t.net / t.risk) : '', t.h[5], t.h[10], t.h[20]];
+        t.ret, done ? t.net : '', done ? Math.round(t.net * bt.position / 100) + 0 : '', t.mfe, t.mae, t.risk, done && t.risk ? rd(t.net / t.risk) : '',
+        t.h[5], t.h[10], t.h[20]];
     });
     return '﻿' + [head].concat(rows).map(function (r) { return r.map(csvCell).join(','); }).join('\r\n') + '\r\n';
   }
@@ -4050,28 +4154,31 @@
   }
   function btFileName(ext) { return 'backtest-' + MARKET.id.toLowerCase() + '-' + isoDay(Date.now() / 1000) + '.' + ext; }
 
-  // 图表：累计收益 (每笔同样本金，按结算日把收益加起来，单位点) + 下面一格回撤；再一张每月期望值的柱状图
+  // 图表：累计盈亏 (每笔投入同样金额，按结算日把盈亏加起来，单位 RM) + 下面一格回撤 (占本金 %，跟「最大回撤」同一套)；再一张每月期望值的柱状图
   function equitySeries(bt) {
     var dayNet = {}, days = [];
     bt.trades.filter(isClosedTrade).sort(tradeKey).forEach(function (t) {
       if (!(t.exit_date in dayNet)) { dayNet[t.exit_date] = 0; days.push(t.exit_date); }
       dayNet[t.exit_date] += t.net;
     });
-    var cum = 0, peak = 0;
+    var cum = 0, peak = 0, base = 100 * (bt.all.slots || 0), pos = bt.position;
     return days.map(function (d) {
       cum += dayNet[d];
       peak = Math.max(peak, cum);
-      return { time: d, cum: rd(cum, 1), dd: rd(cum - peak, 1) };
+      return { time: d, cum: Math.round(cum * pos / 100) + 0, dd: base + peak > 0 ? rd((cum - peak) / (base + peak) * 100) : 0 };
     });
   }
-  function btChartsHtml() {
-    return '<div class="cbt-chart-head"><h4>累计收益 <i>Equity Curve</i>' + infoBtn('equity', '累计收益') + '</h4>' +
+  function kFmt(v) { var a = Math.abs(v); return a >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : a >= 1e4 ? (v / 1e3).toFixed(0) + 'K' : a >= 1e3 ? (v / 1e3).toFixed(1) + 'K' : v.toFixed(0); }
+  function btChartsHtml(bt) {
+    var a = bt.all, pos = bt.position;
+    var tip = '每笔投入 ' + fmtRM(100, pos, false) + '，同时最多持有 ' + a.slots + ' 笔 → 本金 ' + fmtRM(100 * a.slots, pos, false) + '。回撤 % = 本金加上已赚的，从最高点往下掉了多少。';
+    return '<div class="cbt-chart-head"><h4>累计盈亏 <i>Equity Curve</i>' + infoBtn('equity', '累计盈亏', tip) + '</h4>' +
       '<button type="button" class="sp-btn cbt-dl" data-act="png">⤓ 图片</button></div>' +
       '<p class="cbt-readout" aria-live="polite"></p><div class="cbt-eq"></div>' +
-      '<div class="cbt-chart-head"><h4>每月期望值 <i>Monthly Expectancy</i>' + infoBtn('monthly', '月度表现') + '</h4></div><div class="cbt-mo"></div>';
+      '<div class="cbt-chart-head"><h4>每月期望值 <i>RM / 笔</i>' + infoBtn('monthly', '月度表现') + '</h4></div><div class="cbt-mo"></div>';
   }
   function monthBarsSvg(bt, width) {
-    var rows = bt.monthly.filter(function (m) { return m.closed; });
+    var rows = bt.monthly.filter(function (m) { return m.closed; }), pos = bt.position;
     if (!rows.length) return '<p class="hint">还没有结算的交易</p>';
     var vals = rows.map(function (m) { return m.avg; });
     var hi = Math.max(0, Math.max.apply(null, vals)), lo = Math.min(0, Math.min.apply(null, vals)), span = hi - lo || 1;
@@ -4089,19 +4196,19 @@
       '<line class="mo-zero" x1="0" x2="' + width + '" y1="' + y0 + '" y2="' + y0 + '"></line>';
     rows.forEach(function (m, i) {
       var x = band * i + band / 2, v = m.avg, ty = v >= 0 ? y(v) - 6 : y(v) + 14;
-      svg += '<g class="mo-bar"><title>' + m.month + '：期望值 ' + fmtPct(v, 2) + '，' + m.closed + ' 笔已结算</title>' +
+      svg += '<g class="mo-bar"><title>' + m.month + '：期望值 ' + fmtPct(v, 2) + ' = 每笔 ' + fmtRM(v, pos) + '，' + m.closed + ' 笔已结算</title>' +
         '<path class="' + (v >= 0 ? 'up' : 'down') + '" d="' + bar(x, v) + '"></path>' +
-        '<text class="mo-val" x="' + x + '" y="' + ty + '" text-anchor="middle">' + fmtPct(v, 1) + '</text>' +
+        '<text class="mo-val" x="' + x + '" y="' + ty + '" text-anchor="middle">' + fmtRM(v, pos).slice(3) + '</text>' +
         '<text class="mo-lbl" x="' + x + '" y="' + (H - 8) + '" text-anchor="middle">' + (+m.month.slice(5)) + '月</text></g>';
     });
     return svg + '</svg>';
   }
   function btChartsInit(view, bt) {
-    view.innerHTML += btChartsHtml();
+    view.innerHTML += btChartsHtml(bt);
     var eqEl = view.querySelector('.cbt-eq'), moEl = view.querySelector('.cbt-mo'), readout = view.querySelector('.cbt-readout');
     var pts = equitySeries(bt), chart = null;
     function showReadout(p) {
-      readout.innerHTML = p ? '<b class="' + btCls(p.cum) + '">' + (p.cum > 0 ? '+' : '') + p.cum.toFixed(1) + ' 点</b> <span>回撤 ' + p.dd.toFixed(1) + ' 点 · ' + p.time + '</span>' : '';
+      readout.innerHTML = p ? '<b class="' + btCls(p.cum) + '">' + fmtRMAmount(p.cum) + '</b> <span>回撤 ' + fmtPct(rd(p.dd, 1), 1) + ' · ' + p.time + '</span>' : '';
     }
     if (!pts.length || !LWC) {
       eqEl.innerHTML = '<p class="hint">还没有结算的交易</p>';
@@ -4113,16 +4220,18 @@
         rightPriceScale: { borderVisible: false }, timeScale: { borderVisible: false, fixLeftEdge: true, fixRightEdge: true },
         crosshair: { mode: LWC.CrosshairMode.Magnet },
         handleScroll: false, handleScale: false,
-        localization: { locale: 'zh-CN', dateFormat: 'yyyy-MM-dd', priceFormatter: function (v) { return v.toFixed(1); } }
+        localization: { locale: 'zh-CN', dateFormat: 'yyyy-MM-dd' }
       });
       var eq = chart.addSeries(LWC.BaselineSeries, {
         baseValue: { type: 'price', price: 0 }, lineWidth: 2, priceLineVisible: false,
+        priceFormat: { type: 'custom', minMove: 1, formatter: kFmt },
         topLineColor: colors.up, topFillColor1: withAlpha(colors.up, 0.12), topFillColor2: withAlpha(colors.up, 0.04),
         bottomLineColor: colors.down, bottomFillColor1: withAlpha(colors.down, 0.04), bottomFillColor2: withAlpha(colors.down, 0.12)
       });
       eq.setData(pts.map(function (p) { return { time: p.time, value: p.cum }; }));
       var dd = chart.addSeries(LWC.BaselineSeries, {
         baseValue: { type: 'price', price: 0 }, lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
+        priceFormat: { type: 'custom', minMove: 0.01, formatter: function (v) { return v.toFixed(1) + '%'; } },
         topLineColor: 'transparent', topFillColor1: 'transparent', topFillColor2: 'transparent',
         bottomLineColor: colors.down, bottomFillColor1: withAlpha(colors.down, 0.12), bottomFillColor2: withAlpha(colors.down, 0.12)
       }, 1);
@@ -4177,17 +4286,19 @@
       .map(function (c) { delete c.id; return c; });
   }
   // 贴进 strategy.json 的内容：每条条件一行，手机上也看得清楚
-  function strategyJson(src, ex, cost) {
+  function strategyJson(src, ex, cost, pos) {
     var rules = cleanRules(src.rules).map(function (r) { return '    ' + JSON.stringify(r); });
+    var costLine = Math.abs(cost - COST_DEFAULT) > 1e-9, posLine = isNum(pos) && Math.abs(pos - POSITION_DEFAULT) > 1e-9;
     var lines = [
       '{',
       '  "说明": ' + JSON.stringify('网页「自定义回测」按「设为后台信号」产生 (' + isoDay(Date.now() / 1000) + ')。写法见仓库 README；写错会退回默认策略，运行日志第一行会写原因。') + ',',
       '  "name": ' + JSON.stringify(String(src.name || '后台策略').slice(0, 40)) + ',',
       '  "match": "' + (src.match === 'any' ? 'any' : 'all') + '",',
       '  "rules": [\n' + rules.join(',\n') + '\n  ],',
-      '  "exit": ' + JSON.stringify(ex).replace(/,"/g, ', "').replace(/":/g, '": ') + (Math.abs(cost - COST_DEFAULT) > 1e-9 ? ',' : ''),
+      '  "exit": ' + JSON.stringify(ex).replace(/,"/g, ', "').replace(/":/g, '": ') + (costLine || posLine ? ',' : ''),
     ];
-    if (Math.abs(cost - COST_DEFAULT) > 1e-9) lines.push('  "cost_pct": {"' + MARKET.id + '": ' + fmtG(cost) + '}');
+    if (costLine) lines.push('  "cost_pct": {"' + MARKET.id + '": ' + fmtG(cost) + '}' + (posLine ? ',' : ''));
+    if (posLine) lines.push('  "position_rm": ' + fmtG(pos));
     return lines.join('\n') + '\n}\n';
   }
   function copyText(text) {
@@ -4214,14 +4325,15 @@
     var be = backendStrategy();
     var baseExit = be ? be.exit : cleanExit(EXIT_DEFAULT);
     // 界面状态：勾掉的规则也记着数字，重新勾上还是原来的
-    function stateFrom(ex, cost) {
+    function stateFrom(ex, cost, pos) {
       return {
         sar: ex.sar, ema_on: !!ex.ema_cross, ema_f: ex.ema_cross ? ex.ema_cross[0] : 5, ema_s: ex.ema_cross ? ex.ema_cross[1] : 20,
         swing_on: !!ex.swing_low, swing_k: ex.swing_low || 2, stop_on: !!ex.stop_pct, stop_pct: ex.stop_pct || 8,
-        take_on: !!ex.take_pct, take_pct: ex.take_pct || 20, hold_on: !!ex.max_hold, max_hold: ex.max_hold || 30, cost: cost
+        take_on: !!ex.take_pct, take_pct: ex.take_pct || 20, hold_on: !!ex.max_hold, max_hold: ex.max_hold || 30,
+        red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, cost: cost, pos: pos
       };
     }
-    var st = stateFrom(baseExit, be ? be.cost : COST_DEFAULT);
+    var st = stateFrom(baseExit, be ? be.cost : COST_DEFAULT, POSITION_BACKEND);
     if (saved.st && typeof saved.st === 'object') {
       Object.keys(st).forEach(function (k) {
         var v = saved.st[k];
@@ -4232,10 +4344,12 @@
     function exitOf() {
       return cleanExit({
         sar: st.sar, ema_cross: st.ema_on ? [st.ema_f, st.ema_s] : null, swing_low: st.swing_on ? st.swing_k : 0,
-        max_hold: st.hold_on ? st.max_hold : 0, stop_pct: st.stop_on ? st.stop_pct : 0, take_pct: st.take_on ? st.take_pct : 0
+        max_hold: st.hold_on ? st.max_hold : 0, stop_pct: st.stop_on ? st.stop_pct : 0, take_pct: st.take_on ? st.take_pct : 0,
+        red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on
       });
     }
     function costOf() { return floatIn(st.cost, 0, 10, COST_DEFAULT); }
+    function posOf() { return floatIn(st.pos, 100, 1e8, POSITION_BACKEND); }
     function currentSource() {
       var list = entrySources();
       return list.filter(function (s) { return s.key === srcKey; })[0] || list[0] || null;
@@ -4252,19 +4366,28 @@
         '<ul class="sp-rules cbt-rules"></ul>' +
         '<button type="button" class="sp-btn cbt-edit" data-act="edit">✎ 修改条件 / 换指标</button></section>' +
       '<section class="cbt-sec"><h4>离场规则 <i>Exit Rules</i>' + infoBtn('exit', '离场规则') + '</h4><div class="cbt-exits">' +
+        '<p class="cbt-xh">止损 <i>Stop</i></p>' +
+        '<div class="cbt-x"><label>' + check('stop_on', st.stop_on, '固定止损') + '<span>固定止损 <i>Stop Loss</i></span></label>' +
+          '<span class="cbt-p">-' + numIn('stop_pct', st.stop_pct, 0.5, 90, 0.5, '止损百分比') + ' %</span></div>' +
+        '<div class="cbt-x"><label>' + check('swing_on', st.swing_on, '浮动 HL') + '<span>浮动 HL <i>Trailing HL</i></span></label>' +
+          '<span class="cbt-p">左右 ' + numIn('swing_k', st.swing_k, 1, 10, 1, '波段低点左右各几根确认') + ' 根</span></div>' +
+        '<label class="cbt-x">' + check('red_on', st.red_on, '回调红K') + '<span>回调红K 低点 <i>Pullback Red Candle</i></span></label>' +
+        '<p class="cbt-xh">止盈 <i>Target</i></p>' +
+        '<div class="cbt-x"><label>' + check('take_on', st.take_on, '固定止盈') + '<span>固定止盈 <i>Take Profit</i></span></label>' +
+          '<span class="cbt-p">+' + numIn('take_pct', st.take_pct, 1, 1000, 1, '止盈百分比') + ' %</span></div>' +
+        '<label class="cbt-x">' + check('high_on', st.high_on, '历史高点') + '<span>历史高点 <i>Prior High</i></span></label>' +
+        '<label class="cbt-x">' + check('res_on', st.res_on, '近期阻力') + '<span>近期阻力 <i>Resistance</i></span></label>' +
+        '<p class="cbt-xh">趋势 · 时间 <i>Trend · Time</i></p>' +
         '<label class="cbt-x">' + check('sar', st.sar, 'SAR 转空') + '<span>SAR 转空 <i>SAR Flip</i></span></label>' +
         '<div class="cbt-x"><label>' + check('ema_on', st.ema_on, 'EMA 死叉') + '<span>EMA 死叉 <i>EMA Cross-down</i></span></label>' +
           '<span class="cbt-p">EMA ' + numIn('ema_f', st.ema_f, 1, 249, 1, '快线长度') + ' 下穿 EMA ' + numIn('ema_s', st.ema_s, 2, 250, 1, '慢线长度') + '</span></div>' +
-        '<div class="cbt-x"><label>' + check('swing_on', st.swing_on, '跌破波段低点') + '<span>跌破最近波段低点 HL <i>Swing-Low Break</i></span></label>' +
-          '<span class="cbt-p">左右 ' + numIn('swing_k', st.swing_k, 1, 10, 1, '波段低点左右各几根确认') + ' 根</span></div>' +
-        '<div class="cbt-x"><label>' + check('stop_on', st.stop_on, '止损') + '<span>止损 <i>Stop Loss</i></span></label>' +
-          '<span class="cbt-p">-' + numIn('stop_pct', st.stop_pct, 0.5, 90, 0.5, '止损百分比') + ' %</span></div>' +
-        '<div class="cbt-x"><label>' + check('take_on', st.take_on, '止盈') + '<span>止盈 <i>Take Profit</i></span></label>' +
-          '<span class="cbt-p">+' + numIn('take_pct', st.take_pct, 1, 1000, 1, '止盈百分比') + ' %</span></div>' +
         '<div class="cbt-x"><label>' + check('hold_on', st.hold_on, '最多持有天数') + '<span>最多持有 <i>Time Stop</i></span></label>' +
           '<span class="cbt-p">' + numIn('max_hold', st.max_hold, 1, 250, 1, '最多持有几天') + ' 天</span></div>' +
+        '<p class="cbt-xh">成本 · 金额 <i>Cost · Size</i></p>' +
         '<div class="cbt-x cbt-cost"><span>来回成本 <i>Cost</i></span>' +
           '<span class="cbt-p">' + numIn('cost', st.cost, 0, 10, 0.05, '来回交易成本百分比') + ' %</span></div>' +
+        '<div class="cbt-x cbt-cost"><span>每笔金额 <i>Position</i></span>' +
+          '<span class="cbt-p">RM ' + numIn('pos', st.pos, 100, 100000000, 1000, '每笔投入多少令吉').replace('class="cbt-num"', 'class="cbt-num cbt-wide"') + '</span></div>' +
       '</div><p class="cbt-warn" hidden></p>' +
       '<button type="button" class="sp-btn" data-act="reset">恢复后台设定</button></section>' +
       '<section class="cbt-res" aria-live="polite"></section>' +
@@ -4292,10 +4415,12 @@
       rulesUl.innerHTML = compiled.map(function (c) {
         return '<li class="sp-rule' + (c.error ? ' err' : '') + '"' + (c.error ? ' title="' + escapeHtml(c.error) + '"' : '') + '>' + escapeHtml(ruleLabel(c.rule)) + (c.error ? ' ⚠' : '') + '</li>';
       }).join(join);
-      var ex = exitOf(), cost = costOf();
+      var ex = exitOf(), cost = costOf(), pos = posOf();
       var msgs = [];
       if (st.ema_on && !ex.ema_cross) msgs.push('EMA 快线要比慢线短');
-      if (!ex.sar && !ex.ema_cross && !ex.swing_low && !ex.stop_pct && !ex.take_pct && !ex.max_hold) msgs.push('没有离场规则，每笔都会拿到今天');
+      if (!ex.sar && !ex.ema_cross && !ex.swing_low && !ex.stop_pct && !ex.take_pct && !ex.max_hold && !ex.red_candle && !ex.prior_high && !ex.resistance) {
+        msgs.push('没有离场规则，每笔都会拿到今天');
+      }
       warn.hidden = !msgs.length;
       warn.textContent = msgs.join('；');
       if (!valid.length) { res.innerHTML = '<p class="hint">条件都有错，没法回测</p>'; return; }
@@ -4305,12 +4430,12 @@
       loadUniverse().then(function (u) {
         setTimeout(function () { // 让"计算中"先画出来
           if (id !== runId || !root.isConnected) return;
-          var bt = runBacktest(u, valid, src.match, ex, cost);
+          var bt = runBacktest(u, valid, src.match, ex, cost, pos);
           res.classList.remove('busy');
-          last = bt ? { src: src, ex: ex, cost: cost, bt: bt } : null;
+          last = bt ? { src: src, ex: ex, cost: cost, pos: pos, bt: bt } : null;
           if (view !== 'sum') renderView();
           if (!bt) { res.innerHTML = '<p class="hint">没有K线数据</p>'; return; }
-          var head = '<h4 class="cbt-sum">' + escapeHtml(src.name) + infoBtn('backtest', '回测', '离场：' + exitLabels(ex).join(' / ') + '\n成本：来回 ' + fmtG(cost) + '%') +
+          var head = '<h4 class="cbt-sum">' + escapeHtml(src.name) + infoBtn('backtest', '回测', '离场：' + exitLabels(ex).join(' / ') + '\n成本：来回 ' + fmtG(cost) + '% · 每笔 ' + fmtRMAmount(pos, false)) +
             ' <small>' + (bt.from ? md(bt.from) + ' ~ ' + md(bt.to) + ' · ' : '') + bt.all.n + ' 笔' + (u.missing ? ' · ' + u.missing + ' 支没有K线' : '') + '</small></h4>';
           res.innerHTML = head + (bt.all.n ? backtestResultHtml(bt) : '<p class="hint">近 6 个月没有出现过这组条件</p>');
         }, 20);
@@ -4341,7 +4466,7 @@
     }
     function openSetBackend() {
       if (!last) return;
-      var text = strategyJson(last.src, last.ex, last.cost), repo = META.repo || 'CJA231/Bursa-bot';
+      var text = strategyJson(last.src, last.ex, last.cost, last.pos), repo = META.repo || 'CJA231/Bursa-bot';
       setBox.hidden = false;
       setBox.innerHTML = '<h4>设为后台信号 <i>Set as Backend</i>' + infoBtn('setbackend', '设为后台信号') + '</h4>' +
         '<ol class="cbt-steps"><li>内容已复制</li>' +
@@ -4371,7 +4496,7 @@
     root.addEventListener('click', function (e) {
       var b = e.target.closest('[data-act]');
       if (b && b.dataset.act === 'reset') {
-        st = stateFrom(baseExit, be ? be.cost : COST_DEFAULT);
+        st = stateFrom(baseExit, be ? be.cost : COST_DEFAULT, POSITION_BACKEND);
         Object.keys(st).forEach(function (k) {
           var el = root.querySelector('[data-f="' + k + '"]');
           if (!el) return;
@@ -5265,7 +5390,7 @@
     ['sar', 'SAR (抛物线转向)', '跟着价格移动的一串点。价格在 SAR 上面 = 多头；收盘跌到 SAR 下面就转空。常被当成跟踪式的风险价。'],
     ['t3', 'T3 形态突破', '2 ~ 5 天前某天放量 (成交量高于前 20 天平均) 创出当天最高价，之后几天都没超过那个价 (回调)，今天收盘再突破它。'],
     ['atr', 'ATR (14)', '最近 14 天平均每天的波动幅度，这里用占股价的百分比表示。数字越大，股价每天上下跳得越多。'],
-    ['risk', '风险 (到离场线)', '现价跌到最近的离场线要跌多少 %。离场线 = 后台策略 (strategy.json) 开着的 SAR、最近的波段低点、固定止损 % 里，在现价下方最近的那一条。'],
+    ['risk', '风险 (到离场线)', '现价跌到最近的离场线要跌多少 %。离场线 = 后台策略 (strategy.json) 开着的 SAR、浮动 HL、回调红K 低点、固定止损 % 里，在现价下方最近的那一条。'],
     ['rr', '风险报酬比', '1 : X = 每冒 1 份风险 (到离场线的距离)，历史上同类信号期间最大涨幅的中位数是几份。X 越大越划算，但这是历史统计，不保证。'],
     ['market', '今日市场', '大盘指数和全市场 (全部上市股票，不只是进报告的) 的上涨 / 平盘 / 下跌家数；新高 / 新低 = 创 52 周新高 / 新低的家数。涨幅榜、跌幅榜、成交额榜只看报告里的股票，点一下打开图表。'],
     ['screener', '选股条件', '自己组合条件 (例如「RSI(14) 上穿 30」)，在今天报告里的全部股票中筛：看每支股票最新一根日线，命中的按成交量排。可以从 ☰ 套用内置策略；条件存在这个浏览器的模板里。'],
@@ -5275,19 +5400,20 @@
     ['table', '其余股票', '成交量达标、但没有命中后台信号的股票。相对量 = 今天成交量 ÷ 前 20 天平均；SAR 多头 / 空头；EMA20 绿色 = 价格在均线上方。点一行看完整图表和财报，点表头 (手机上用下拉框) 换排序。'],
     ['backtest', '策略回测 (Backtest)', '用近 6 个月日线逐日判断进场条件：成立那天收盘后，隔天开盘价计入；之后每天收盘检查离场规则，先碰到哪一条就按那天收盘价结算，每笔扣来回成本。上个月 = 完整一个月当基准，本月至今另外算。只统计今天进报告的股票 (有幸存者偏差)，历史不代表未来，也不是投资建议。'],
     ['winrate', '胜率 (Win Rate)', '已结算的信号里，扣完成本还赚钱的比例。'],
-    ['expectancy', '期望值 (Expectancy)', '平均每笔赚多少 % (已扣成本) = 胜率 × 平均赚 − 败率 × 平均亏。大于 0 = 这套规则长期平均是赚的。'],
+    ['expectancy', '期望值 (Expectancy)', '平均每笔赚多少 % (已扣成本) = 胜率 × 平均赚 − 败率 × 平均亏。下面的 RM = 每笔投入 RM20,000 (自定义回测里可以改「每笔金额」) 平均赚 / 亏多少令吉。大于 0 = 这套规则长期平均是赚的。'],
+    ['netpl', '合计盈亏 (Net P/L)', '这段期间已结算的每一笔 (已扣成本)，每笔投入 RM20,000 (自定义回测里可以改) 的话一共赚 / 亏多少令吉。持有中的还没算进去。'],
     ['payoff', '盈亏比 (Payoff Ratio)', '平均每笔赚的 ÷ 平均每笔亏的。胜率低但盈亏比高也可能整体赚钱。'],
     ['pf', '获利因子 (Profit Factor)', '所有赚钱的笔数加起来 ÷ 所有亏钱的加起来。大于 1 = 整体赚钱，1.5 以上算不错。'],
-    ['mdd', '最大回撤 (Max Drawdown)', '每笔投入同样的本金 (记作 100 点)，按结算日期把每笔收益加起来，从最高点往下回落最多的一段。例如 -150 点 = 最难熬的那段时间一共亏掉了大约 1.5 笔的本金。信号越多、同时持有越多，点数越大。'],
+    ['mdd', '最大回撤 (Max Drawdown)', '假设每个信号都买、每笔投入同样的金额 (默认 RM20,000)：本金 = 同时最多持有几笔 × 每笔金额 (例如最多同时 30 笔 = RM600,000)。按结算日期把每笔盈亏 (已扣成本) 加进本金，从最高点往下掉最多的百分比就是最大回撤；下面的 RM 是那一段一共亏掉多少。信号越多、同时持有越多，要准备的本金越多。'],
     ['sqn', '系统品质 (SQN)', 'System Quality Number = √笔数 (最多算 100) × 平均每笔收益 ÷ 收益的标准差。大约 1.6 ~ 2 普通、2 ~ 3 好、3 以上很好；样本少时参考就好。'],
-    ['exit', '离场规则 (Exit Rules)', 'SAR 转空 (SAR Flip) = 收盘从 SAR 上面跌到下面；EMA 死叉 (EMA Cross-down) = 快线 (例如 EMA5) 由上往下穿过慢线 (EMA20)；跌破波段低点 (Swing-Low Break) = 收盘跌破最近一个已确认的波段低点 HL (左右各 N 根K线都比它高)，持有期间出现更高的低点会往上移 (跟踪止损)；止损 / 止盈 = 收盘跌 / 涨到计入价的某个百分比；满期 (Time Stop) = 最多拿几个交易日。哪一个先发生就按那天收盘价结算。'],
+    ['exit', '离场规则 (Exit Rules)', '每天收盘检查，哪一条先发生就按那天收盘价结算。止损：固定止损 = 收盘跌到计入价的某个 %；浮动 HL (Trailing HL) = 收盘跌破最近一个已确认的波段低点 (左右各 N 根K线都比它高)，持有期间每出现一个更高的低点 (HL) 就往上移，只升不降；回调红K = 收盘跌破信号日前 10 根里最近那根红K (收盘 < 开盘) 的最低价。止盈：固定止盈 = 收盘涨到计入价的某个 %；历史高点 (Prior High) = 收盘涨到信号日之前的最高价 (回测数据最多约 6 个月；已经在新高上面的那一笔就没有这个目标)；近期阻力 (Resistance) = 收盘涨到信号日前约 3 个月里、在计入价上面最近的一个波段高点。趋势 / 时间：SAR 转空 = 收盘从 SAR 上面跌到下面；EMA 死叉 = 快线由上往下穿过慢线；满期 = 最多拿几个交易日。'],
     ['openpl', '持有中浮动 (Open P/L)', '还没触发离场规则的那几笔，按最新收盘价算的平均浮动盈亏 (没扣成本)。'],
     ['forward', '固定天数涨跌 (Forward Returns)', '信号之后固定 5 / 10 / 20 个交易日的涨跌 (隔天开盘价计入、没扣成本)，跟同期「任意一天买进」(基准 Benchmark) 的平均比；超额 Excess = 信号平均 − 基准平均，大于 0 = 信号比随便买好。'],
-    ['equity', '累计收益 (Equity Curve)', '每笔投入同样的本金 (记作 100 点)，按结算日期把每笔收益 (已扣成本) 加起来的曲线；下面那一格是回撤 = 离之前的最高点差多少点。看这套规则是稳定地赚，还是靠一两笔。'],
+    ['equity', '累计盈亏 (Equity Curve)', '每笔投入同样的金额 (默认 RM20,000)，按结算日期把每笔盈亏 (已扣成本) 加起来的曲线，单位 RM；下面那一格是回撤 = 本金 (同时最多持有几笔 × 每笔金额) 加上已赚的，离之前的最高点掉了多少 %。看这套规则是稳定地赚，还是靠一两笔。'],
     ['monthly', '月度表现 (Monthly)', '按信号日期分月统计；上个月的信号到现在还没结算的算「持有中」。'],
     ['dist', '收益分布 (Distribution)', '每笔已结算交易扣完成本后的收益落在哪个区间：看赚的多还是亏的多、有没有特别大的亏损。'],
     ['recent', '最近信号 (Recent Signals)', '最近 20 个交易日出现的信号现在怎样：持有中 = 现价 (还没结算)，已结算 = 结算那天的收盘价；没扣成本。点一行打开那支股票。'],
-    ['irisk', '初始风险 (Initial Risk)', '计入价到当时最近的离场线 (SAR / 波段低点 / 止损 %) 的距离，所有笔的中位数。R 倍数就是拿每笔收益除以它。'],
+    ['irisk', '初始风险 (Initial Risk)', '计入价到当时最近的离场线 (SAR / 浮动 HL / 回调红K / 止损 %) 的距离，所有笔的中位数。R 倍数就是拿每笔收益除以它。'],
     ['setbackend', '设为后台信号', '把这组进场条件和离场规则写进仓库的 strategy.json：内容已经复制好，打开 GitHub 把原来的内容全部换掉、按 Commit changes。下一次后台运行起，信号卡片、策略回测都换成这一组 (马股、美股共用同一个文件)；写错会自动退回默认策略。'],
     ['r', 'R 倍数 (R-Multiple)', '每笔收益 ÷ 这笔的初始风险 (计入价到最近离场线的距离)。平均 R 大于 0 = 平均每冒 1 份风险能赚回多于 0 份。'],
     ['mfe', '期间最大涨幅 / 跌幅 (MFE / MAE)', '持有期间最高曾经涨到多少 (Max Favorable Excursion)、最低曾经跌到多少 (Max Adverse Excursion)，用来看“到过多少”，不是最后结算的收益。'],
