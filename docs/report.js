@@ -3864,7 +3864,7 @@
   var BT_HORIZONS = [5, 10, 20], BT_START = 25, BT_RECENT_BARS = 20, BT_DIST_EDGES = [-10, -5, 0, 5, 10];
   var EXIT_DEFAULT = { sar: true, ema_cross: [5, 20], swing_low: 2, max_hold: 30, stop_pct: 0, take_pct: 0, red_candle: false, prior_high: false, resistance: false, swing_alert: false, entry_close: false, max_risk: 0 };
   var EXIT_REASONS = { // main.py EXIT_REASON_LABELS 同一份
-    stop: ['止损', 'Stop Loss'], swing: ['跌破回调低点', 'Trailing Stop'], red: ['回调红K', 'Pullback Red Candle'], sar: ['SAR 转空', 'SAR Flip'], combo: ['组合离场', 'Combined Exit'],
+    stop: ['止损', 'Stop Loss'], swing: ['跌破回调低点', 'Trailing Stop'], red: ['回调红K', 'Pullback Red Candle'], sar: ['SAR 转空', 'SAR Flip'], combo: ['组合离场', 'Combined Exit'], emab: ['跌破 EMA 确认', 'EMA Break'],
     ema: ['EMA 死叉', 'EMA Cross-down'], take: ['止盈', 'Take Profit'], high: ['历史高点', 'Prior High'], res: ['近期阻力', 'Resistance'],
     time: ['满期', 'Time Stop'], open: ['持有中', 'Open']
   };
@@ -3924,6 +3924,8 @@
       swing_alert: !!ex.swing_alert, // 跌破回调低点只提醒 (记在交易上)，不离场
       combo: cleanCombo(ex.combo),
       // Supertrend(n, m) 在收盘价下面 (多头) 就继续持有，趋势类离场先不算 (main.py hold_st)；null = 不用
+      // 连续 days 天收盘 < EMA(n) 全部离场 (第一天只提醒，隔天收回就继续拿) (main.py ema_break)
+      ema_break: ex.ema_break && typeof ex.ema_break === 'object' ? { n: intIn(ex.ema_break.n, 2, 250, 20), days: intIn(ex.ema_break.days, 1, 10, 2) } : null,
       hold_st: ex.hold_st && typeof ex.hold_st === 'object' ? { n: intIn(ex.hold_st.n, 1, 200, 3), m: floatIn(ex.hold_st.m, 0.1, 20, 1.4) } : null
     };
   }
@@ -3931,7 +3933,8 @@
   function cleanCombo(c) {
     if (!c || typeof c !== 'object') return null;
     var ema = c.ema === undefined ? 20 : c.ema === null || c.ema === false || c.ema === 0 || c.ema === '0' ? 0 : intIn(c.ema, 0, 250, 20);
-    var parts = { support: c.support === undefined ? true : !!c.support, ema: ema, sar: c.sar === undefined ? true : !!c.sar };
+    var parts = { support: c.support === undefined ? true : !!c.support, ema: ema, sar: c.sar === undefined ? true : !!c.sar,
+      ema_days: intIn(c.ema_days === undefined ? 1 : c.ema_days, 1, 10, 1) }; // 连续几天收盘 < EMA 才算跌破
     var on = (parts.support ? 1 : 0) + (parts.ema ? 1 : 0) + (parts.sar ? 1 : 0);
     if (!on) return null;
     parts.need = intIn(c.need === undefined ? 2 : c.need, 1, on, Math.min(2, on));
@@ -3944,10 +3947,11 @@
     if (ex.combo) {
       var cb = ex.combo, nm = [];
       if (cb.support) nm.push('收盘跌破支撑 (最近回调低点)');
-      if (cb.ema) nm.push('收盘 < EMA' + cb.ema);
+      if (cb.ema) nm.push('收盘 < EMA' + cb.ema + (cb.ema_days > 1 ? ' 连续 ' + cb.ema_days + ' 天' : ''));
       if (cb.sar) nm.push('SAR 转空');
       out.push('组合离场：' + nm.join(' / ') + ' 同时满足 ' + cb.need + ' 个 (Combined Exit)');
     }
+    if (ex.ema_break) out.push('收盘连续 ' + ex.ema_break.days + ' 天 < EMA' + ex.ema_break.n + ' 全部离场 (第一天只提醒，隔天收回就继续拿) (EMA Break)');
     if (ex.hold_st) out.push('Supertrend(' + ex.hold_st.n + ',' + fmtG(ex.hold_st.m) + ') 在价格下面就继续持有 (Supertrend Hold)');
     if (ex.red_candle) out.push('跌破回调红K低点 (Pullback Red Candle)');
     if (ex.max_risk) out.push('入场风险 > ' + fmtG(ex.max_risk) + '% 不进' + (ex.max_risk_surge ? ' (当天涨 ≥ ' + fmtG(ex.surge_pct) + '% 放宽到 ' + fmtG(ex.max_risk_surge) + '%)' : '') + ' (Max Entry Risk)');
@@ -4095,6 +4099,11 @@
     var vol = p.ctx.series.volume;
     var trail = trailLevels(c, ex.swing_mode, ex.swing_low || HL_K_DEFAULT), phi = ex.resistance ? pivotHighs(h, RES_K) : null;
     var combo = ex.combo, emaC = combo && combo.ema ? seriesEMA(c, combo.ema) : null;
+    var eb = ex.ema_break, emaB = eb ? seriesEMA(c, eb.n) : null;
+    function below(ema, j, days) { // 收盘 < EMA 连续 days 天 (含第 j 天) (main.py below)
+      for (var q = j - days + 1; q <= j; q++) if (q < 0 || ema[q] === null || ema[q] === undefined || !(c[q] < ema[q])) return false;
+      return true;
+    }
     var stHold = ex.hold_st ? seriesSupertrend(p.bars, ex.hold_st.m, ex.hold_st.n).value : null;
     function bull(i) { return sar[i] !== null && sar[i] !== undefined && rnd3(c[i]) > rnd3(sar[i]); }
     var i, j, hz;
@@ -4138,12 +4147,13 @@
         var hits = [];
         if (combo) { // 组合离场：A 跌破支撑 / B 收盘 < EMA / C SAR 空头
           if (combo.support && swing !== null && c[j] < swing) hits.push('支撑');
-          if (combo.ema && emaC[j] !== null && emaC[j] !== undefined && c[j] < emaC[j]) hits.push('EMA' + combo.ema);
+          if (combo.ema && below(emaC, j, combo.ema_days)) hits.push('EMA' + combo.ema);
           if (combo.sar && sar[j] !== null && sar[j] !== undefined && !bull(j)) hits.push('SAR');
         }
         // Supertrend 护航：还在收盘价下面 (多头) 就继续拿，趋势类离场 (组合 / 回调低点 / 红K / SAR / EMA 死叉) 先不算
         var guard = stHold && stHold[j] !== null && stHold[j] !== undefined && stHold[j] < c[j];
         if (ex.stop_pct && c[j] <= entryPx * (1 - ex.stop_pct / 100)) reason = 'stop';
+        else if (eb && below(emaB, j, eb.days)) reason = 'emab'; // 跌破 EMA 连续 days 天：全部离场 (不受 Supertrend 护航影响)
         else if (!guard && combo && hits.length >= combo.need) { reason = 'combo'; exitHits = hits; }
         else if (!guard && ex.swing_low && swing !== null && c[j] < swing && !ex.swing_alert) reason = 'swing';
         else if (!guard && red !== null && c[j] < red) reason = 'red';
@@ -4154,6 +4164,7 @@
         else if (tg.high !== null && c[j] >= tg.high) reason = 'high';
         else if (tg.res !== null && c[j] >= tg.res) reason = 'res';
         else if (ex.max_hold && j - e + (cl ? 0 : 1) >= ex.max_hold) reason = 'time';
+        if (eb && reason === 'open' && alert === null && emaB[j] !== null && emaB[j] !== undefined && c[j] < emaB[j]) alert = { date: dates[j], price: c[j], ema: rd(emaB[j], 4), hits: ['EMA' + eb.n + ' 第 1 天'] }; // 先提醒
         if (combo && hits.length && reason === 'open' && alert === null) alert = { date: dates[j], price: c[j], hl: swing, hits: hits }; // 还不够离场，先提醒
         if (ex.swing_alert && ex.swing_low && swing !== null && c[j] < swing && alert === null) alert = { date: dates[j], price: c[j], hl: swing };
         if (reason !== 'open' || j === n - 1) break;
@@ -4902,6 +4913,7 @@
         red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, swing_alert: !!ex.swing_alert, swing_mode: ex.swing_mode || 't2', entry_close: !!ex.entry_close, max_risk: ex.max_risk || 0, max_risk_surge: ex.max_risk_surge || 0, surge_pct: ex.surge_pct || 10,
         combo_on: !!ex.combo, combo_support: ex.combo ? ex.combo.support : true, combo_ema_on: ex.combo ? !!ex.combo.ema : true, combo_ema: ex.combo && ex.combo.ema || 20,
         combo_sar: ex.combo ? ex.combo.sar : true, combo_need: ex.combo ? ex.combo.need : 2,
+        ebk_on: !!ex.ema_break, ebk_n: ex.ema_break ? ex.ema_break.n : 20, ebk_days: ex.ema_break ? ex.ema_break.days : 2, combo_ema_days: ex.combo ? ex.combo.ema_days : 1,
         sth_on: !!ex.hold_st, sth_n: ex.hold_st ? ex.hold_st.n : 3, sth_m: ex.hold_st ? ex.hold_st.m : 1.4, cost: cost, pos: pos, slots: slots
       };
     }
@@ -4920,8 +4932,9 @@
         sar: st.sar, ema_cross: st.ema_on ? [st.ema_f, st.ema_s] : null, swing_low: st.swing_on ? st.swing_k : 0,
         max_hold: st.hold_on ? st.max_hold : 0, stop_pct: st.stop_on ? st.stop_pct : 0, take_pct: st.take_on ? st.take_pct : 0,
         red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on, swing_alert: st.swing_alert, swing_mode: st.swing_mode, entry_close: st.entry_close, max_risk: st.max_risk, max_risk_surge: st.max_risk_surge, surge_pct: st.surge_pct,
-        combo: st.combo_on ? { support: st.combo_support, ema: st.combo_ema_on ? st.combo_ema : 0, sar: st.combo_sar, need: st.combo_need } : null,
-        hold_st: st.sth_on ? { n: st.sth_n, m: st.sth_m } : null
+        combo: st.combo_on ? { support: st.combo_support, ema: st.combo_ema_on ? st.combo_ema : 0, sar: st.combo_sar, need: st.combo_need, ema_days: st.combo_ema_days } : null,
+        hold_st: st.sth_on ? { n: st.sth_n, m: st.sth_m } : null,
+        ema_break: st.ebk_on ? { n: st.ebk_n, days: st.ebk_days } : null
       });
     }
     function costOf() { return floatIn(st.cost, 0, 10, COST_DEFAULT); }
@@ -4956,6 +4969,8 @@
           '<label>' + check('combo_ema_on', st.combo_ema_on, '跌破 EMA') + '<span>跌破 EMA</span></label>' + numIn('combo_ema', st.combo_ema, 2, 250, 1, 'EMA 长度') +
           '<label>' + check('combo_sar', st.combo_sar, 'SAR 转空') + '<span>SAR 转空</span></label>' +
           '<span class="cbt-p">满足 ' + numIn('combo_need', st.combo_need, 1, 3, 1, '同时满足几个') + ' 个</span></div>' +
+        '<div class="cbt-x"><label>' + check('ebk_on', st.ebk_on, '跌破 EMA 确认离场') + '<span>跌破 EMA 确认离场 <i>EMA Break</i></span></label>' +
+          '<span class="cbt-p">EMA ' + numIn('ebk_n', st.ebk_n, 2, 250, 1, 'EMA 长度') + ' 连续 ' + numIn('ebk_days', st.ebk_days, 1, 10, 1, '连续几天收盘在 EMA 下面') + ' 天</span></div>' +
         '<div class="cbt-x"><label>' + check('sth_on', st.sth_on, 'Supertrend 护航') + '<span>Supertrend 在价格下面就继续拿 <i>Supertrend Hold</i></span></label>' +
           '<span class="cbt-p">ST ' + numIn('sth_n', st.sth_n, 1, 200, 1, 'Supertrend ATR 长度') + ' , ' + numIn('sth_m', st.sth_m, 0.1, 20, 0.1, 'Supertrend 倍数') + '</span></div>' +
         '<p class="cbt-xh">止损 <i>Stop</i></p>' +
@@ -5122,7 +5137,7 @@
         var v = parseFloat(e.target.value);
         if (isNum(v)) st[f] = v;
         // 在参数框里改了数字 = 顺便勾上那一条
-        var on = { sth_n: 'sth_on', sth_m: 'sth_on', combo_ema: 'combo_ema_on', combo_need: 'combo_on', ema_f: 'ema_on', ema_s: 'ema_on', swing_k: 'swing_on', stop_pct: 'stop_on', take_pct: 'take_on', max_hold: 'hold_on' }[f];
+        var on = { ebk_n: 'ebk_on', ebk_days: 'ebk_on', sth_n: 'sth_on', sth_m: 'sth_on', combo_ema: 'combo_ema_on', combo_need: 'combo_on', ema_f: 'ema_on', ema_s: 'ema_on', swing_k: 'swing_on', stop_pct: 'stop_on', take_pct: 'take_on', max_hold: 'hold_on' }[f];
         if (on && !st[on]) { st[on] = true; root.querySelector('[data-f="' + on + '"]').checked = true; }
       }
       save();

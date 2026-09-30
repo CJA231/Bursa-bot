@@ -308,7 +308,8 @@ def clean_combo(c):
     if not isinstance(c, dict):
         return None
     ema = _int_in(c.get("ema", 20), 0, 250, 20) if c.get("ema") not in (None, False, 0, "0") else 0
-    parts = {"support": bool(c.get("support", True)), "ema": ema, "sar": bool(c.get("sar", True))}
+    parts = {"support": bool(c.get("support", True)), "ema": ema, "sar": bool(c.get("sar", True)),
+             "ema_days": _int_in(c.get("ema_days", 1), 1, 10, 1)}  # 连续几天收盘 < EMA 才算跌破 (2 = 隔天收回来就不算)
     on = sum(1 for k in ("support", "ema", "sar") if parts[k])
     if not on:
         return None
@@ -348,6 +349,9 @@ def clean_exit(ex):
         "swing_alert": bool(ex.get("swing_alert", False)),  # True = 跌破浮动 HL 只发 alert (记在交易上)，不离场；离场交给 SAR / EMA 死叉
         "combo": clean_combo(ex.get("combo")),
         # Supertrend(n, m) 在收盘价下面 (多头) 就继续持有，趋势类离场先不算 (网页 hold_st 同一套)；None = 不用
+        # 跌破 EMA 确认离场：连续 days 天收盘 < EMA(n) 就在第 days 天收盘全部离场 (第一天只提醒，隔天收回去就继续拿)
+        "ema_break": {"n": _int_in(ex["ema_break"].get("n", 20), 2, 250, 20), "days": _int_in(ex["ema_break"].get("days", 2), 1, 10, 2)}
+                     if isinstance(ex.get("ema_break"), dict) else None,
         "hold_st": {"n": _int_in(ex["hold_st"].get("n", 3), 1, 200, 3), "m": _float_in(ex["hold_st"].get("m", 1.4), 0.1, 20, 1.4)}
                    if isinstance(ex.get("hold_st"), dict) else None,
     }
@@ -473,8 +477,10 @@ def exit_labels(ex):
         out.append(f"收盘跌破最近回调低点 (收盘价，{how}，只往上移) (Trailing Stop)" + ("：只提醒不离场 (Alert only)" if ex["swing_alert"] else ""))
     if ex["combo"]:
         cb = ex["combo"]
-        names = [x for x, on in (("收盘跌破支撑 (最近回调低点)", cb["support"]), (f"收盘 < EMA{cb['ema']}", cb["ema"]), ("SAR 转空", cb["sar"])) if on]
+        names = [x for x, on in (("收盘跌破支撑 (最近回调低点)", cb["support"]), (f"收盘 < EMA{cb['ema']}" + (f" 连续 {cb['ema_days']} 天" if cb["ema_days"] > 1 else ""), cb["ema"]), ("SAR 转空", cb["sar"])) if on]
         out.append(f"组合离场：{' / '.join(names)} 同时满足 {cb['need']} 个 (Combined Exit)")
+    if ex["ema_break"]:
+        out.append(f"收盘连续 {ex['ema_break']['days']} 天 < EMA{ex['ema_break']['n']} 全部离场 (第一天只提醒，隔天收回就继续拿) (EMA Break)")
     if ex["hold_st"]:
         out.append(f"Supertrend({ex['hold_st']['n']},{ex['hold_st']['m']:g}) 在价格下面就继续持有 (Supertrend Hold)")
     if ex["red_candle"]:
@@ -539,7 +545,7 @@ BT_DIST_EDGES = (-10, -5, 0, 5, 10)  # 收益分布: < -10%、-10~-5、-5~0、0~
 CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
 EXIT_REASON_LABELS = {  # (中文, 英文)；网页 report.js EXIT_REASONS 同一份
     "stop": ("止损", "Stop Loss"), "swing": ("跌破回调低点", "Trailing Stop"), "red": ("回调红K", "Pullback Red Candle"),
-    "sar": ("SAR 转空", "SAR Flip"), "combo": ("组合离场", "Combined Exit"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
+    "sar": ("SAR 转空", "SAR Flip"), "combo": ("组合离场", "Combined Exit"), "emab": ("跌破 EMA 确认", "EMA Break"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
     "high": ("历史高点", "Prior High"), "res": ("近期阻力", "Resistance"), "time": ("满期", "Time Stop"), "open": ("持有中", "Open"),
 }
 
@@ -607,6 +613,7 @@ def exit_series(bars, ex, ctx):
         "ema_f": engine.series_ema(c, ex["ema_cross"][0]) if ex["ema_cross"] else None,
         "ema_s": engine.series_ema(c, ex["ema_cross"][1]) if ex["ema_cross"] else None,
         "ema_combo": engine.series_ema(c, ex["combo"]["ema"]) if ex["combo"] and ex["combo"]["ema"] else None,
+        "ema_break": engine.series_ema(c, ex["ema_break"]["n"]) if ex["ema_break"] else None,
         "st_hold": engine.series_supertrend(ctx.series["high"], ctx.series["low"], ctx.series["close"], ex["hold_st"]["m"], ex["hold_st"]["n"])
                    if ex["hold_st"] else None,
         "trail": trail_levels(c, ex["swing_mode"], ex["swing_low"] or HL_K_DEFAULT),  # 回调低点 (收盘价)：入场风险 + 浮动止损
@@ -674,6 +681,11 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
     v = [b["volume"] for b in bars]
     sar, ema_f, ema_s, trail, phi = series["sar"], series["ema_f"], series["ema_s"], series["trail"], series.get("phi")
     combo, ema_c, st_hold = ex["combo"], series.get("ema_combo"), series.get("st_hold")
+    ema_b, eb = series.get("ema_break"), ex["ema_break"]
+
+    def below(ema, j, days):
+        """收盘 < EMA 连续 days 天 (含第 j 天)"""
+        return all(q >= 0 and ema[q] is not None and c[q] < ema[q] for q in range(j - days + 1, j + 1))
     def bull(i):
         return sar[i] is not None and engine.js_round(c[i], 3) > engine.js_round(sar[i], 3)
 
@@ -728,7 +740,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
             if combo:  # 组合离场：A 跌破支撑 / B 收盘 < EMA / C SAR 空头，同时成立 need 个
                 if combo["support"] and swing is not None and c[j] < swing:
                     hits.append("支撑")
-                if combo["ema"] and ema_c[j] is not None and c[j] < ema_c[j]:
+                if combo["ema"] and below(ema_c, j, combo["ema_days"]):
                     hits.append(f"EMA{combo['ema']}")
                 if combo["sar"] and sar[j] is not None and not bull(j):
                     hits.append("SAR")
@@ -736,6 +748,8 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
             guard = st_hold is not None and st_hold[j] is not None and st_hold[j] < c[j]
             if ex["stop_pct"] and c[j] <= entry_px * (1 - ex["stop_pct"] / 100):
                 reason = "stop"
+            elif eb and below(ema_b, j, eb["days"]):  # 跌破 EMA 连续 days 天：全部离场 (不受 Supertrend 护航影响)
+                reason = "emab"
             elif not guard and combo and len(hits) >= combo["need"]:
                 reason, exit_hits = "combo", hits
             elif not guard and ex["swing_low"] and swing is not None and c[j] < swing and not ex["swing_alert"]:
@@ -755,6 +769,8 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
                 reason = "res"
             elif ex["max_hold"] and j - e + (0 if cl else 1) >= ex["max_hold"]:
                 reason = "time"
+            if eb and reason == "open" and alert is None and ema_b[j] is not None and c[j] < ema_b[j]:
+                alert = {"date": dates[j], "price": c[j], "ema": _r(ema_b[j], 4), "hits": [f"EMA{eb['n']} 第 1 天"]}  # 先提醒，隔天收回就继续拿
             if combo and hits and reason == "open" and alert is None:  # 还不够离场，先提醒
                 alert = {"date": dates[j], "price": c[j], "hl": swing, "hits": hits}
             if ex["swing_alert"] and ex["swing_low"] and swing is not None and c[j] < swing and alert is None:
