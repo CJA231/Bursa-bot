@@ -324,6 +324,9 @@ def clean_exit(ex):
         "resistance": bool(ex.get("resistance", False)),
         "entry_close": bool(ex.get("entry_close", False)),  # True = 信号日收盘价进场 (False = 隔天开盘价)
         "max_risk": _float_in(ex.get("max_risk", 0), 0, 90, 0),  # 入场风险 (进场价到最近回调低点) 超过这个 % 就不进；0 = 不限
+        # 暴涨日 (信号日比前一天涨 ≥ surge_pct %) 风险上限放宽到 max_risk_surge %；0 = 不放宽
+        "max_risk_surge": _float_in(ex.get("max_risk_surge", 0), 0, 90, 0),
+        "surge_pct": _float_in(ex.get("surge_pct", 10), 0.5, 100, 10),
         # 回调低点怎么确认：rebound = 回调日 (连续收跌之后第一根收涨当天确认，取回调里最低的收盘价)；
         # t2 = 收盘价比左右各 swing_low 根都低，右边那几根走完才确认 (T+2)
         "swing_mode": "rebound" if ex.get("swing_mode") == "rebound" else "t2",
@@ -430,6 +433,8 @@ def exit_labels(ex):
         out.append(f"收盘跌破最近回调低点 (收盘价，{how}，只往上移) (Trailing Stop)" + ("：只提醒不离场 (Alert only)" if ex["swing_alert"] else ""))
     if ex["red_candle"]:
         out.append("跌破回调红K低点 (Pullback Red Candle)")
+    if ex["max_risk"]:
+        out.append(f"入场风险 > {ex['max_risk']:g}% 不进" + (f" (当天涨 ≥ {ex['surge_pct']:g}% 放宽到 {ex['max_risk_surge']:g}%)" if ex["max_risk_surge"] else "") + " (Max Entry Risk)")
     if ex["take_pct"]:
         out.append(f"止盈 +{ex['take_pct']:g}% (Take Profit)")
     if ex["prior_high"]:
@@ -653,7 +658,10 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
                              entry_px * (1 - ex["stop_pct"] / 100) if ex["stop_pct"] else None) if x is not None and x < entry_px]
         risk_line = swing if swing is not None and swing < entry_px else max(stops) if stops else None
         risk = (entry_px - risk_line) / entry_px * 100 if risk_line is not None else None
-        if ex["max_risk"] and risk is not None and risk > ex["max_risk"]:  # 风险太大：这个信号不进
+        cap = ex["max_risk"]
+        if cap and ex["max_risk_surge"] and i > 0 and c[i - 1] and (c[i] / c[i - 1] - 1) * 100 >= ex["surge_pct"]:
+            cap = max(cap, ex["max_risk_surge"])  # 一天暴涨：回调低点离得远，风险上限放宽
+        if cap and risk is not None and risk > cap:  # 风险太大：这个信号不进
             i += 1
             continue
         hi, low_ = (entry_px, entry_px) if cl else (h[e], lo[e])

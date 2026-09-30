@@ -1,14 +1,15 @@
 {
-  "说明": "入场：EMA5 上穿 EMA20、SAR 在价格下方、Supertrend(3,1.4) 下穿价格 (转多)，三条里任意满足 2 条就是信号；信号日收盘价进场；进场价到最近回调低点 (收盘价) 超过 max_risk % 就不进。离场：收盘跌破最近回调低点就离场，回调低点每次确认更高就往上移 (浮动止盈，swing_mode = rebound：回调后第一根收涨确认；t2：左右各 swing_low 根确认；swing_alert = true 则只提醒不离场)；另外 SAR 转空 / EMA5x20 死叉也离场。",
-  "name": "EMA",
+  "说明": "入场 (全部满足)：① SAR 由上往下穿过当前价格 (SAR 转多，当天出现)；② EMA5 > EMA20；③ 成交量 ≥ 1M 股；④ Supertrend(3,1.4) < 当前价格；⑤ 当前价格 > EMA50 或 EMA5 > EMA50；另外市值 ≤ RM3B、价格 ≥ RM0.10。信号日收盘价进场；进场价到最近回调低点 (收盘价) 超过 10% 不进，当天涨 ≥ 10% 的暴涨日放宽到 15%。离场：收盘跌破最近回调低点 (浮动止盈，回调后第一根收涨确认、只往上移)，或 SAR 转空 / EMA5 下穿 EMA20。",
+  "name": "SAR 转多",
   "min_price": 0.10,
   "max_mcap": {"MY": 3000000000},
-  "match": "atleast",
-  "min": 2,
+  "match": "all",
   "rules": [
-    {"a":{"k":"ema","n":5},"op":"crossup","b":{"k":"ema","n":20}},
-    {"a":{"k":"sar"},"op":"<","b":{"k":"close"}},
-    {"a":{"k":"st","n":3,"m":1.4},"op":"crossdown","b":{"k":"close"}}
+    {"a":{"k":"sar"},"op":"crossdown","b":{"k":"close"}},
+    {"a":{"k":"ema","n":5},"op":">","b":{"k":"ema","n":20}},
+    {"a":{"k":"vol"},"op":">=","b":{"k":"num","v":1000000}},
+    {"a":{"k":"st","n":3,"m":1.4},"op":"<","b":{"k":"close"}},
+    {"formula":"close > ema(close,50) or ema(close,5) > ema(close,50)","label":"价格 > EMA50 或 EMA5 > EMA50"}
   ],
-  "exit": {"sar": true, "ema_cross": [5,20], "swing_low": 2, "swing_mode": "rebound", "swing_alert": false, "entry_close": true, "max_risk": 10, "max_hold": 90, "stop_pct": 0, "take_pct": 0}
+  "exit": {"sar":true,"ema_cross":[5,20],"swing_low":2,"swing_mode":"rebound","swing_alert":false,"entry_close":true,"max_risk":10,"max_hold":90,"stop_pct":0,"take_pct":0,"max_risk_surge":15,"surge_pct":10}
 }

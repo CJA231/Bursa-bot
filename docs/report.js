@@ -3909,6 +3909,8 @@
       resistance: !!ex.resistance,
       entry_close: !!ex.entry_close, // 信号日收盘价进场 (否则隔天开盘)
       max_risk: floatIn(ex.max_risk === undefined ? 0 : ex.max_risk, 0, 90, 0), // 入场风险超过这个 % 不进，0 = 不限
+      max_risk_surge: floatIn(ex.max_risk_surge === undefined ? 0 : ex.max_risk_surge, 0, 90, 0), // 暴涨日放宽到几 % (0 = 不放宽)
+      surge_pct: floatIn(ex.surge_pct === undefined ? 10 : ex.surge_pct, 0.5, 100, 10), // 信号日涨几 % 算暴涨
       swing_mode: ex.swing_mode === 'rebound' ? 'rebound' : 't2', // 回调低点：rebound = 回调后第一根收涨确认；t2 = 左右各 N 根确认
       swing_alert: !!ex.swing_alert // 跌破回调低点只提醒 (记在交易上)，不离场
     };
@@ -3918,6 +3920,7 @@
     if (ex.stop_pct) out.push('止损 -' + fmtG(ex.stop_pct) + '% (Stop Loss)');
     if (ex.swing_low) out.push('收盘跌破最近回调低点 (收盘价，' + (ex.swing_mode === 'rebound' ? '回调后第一根收涨确认' : '左右 ' + ex.swing_low + ' 根确认') + '，只往上移) (Trailing Stop)' + (ex.swing_alert ? '：只提醒不离场 (Alert only)' : ''));
     if (ex.red_candle) out.push('跌破回调红K低点 (Pullback Red Candle)');
+    if (ex.max_risk) out.push('入场风险 > ' + fmtG(ex.max_risk) + '% 不进' + (ex.max_risk_surge ? ' (当天涨 ≥ ' + fmtG(ex.surge_pct) + '% 放宽到 ' + fmtG(ex.max_risk_surge) + '%)' : '') + ' (Max Entry Risk)');
     if (ex.take_pct) out.push('止盈 +' + fmtG(ex.take_pct) + '% (Take Profit)');
     if (ex.prior_high) out.push('涨到历史高点 (Prior High)');
     if (ex.resistance) out.push('涨到近期阻力 (Resistance)');
@@ -4088,7 +4091,9 @@
         .filter(function (x) { return x !== null && x !== undefined && x < entryPx; });
       var riskLine = swing !== null && swing < entryPx ? swing : stops.length ? Math.max.apply(null, stops) : null;
       var risk = riskLine !== null ? (entryPx - riskLine) / entryPx * 100 : null;
-      if (ex.max_risk && risk !== null && risk > ex.max_risk) { i++; continue; } // 风险太大不进
+      var cap = ex.max_risk; // 一天暴涨 (信号日涨 ≥ surge_pct %)：风险上限放宽到 max_risk_surge (main.py 同一套)
+      if (cap && ex.max_risk_surge && i > 0 && c[i - 1] && (c[i] / c[i - 1] - 1) * 100 >= ex.surge_pct) cap = Math.max(cap, ex.max_risk_surge);
+      if (cap && risk !== null && risk > cap) { i++; continue; } // 风险太大不进
       var hi = cl ? entryPx : h[e], low = cl ? entryPx : lo[e], reason = 'open', alert = null;
       var hl = ex.swing_low && swing !== null ? [[dates[i], swing]] : []; // 追溯图上画浮动 HL：从信号日 (已经知道这条线) 画到离场
       j = e;
@@ -4852,7 +4857,7 @@
         sar: ex.sar, ema_on: !!ex.ema_cross, ema_f: ex.ema_cross ? ex.ema_cross[0] : 5, ema_s: ex.ema_cross ? ex.ema_cross[1] : 20,
         swing_on: !!ex.swing_low, swing_k: ex.swing_low || 2, stop_on: !!ex.stop_pct, stop_pct: ex.stop_pct || 8,
         take_on: !!ex.take_pct, take_pct: ex.take_pct || 20, hold_on: !!ex.max_hold, max_hold: ex.max_hold || 30,
-        red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, swing_alert: !!ex.swing_alert, swing_mode: ex.swing_mode || 't2', entry_close: !!ex.entry_close, max_risk: ex.max_risk || 0, cost: cost, pos: pos, slots: slots
+        red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, swing_alert: !!ex.swing_alert, swing_mode: ex.swing_mode || 't2', entry_close: !!ex.entry_close, max_risk: ex.max_risk || 0, max_risk_surge: ex.max_risk_surge || 0, surge_pct: ex.surge_pct || 10, cost: cost, pos: pos, slots: slots
       };
     }
     var st = stateFrom(baseExit, be ? be.cost : COST_DEFAULT, POSITION_BACKEND, SLOTS_BACKEND);
@@ -4869,7 +4874,7 @@
       return cleanExit({
         sar: st.sar, ema_cross: st.ema_on ? [st.ema_f, st.ema_s] : null, swing_low: st.swing_on ? st.swing_k : 0,
         max_hold: st.hold_on ? st.max_hold : 0, stop_pct: st.stop_on ? st.stop_pct : 0, take_pct: st.take_on ? st.take_pct : 0,
-        red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on, swing_alert: st.swing_alert, swing_mode: st.swing_mode, entry_close: st.entry_close, max_risk: st.max_risk
+        red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on, swing_alert: st.swing_alert, swing_mode: st.swing_mode, entry_close: st.entry_close, max_risk: st.max_risk, max_risk_surge: st.max_risk_surge, surge_pct: st.surge_pct
       });
     }
     function costOf() { return floatIn(st.cost, 0, 10, COST_DEFAULT); }
@@ -4896,6 +4901,8 @@
         '<label class="cbt-x">' + check('entry_close', st.entry_close, '信号日收盘价进场') + '<span>信号当天收盘价进场 <i>Same-day Close</i></span></label>' +
         '<div class="cbt-x cbt-cost"><span>入场风险上限 <i>Max Risk</i></span>' +
           '<span class="cbt-p">' + numIn('max_risk', st.max_risk, 0, 90, 0.5, '进场价到最近回调低点超过几 % 就不进，0 = 不限') + ' %</span></div>' +
+        '<div class="cbt-x cbt-cost"><span>暴涨日放宽 <i>Surge Day</i></span>' +
+          '<span class="cbt-p">涨 ≥ ' + numIn('surge_pct', st.surge_pct, 0.5, 100, 0.5, '信号日涨几 % 算暴涨') + ' % 时 ' + numIn('max_risk_surge', st.max_risk_surge, 0, 90, 0.5, '暴涨日风险上限，0 = 不放宽') + ' %</span></div>' +
         '<p class="cbt-xh">止损 <i>Stop</i></p>' +
         '<div class="cbt-x"><label>' + check('stop_on', st.stop_on, '固定止损') + '<span>固定止损 <i>Stop Loss</i></span></label>' +
           '<span class="cbt-p">-' + numIn('stop_pct', st.stop_pct, 0.5, 90, 0.5, '止损百分比') + ' %</span></div>' +
