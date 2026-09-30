@@ -308,7 +308,8 @@ def clean_combo(c):
     if not isinstance(c, dict):
         return None
     ema = _int_in(c.get("ema", 20), 0, 250, 20) if c.get("ema") not in (None, False, 0, "0") else 0
-    parts = {"support": bool(c.get("support", True)), "ema": ema, "sar": bool(c.get("sar", True))}
+    parts = {"support": bool(c.get("support", True)), "ema": ema, "sar": bool(c.get("sar", True)),
+             "ema_days": _int_in(c.get("ema_days", 1), 1, 10, 1)}  # 连续几天收盘 < EMA 才算跌破 (2 = 隔天收回来就不算)
     on = sum(1 for k in ("support", "ema", "sar") if parts[k])
     if not on:
         return None
@@ -348,6 +349,9 @@ def clean_exit(ex):
         "swing_alert": bool(ex.get("swing_alert", False)),  # True = 跌破浮动 HL 只发 alert (记在交易上)，不离场；离场交给 SAR / EMA 死叉
         "combo": clean_combo(ex.get("combo")),
         # Supertrend(n, m) 在收盘价下面 (多头) 就继续持有，趋势类离场先不算 (网页 hold_st 同一套)；None = 不用
+        # 跌破 EMA 确认离场：连续 days 天收盘 < EMA(n) 就在第 days 天收盘全部离场 (第一天只提醒，隔天收回去就继续拿)
+        "ema_break": {"n": _int_in(ex["ema_break"].get("n", 20), 2, 250, 20), "days": _int_in(ex["ema_break"].get("days", 2), 1, 10, 2)}
+                     if isinstance(ex.get("ema_break"), dict) else None,
         "hold_st": {"n": _int_in(ex["hold_st"].get("n", 3), 1, 200, 3), "m": _float_in(ex["hold_st"].get("m", 1.4), 0.1, 20, 1.4)}
                    if isinstance(ex.get("hold_st"), dict) else None,
     }
@@ -438,6 +442,8 @@ def load_strategy():
         "cost": _float_in(cost, 0, 10, MKT["round_trip_cost_pct"]) if cost is not None else MKT["round_trip_cost_pct"],
         "position": _float_in(strat.get("position_rm", POSITION_DEFAULT), 100, 1e8, POSITION_DEFAULT),
         "slots": _int_in(strat.get("slots", SLOTS_DEFAULT), 0, 50, SLOTS_DEFAULT),
+        # 模拟账户从哪天开始 (YYYY-MM-DD)；不写 = 账本建好那天 (= 从今天开始，之后出现的信号才买)
+        "paper_start": strat["paper_start"] if isinstance(strat.get("paper_start"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", strat["paper_start"]) else None,
         "custom": raw is not None and strat is not DEFAULT_STRATEGY,
         # 后台信号 / 回测都不要这个价格以下的股票 (信号日收盘价)；0 = 不限
         "min_price": _float_in(strat.get("min_price", MIN_PRICE_DEFAULT), 0, 1e6, MIN_PRICE_DEFAULT),
@@ -473,8 +479,10 @@ def exit_labels(ex):
         out.append(f"收盘跌破最近回调低点 (收盘价，{how}，只往上移) (Trailing Stop)" + ("：只提醒不离场 (Alert only)" if ex["swing_alert"] else ""))
     if ex["combo"]:
         cb = ex["combo"]
-        names = [x for x, on in (("收盘跌破支撑 (最近回调低点)", cb["support"]), (f"收盘 < EMA{cb['ema']}", cb["ema"]), ("SAR 转空", cb["sar"])) if on]
+        names = [x for x, on in (("收盘跌破支撑 (最近回调低点)", cb["support"]), (f"收盘 < EMA{cb['ema']}" + (f" 连续 {cb['ema_days']} 天" if cb["ema_days"] > 1 else ""), cb["ema"]), ("SAR 转空", cb["sar"])) if on]
         out.append(f"组合离场：{' / '.join(names)} 同时满足 {cb['need']} 个 (Combined Exit)")
+    if ex["ema_break"]:
+        out.append(f"收盘连续 {ex['ema_break']['days']} 天 < EMA{ex['ema_break']['n']} 全部离场 (第一天只提醒，隔天收回就继续拿) (EMA Break)")
     if ex["hold_st"]:
         out.append(f"Supertrend({ex['hold_st']['n']},{ex['hold_st']['m']:g}) 在价格下面就继续持有 (Supertrend Hold)")
     if ex["red_candle"]:
@@ -539,7 +547,7 @@ BT_DIST_EDGES = (-10, -5, 0, 5, 10)  # 收益分布: < -10%、-10~-5、-5~0、0~
 CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
 EXIT_REASON_LABELS = {  # (中文, 英文)；网页 report.js EXIT_REASONS 同一份
     "stop": ("止损", "Stop Loss"), "swing": ("跌破回调低点", "Trailing Stop"), "red": ("回调红K", "Pullback Red Candle"),
-    "sar": ("SAR 转空", "SAR Flip"), "combo": ("组合离场", "Combined Exit"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
+    "sar": ("SAR 转空", "SAR Flip"), "combo": ("组合离场", "Combined Exit"), "emab": ("跌破 EMA 确认", "EMA Break"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
     "high": ("历史高点", "Prior High"), "res": ("近期阻力", "Resistance"), "time": ("满期", "Time Stop"), "open": ("持有中", "Open"),
 }
 
@@ -607,6 +615,7 @@ def exit_series(bars, ex, ctx):
         "ema_f": engine.series_ema(c, ex["ema_cross"][0]) if ex["ema_cross"] else None,
         "ema_s": engine.series_ema(c, ex["ema_cross"][1]) if ex["ema_cross"] else None,
         "ema_combo": engine.series_ema(c, ex["combo"]["ema"]) if ex["combo"] and ex["combo"]["ema"] else None,
+        "ema_break": engine.series_ema(c, ex["ema_break"]["n"]) if ex["ema_break"] else None,
         "st_hold": engine.series_supertrend(ctx.series["high"], ctx.series["low"], ctx.series["close"], ex["hold_st"]["m"], ex["hold_st"]["n"])
                    if ex["hold_st"] else None,
         "trail": trail_levels(c, ex["swing_mode"], ex["swing_low"] or HL_K_DEFAULT),  # 回调低点 (收盘价)：入场风险 + 浮动止损
@@ -674,6 +683,11 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
     v = [b["volume"] for b in bars]
     sar, ema_f, ema_s, trail, phi = series["sar"], series["ema_f"], series["ema_s"], series["trail"], series.get("phi")
     combo, ema_c, st_hold = ex["combo"], series.get("ema_combo"), series.get("st_hold")
+    ema_b, eb = series.get("ema_break"), ex["ema_break"]
+
+    def below(ema, j, days):
+        """收盘 < EMA 连续 days 天 (含第 j 天)"""
+        return all(q >= 0 and ema[q] is not None and c[q] < ema[q] for q in range(j - days + 1, j + 1))
     def bull(i):
         return sar[i] is not None and engine.js_round(c[i], 3) > engine.js_round(sar[i], 3)
 
@@ -728,7 +742,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
             if combo:  # 组合离场：A 跌破支撑 / B 收盘 < EMA / C SAR 空头，同时成立 need 个
                 if combo["support"] and swing is not None and c[j] < swing:
                     hits.append("支撑")
-                if combo["ema"] and ema_c[j] is not None and c[j] < ema_c[j]:
+                if combo["ema"] and below(ema_c, j, combo["ema_days"]):
                     hits.append(f"EMA{combo['ema']}")
                 if combo["sar"] and sar[j] is not None and not bull(j):
                     hits.append("SAR")
@@ -736,6 +750,8 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
             guard = st_hold is not None and st_hold[j] is not None and st_hold[j] < c[j]
             if ex["stop_pct"] and c[j] <= entry_px * (1 - ex["stop_pct"] / 100):
                 reason = "stop"
+            elif eb and below(ema_b, j, eb["days"]):  # 跌破 EMA 连续 days 天：全部离场 (不受 Supertrend 护航影响)
+                reason = "emab"
             elif not guard and combo and len(hits) >= combo["need"]:
                 reason, exit_hits = "combo", hits
             elif not guard and ex["swing_low"] and swing is not None and c[j] < swing and not ex["swing_alert"]:
@@ -755,6 +771,8 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
                 reason = "res"
             elif ex["max_hold"] and j - e + (0 if cl else 1) >= ex["max_hold"]:
                 reason = "time"
+            if eb and reason == "open" and alert is None and ema_b[j] is not None and c[j] < ema_b[j]:
+                alert = {"date": dates[j], "price": c[j], "ema": _r(ema_b[j], 4), "hits": [f"EMA{eb['n']} 第 1 天"]}  # 先提醒，隔天收回就继续拿
             if combo and hits and reason == "open" and alert is None:  # 还不够离场，先提醒
                 alert = {"date": dates[j], "price": c[j], "hl": swing, "hits": hits}
             if ex["swing_alert"] and ex["swing_low"] and swing is not None and c[j] < swing and alert is None:
@@ -886,6 +904,11 @@ def numpy_busday(a, b):
 
 
 LEDGER_PATH = os.path.join(DOCS_DIR, "backtest_ledger.json")
+# 账本里有三本账 (网页 ledgerBacktest 读同一份)：
+#   trades = 账户 (最多同时 slots 笔)，从手上最早的日线开始回测；
+#   every  = 策略整体 (每个信号都买，同一支还拿着不重复买) —— 看信号本身好不好，不受仓位影响；
+#   paper  = 模拟账户：从 start 那天起才开始买 (默认账本建好那天 = 今天)，之前的信号一概不算；「持有中」= 这个账户真的买进、还没卖的
+LEDGER_VERSION = 2
 
 
 def strategy_signature():
@@ -899,14 +922,35 @@ def load_ledger():
     try:
         with open(LEDGER_PATH, encoding="utf-8") as f:
             led = json.load(f)
-        if led.get("v") == 1 and led.get("sig") == strategy_signature() and isinstance(led.get("trades"), list):
-            for t in led["trades"]:
+        if led.get("v") == LEDGER_VERSION and led.get("sig") == strategy_signature() and isinstance(led.get("trades"), list):
+            for t in led["trades"] + led["every"] + led["paper"]["trades"]:
                 t["h"] = {int(k): x for k, x in (t.get("h") or {}).items()}
             led["base"] = {int(k): v for k, v in led["base"].items()}
             return led
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return None
+
+
+def advance_book(book, raw, cap, since):
+    """一本账往前走一天：持有中的按今天的日线重算 (结算了就定下来)，再按仓位数加进 since 之后才出现的信号。
+    返回 (新的账, 这次新出现的信号, 满仓跳过几个)"""
+    by_key = {(t["code"], t["sig"]): t for t in raw}
+    book = [by_key.get((t["code"], t["sig"]), t) if t["reason"] == "open" else t for t in book]
+    seen = {(t["code"], t["sig"]) for t in book}
+    new = [t for t in raw if (t["code"], t["sig"]) not in seen and t["sig"] > since]
+    taken, skipped = portfolio_trades(new, cap, prior=book)
+    return book + taken, new, skipped
+
+
+def held_symbols_missing(led, raw):
+    """账本里还拿着、但今天没进报告 (例如成交量掉到门槛以下) 的股票代码 → 另外抓日线继续追踪"""
+    have = {t["code"] for t in raw}
+    out = {}
+    for t in led["trades"] + led["every"] + led["paper"]["trades"]:
+        if t["reason"] == "open" and t["code"] not in have:
+            out[t["code"]] = t.get("sym") or (t["code"] + ".KL" if MARKET_ID == "MY" else t["code"])
+    return out
 
 
 def summarize_backtest(stocks):
@@ -927,7 +971,7 @@ def summarize_backtest(stocks):
             base[hz][1] += cnt
             base[hz][2] += win
         for t in bt["trades"]:
-            raw.append(dict(t, code=st["symbol"].split(".")[0], name=st["name"]))
+            raw.append(dict(t, code=st["symbol"].split(".")[0], name=st["name"], sym=st["symbol"]))
         if data.get("last_date"):
             last_day = max(last_day or data["last_date"], data["last_date"])
     if not last_day:
@@ -935,22 +979,36 @@ def summarize_backtest(stocks):
     slots = STRATEGY["slots"]
     cap = slots or 10 ** 6
     led = load_ledger()
+    if led is not None:  # 还拿着、今天却没进报告的股票：另外抓日线 (不看成交量门槛)，持仓才不会停在某一天
+        for code, sym in held_symbols_missing(led, raw).items():
+            try:
+                data = get_stock_data(sym, check_volume=False)
+                for t in (data or {}).get("backtest", {}).get("trades", []):
+                    raw.append(dict(t, code=code, name=next((x["name"] for x in led["trades"] + led["every"] + led["paper"]["trades"]
+                                                             if x["code"] == code), code), sym=sym))
+            except Exception as e:  # 抓不到就先停在上一次的状态
+                print(f"⚠️ 持仓 {sym} 补抓失败 ({type(e).__name__}: {e})")
+    start = STRATEGY["paper_start"]
     if led is None:  # 建账本：手上所有日线里的信号一次收进来
         taken, skipped = portfolio_trades(raw, cap)
-        led = {"v": 1, "sig": strategy_signature(), "from": first_day, "base": base, "trades": taken,
-               "signals": sum(t.get("fresh", 1) for t in raw), "skipped": skipped}
+        start = start or last_day
+        led = {"v": LEDGER_VERSION, "sig": strategy_signature(), "from": first_day, "base": base, "trades": taken,
+               "signals": sum(t.get("fresh", 1) for t in raw), "skipped": skipped,
+               "every": portfolio_trades(raw, 10 ** 6)[0],
+               "paper": {"start": start, "trades": portfolio_trades([t for t in raw if t["sig"] >= start], cap)[0]}}
     else:
-        by_key = {(t["code"], t["sig"]): t for t in raw}
-        led["trades"] = [by_key.get((t["code"], t["sig"]), t) if t["reason"] == "open" else t for t in led["trades"]]  # 持有中的继续走
-        seen = {(t["code"], t["sig"]) for t in led["trades"]}
-        new = [t for t in raw if (t["code"], t["sig"]) not in seen and t["sig"] > led["last"]]  # 只收账本建好以后才出现的信号
-        taken, skipped = portfolio_trades(new, cap, prior=led["trades"])
-        led["trades"] += taken
+        led["trades"], new, skipped = advance_book(led["trades"], raw, cap, led["last"])  # 只收账本建好以后才出现的信号
         led["signals"] += sum(t.get("fresh", 1) for t in new)
         led["skipped"] += skipped
+        led["every"] = advance_book(led["every"], raw, 10 ** 6, led["last"])[0]
+        paper = led["paper"]
+        if start and start != paper["start"]:  # strategy.json 改了开始日：用手上的日线从那天重算
+            paper.update(start=start, trades=portfolio_trades([t for t in raw if t["sig"] >= start], cap)[0])
+        else:
+            paper["trades"] = advance_book(paper["trades"], [t for t in raw if t["sig"] >= paper["start"]], cap, led["last"])[0]
     led["last"] = max(last_day, led.get("last") or last_day)
     last_day = led["last"]
-    for t in led["trades"]:  # 距今几个交易日 (周末以外的休市日不扣，够用)
+    for t in led["trades"] + led["every"] + led["paper"]["trades"]:  # 距今几个交易日 (周末以外的休市日不扣，够用)
         t["sig_ago"] = int(numpy_busday(t["sig"], last_day))
     try:
         os.makedirs(os.path.dirname(LEDGER_PATH) or ".", exist_ok=True)
@@ -985,6 +1043,9 @@ def summarize_backtest(stocks):
         "slots": slots, "signals": n_signals, "skipped": skipped, "sig": led["sig"],
         "name": STRATEGY["name"], "strategies": [st["name"] for st in STRATEGY["strategies"]], "exit": STRATEGY["exit"],
         "all": trade_stats(trades, slots), "windows": windows, "monthly": monthly, "horizons": horizons, "dist": dist,
+        "every": trade_stats(led["every"]),  # 策略整体：每个信号都买 (不受仓位限制)
+        "paper": {"start": led["paper"]["start"], "stats": trade_stats(led["paper"]["trades"], slots),
+                  "trades": sorted(led["paper"]["trades"], key=lambda t: (t["entry_date"], t["code"]), reverse=True)},
         "recent": sorted((t for t in trades if t["sig_ago"] <= BT_RECENT_BARS), key=lambda t: (t["sig_ago"], -t["ret"]))[:40],
     }
 
@@ -2799,6 +2860,27 @@ MARKET_CSS = """
   .bt-tiles dd { margin: 0.1rem 0 0; font-size: 1.2rem; font-weight: 650; font-variant-numeric: tabular-nums; }
   .bt-tiles small, .bt-risk small { display: block; margin-top: 0.1rem; font-size: 0.66rem; line-height: 1.35; color: var(--muted); overflow-wrap: anywhere; }
   /* 10 日平均 / 基准 / 超额: 一排三个小数字 */
+  /* 模拟账户 (从开始日起真的买进的) + 策略整体 (每个信号都买) */
+  .bt-paper { margin: 0.4rem 0 0.9rem; padding: 0.6rem 0.75rem; border: 1px solid color-mix(in srgb, var(--ema) 40%, var(--border)); border-radius: 10px; }
+  .bt-paper h5 { margin-top: 0; }
+  .bt-paper-kpi { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; margin: 0 0 0.5rem; font-size: 0.8rem; color: var(--text-secondary); }
+  .bt-paper-kpi b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .bt-paper td small { display: block; color: var(--muted); font-size: 0.7rem; }
+  .cbt-sim { margin: 0.5rem 0 1rem; padding: 0.6rem 0.75rem; border: 1px solid color-mix(in srgb, var(--ema) 40%, var(--border)); border-radius: 10px; }
+  .cbt-sim h5 { margin: 0 0 0.45rem; font-size: 0.86rem; } .cbt-sim h5 small { color: var(--muted); font-weight: 400; font-size: 0.7rem; margin-left: 0.3rem; }
+  .cbt-sim-ctl, .cbt-sim-picks { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem; margin: 0 0 0.45rem; font-size: 0.8rem; color: var(--text-secondary); }
+  .dlg .cbt-sim-ctl label { display: inline-flex; flex-direction: row; align-items: center; gap: 0.35rem; font-size: 0.8rem; }
+  .cbt-sim .cbt-date { width: 9.2rem; text-align: left; }
+  .cbt-simq { font-size: 0.74rem; padding: 0.2rem 0.55rem; }
+  .cbt-simq.on { border-color: var(--ema); color: var(--text-primary); }
+  .cbt-pickchip { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.1rem 0.25rem 0.1rem 0.55rem; border-radius: 999px;
+    background: color-mix(in srgb, var(--ema) 14%, transparent); color: var(--text-primary); font-size: 0.78rem; }
+  .cbt-pickchip button { font: inherit; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 0.2rem; font-size: 0.9rem; line-height: 1; }
+  .cbt-pick { font-style: normal; font-size: 0.62rem; font-weight: 600; color: var(--ema); border: 1px solid currentColor; border-radius: 999px; padding: 0 0.3rem; margin-left: 0.2rem; }
+  .cbt-acct td small { display: block; color: var(--muted); font-size: 0.7rem; }
+  .bt-every { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--text-secondary); }
+  .bt-every small { color: var(--muted); font-size: 0.7rem; }
+  .bt-every b { font-variant-numeric: tabular-nums; }
   .bt-vs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; margin: 0.6rem 0 0; padding: 0.5rem 0.7rem;
     background: var(--page); border-radius: 8px; }
   .bt-vs span { display: block; font-size: 0.68rem; color: var(--text-secondary); }
@@ -3933,6 +4015,35 @@ def build_backtest_html(bt):
     else:
         recent = h5("最近信号", "Recent Signals", "recent") + f'<p class="hint">最近 {BT_RECENT_BARS} 个交易日没有信号</p>'
     period = f'{bt["from"][5:].replace("-", "/")} ~ {bt["to"][5:].replace("-", "/")}' if bt["from"] else "近 6 个月"
+    # 模拟账户：从 start 那天起才买，「持有中」= 这个账户真的买进、还没卖的 (满仓没买到的不算)
+    paper_html = ""
+    pp = bt.get("paper")
+    if pp:
+        ps, md = pp["stats"], (lambda d: d[5:].replace("-", "/"))
+        held = [t for t in pp["trades"] if t["reason"] == "open"]
+        done = [t for t in pp["trades"] if t["reason"] != "open"]
+        open_rm = sum(t["ret"] for t in held)
+
+        def prow(t):
+            v = t["ret"] if t["reason"] == "open" else t["net"]
+            return (f'<tr data-code="{html.escape(t["code"])}" tabindex="0"><td><b>{html.escape(name_pair(t["code"], t["name"])[0])}</b> '
+                    f'<small>{html.escape(name_pair(t["code"], t["name"])[1])}</small></td><td>{md(t["entry_date"])}</td>'
+                    f'<td class="num">{fmt_price(t["entry"])}</td><td class="num">{fmt_price(t["exit"])}</td>'
+                    f'<td class="num {cls(v)}">{pct_text(v, 1)}<small>{rm(v)}</small></td>'
+                    f'<td><span class="bt-st {t["reason"]}">{status[t["reason"]]}</span> <small>{t["days"]} 天</small></td></tr>')
+        head = '<thead><tr><th>股票</th><th>进场</th><th class="num">进场价</th><th class="num">现价 / 卖出</th><th class="num">收益</th><th>状态</th></tr></thead>'
+        kpi = (f'<div class="bt-paper-kpi"><span>买进 <b>{len(pp["trades"])}</b> 笔</span><span>持有中 <b>{len(held)}</b> / {bt["slots"] or "不限"}</span>'
+               f'<span>已卖出合计 <b class="{cls(ps["total"])}">{rm(ps["total"]) if done else "—"}</b></span>'
+               f'<span>持有浮动 <b class="{cls(open_rm)}">{rm(open_rm) if held else "—"}</b></span>'
+               f'<span>胜率 <b>{pct(ps["win_rate"])}</b></span></div>')
+        body = (f'<div class="bt-table-wrap"><table class="bt-table bt-recent">{head}<tbody>{"".join(prow(t) for t in held + done)}</tbody></table></div>'
+                if pp["trades"] else f'<p class="hint">{md(pp["start"])} 以后出现的信号才会买进 (最多同时 {bt["slots"] or "不限"} 笔)，现在还没有交易。</p>')
+        start_txt = md(pp["start"])
+        paper_html = f'<div class="bt-paper">{h5("模拟账户", "Paper Account · 从 " + start_txt + " 开始", "paper")}{kpi}{body}</div>'
+    ev = bt.get("every")
+    every_html = (f'<p class="bt-every"{tip_attrs("every")}><span class="tl">策略整体</span> <small>每个信号都买，不受仓位限制</small>'
+                  f'<span>{ev["n"]} 笔 · 胜率 {pct(ev["win_rate"])} · 期望值 <b class="{cls(ev["avg"])}">{pct_text(ev["avg"], 2)}</b>'
+                  f' · 合计 <b class="{cls(ev["total"])}">{rm(ev["total"])}</b> · 最多同时 {ev["peak_open"]} 笔</span></p>') if ev and ev["n"] else ""
     rule_tip = "\n".join([f"进场：{strategy_note_text()}" + (" (任何一套命中都算)" if len(STRATEGY["strategies"]) > 1 else ""),
                           (f"仓位：最多同时 {bt['slots']} 笔，满了新信号跳过 (这段期间 {bt['signals']} 个信号，满仓跳过 {bt['skipped']} 个)；同一天先买相对量高的"
                            if bt.get("slots") else "仓位：不限 (每个信号都买)"),
@@ -3942,7 +4053,9 @@ def build_backtest_html(bt):
   <div class="bt-head"><h4>策略回测 <i>Backtest</i>{info_btn("backtest", "策略回测", rule_tip)}</h4>
     <span class="bt-sub">{period} · {a['n']} 笔{f" · {bt['slots']} 个仓位 · 满仓跳过 {bt['skipped']}" if bt.get("slots") else ""}</span>
     <button type="button" class="sp-btn bt-custom" data-act="custom-backtest">自定义回测 ›</button></div>
+  {paper_html}
   {windows}
+  {every_html}
   {vs}
   <details class="bt-more"><summary>详细数据</summary>
     {h5("全部", f"All · {period}")}
