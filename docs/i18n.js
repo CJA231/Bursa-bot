@@ -129,6 +129,7 @@
   // ---------- 2. 带数字的句型 (按顺序全部套用) ----------
   var PATTERNS = [
     // --- 整句 / 句首 (先套用) ---
+    [/最近 (\d+) 天内触发了离场规则/, 'Exit rule triggered in the last $1 days'],
     [/^默认计划：/, 'Default plan: '], [/^按你的计划：/, 'Your plan: '], [/R\/R = \(目标 − 进场\) ÷ \(进场 − 止损\)/, 'R/R = (target − entry) ÷ (entry − stop)'],
     [/默认计划：目标 = 2 倍风险。历史参考 \(回测同类信号期间最大涨幅中位数 ([^)]*)\) = 1 : ([\d.]+)，不是计划/, 'Default plan: target = 2× risk. Historical reference (median MFE of similar backtested signals $1) = 1 : $2 — not the plan'],
     [/现价在 52 周区间的 (\d+)% 位置/, 'Price at $1% of the 52w range'], [/跳一格 (\d+)%/, 'One tick = $1%'], [/最小跳动 ([\d.]+)，跳一格就是 (\d+)%/, 'Min tick $1 — one tick = $2%'],
