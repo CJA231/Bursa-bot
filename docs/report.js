@@ -3913,7 +3913,9 @@
       surge_pct: floatIn(ex.surge_pct === undefined ? 10 : ex.surge_pct, 0.5, 100, 10), // 信号日涨几 % 算暴涨
       swing_mode: ex.swing_mode === 'rebound' ? 'rebound' : 't2', // 回调低点：rebound = 回调后第一根收涨确认；t2 = 左右各 N 根确认
       swing_alert: !!ex.swing_alert, // 跌破回调低点只提醒 (记在交易上)，不离场
-      combo: cleanCombo(ex.combo)
+      combo: cleanCombo(ex.combo),
+      // Supertrend(n, m) 在收盘价下面 (多头) 就继续持有，趋势类离场先不算 (main.py hold_st)；null = 不用
+      hold_st: ex.hold_st && typeof ex.hold_st === 'object' ? { n: intIn(ex.hold_st.n, 1, 200, 3), m: floatIn(ex.hold_st.m, 0.1, 20, 1.4) } : null
     };
   }
   // 组合离场 (main.py clean_combo)：A 收盘跌破支撑 (最近回调低点) / B 收盘 < EMA(n) / C SAR 空头，同时成立 need 个就离场
@@ -3937,6 +3939,7 @@
       if (cb.sar) nm.push('SAR 转空');
       out.push('组合离场：' + nm.join(' / ') + ' 同时满足 ' + cb.need + ' 个 (Combined Exit)');
     }
+    if (ex.hold_st) out.push('Supertrend(' + ex.hold_st.n + ',' + fmtG(ex.hold_st.m) + ') 在价格下面就继续持有 (Supertrend Hold)');
     if (ex.red_candle) out.push('跌破回调红K低点 (Pullback Red Candle)');
     if (ex.max_risk) out.push('入场风险 > ' + fmtG(ex.max_risk) + '% 不进' + (ex.max_risk_surge ? ' (当天涨 ≥ ' + fmtG(ex.surge_pct) + '% 放宽到 ' + fmtG(ex.max_risk_surge) + '%)' : '') + ' (Max Entry Risk)');
     if (ex.take_pct) out.push('止盈 +' + fmtG(ex.take_pct) + '% (Take Profit)');
@@ -4083,6 +4086,7 @@
     var vol = p.ctx.series.volume;
     var trail = trailLevels(c, ex.swing_mode, ex.swing_low || HL_K_DEFAULT), phi = ex.resistance ? pivotHighs(h, RES_K) : null;
     var combo = ex.combo, emaC = combo && combo.ema ? seriesEMA(c, combo.ema) : null;
+    var stHold = ex.hold_st ? seriesSupertrend(p.bars, ex.hold_st.m, ex.hold_st.n).value : null;
     function bull(i) { return sar[i] !== null && sar[i] !== undefined && rnd3(c[i]) > rnd3(sar[i]); }
     var i, j, hz;
     var cl = !!ex.entry_close;
@@ -4128,12 +4132,14 @@
           if (combo.ema && emaC[j] !== null && emaC[j] !== undefined && c[j] < emaC[j]) hits.push('EMA' + combo.ema);
           if (combo.sar && sar[j] !== null && sar[j] !== undefined && !bull(j)) hits.push('SAR');
         }
+        // Supertrend 护航：还在收盘价下面 (多头) 就继续拿，趋势类离场 (组合 / 回调低点 / 红K / SAR / EMA 死叉) 先不算
+        var guard = stHold && stHold[j] !== null && stHold[j] !== undefined && stHold[j] < c[j];
         if (ex.stop_pct && c[j] <= entryPx * (1 - ex.stop_pct / 100)) reason = 'stop';
-        else if (combo && hits.length >= combo.need) { reason = 'combo'; exitHits = hits; }
-        else if (ex.swing_low && swing !== null && c[j] < swing && !ex.swing_alert) reason = 'swing';
-        else if (red !== null && c[j] < red) reason = 'red';
-        else if (ex.sar && bull(j - 1) && !bull(j)) reason = 'sar';
-        else if (ex.ema_cross && j >= 1 && emaF[j] !== null && emaS[j] !== null && emaF[j - 1] !== null && emaS[j - 1] !== null &&
+        else if (!guard && combo && hits.length >= combo.need) { reason = 'combo'; exitHits = hits; }
+        else if (!guard && ex.swing_low && swing !== null && c[j] < swing && !ex.swing_alert) reason = 'swing';
+        else if (!guard && red !== null && c[j] < red) reason = 'red';
+        else if (!guard && ex.sar && bull(j - 1) && !bull(j)) reason = 'sar';
+        else if (!guard && ex.ema_cross && j >= 1 && emaF[j] !== null && emaS[j] !== null && emaF[j - 1] !== null && emaS[j - 1] !== null &&
           emaF[j] < emaS[j] && emaF[j - 1] >= emaS[j - 1]) reason = 'ema';
         else if (ex.take_pct && c[j] >= entryPx * (1 + ex.take_pct / 100)) reason = 'take';
         else if (tg.high !== null && c[j] >= tg.high) reason = 'high';
@@ -4886,7 +4892,8 @@
         take_on: !!ex.take_pct, take_pct: ex.take_pct || 20, hold_on: !!ex.max_hold, max_hold: ex.max_hold || 30,
         red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, swing_alert: !!ex.swing_alert, swing_mode: ex.swing_mode || 't2', entry_close: !!ex.entry_close, max_risk: ex.max_risk || 0, max_risk_surge: ex.max_risk_surge || 0, surge_pct: ex.surge_pct || 10,
         combo_on: !!ex.combo, combo_support: ex.combo ? ex.combo.support : true, combo_ema_on: ex.combo ? !!ex.combo.ema : true, combo_ema: ex.combo && ex.combo.ema || 20,
-        combo_sar: ex.combo ? ex.combo.sar : true, combo_need: ex.combo ? ex.combo.need : 2, cost: cost, pos: pos, slots: slots
+        combo_sar: ex.combo ? ex.combo.sar : true, combo_need: ex.combo ? ex.combo.need : 2,
+        sth_on: !!ex.hold_st, sth_n: ex.hold_st ? ex.hold_st.n : 3, sth_m: ex.hold_st ? ex.hold_st.m : 1.4, cost: cost, pos: pos, slots: slots
       };
     }
     var st = stateFrom(baseExit, be ? be.cost : COST_DEFAULT, POSITION_BACKEND, SLOTS_BACKEND);
@@ -4904,7 +4911,8 @@
         sar: st.sar, ema_cross: st.ema_on ? [st.ema_f, st.ema_s] : null, swing_low: st.swing_on ? st.swing_k : 0,
         max_hold: st.hold_on ? st.max_hold : 0, stop_pct: st.stop_on ? st.stop_pct : 0, take_pct: st.take_on ? st.take_pct : 0,
         red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on, swing_alert: st.swing_alert, swing_mode: st.swing_mode, entry_close: st.entry_close, max_risk: st.max_risk, max_risk_surge: st.max_risk_surge, surge_pct: st.surge_pct,
-        combo: st.combo_on ? { support: st.combo_support, ema: st.combo_ema_on ? st.combo_ema : 0, sar: st.combo_sar, need: st.combo_need } : null
+        combo: st.combo_on ? { support: st.combo_support, ema: st.combo_ema_on ? st.combo_ema : 0, sar: st.combo_sar, need: st.combo_need } : null,
+        hold_st: st.sth_on ? { n: st.sth_n, m: st.sth_m } : null
       });
     }
     function costOf() { return floatIn(st.cost, 0, 10, COST_DEFAULT); }
@@ -4939,6 +4947,8 @@
           '<label>' + check('combo_ema_on', st.combo_ema_on, '跌破 EMA') + '<span>跌破 EMA</span></label>' + numIn('combo_ema', st.combo_ema, 2, 250, 1, 'EMA 长度') +
           '<label>' + check('combo_sar', st.combo_sar, 'SAR 转空') + '<span>SAR 转空</span></label>' +
           '<span class="cbt-p">满足 ' + numIn('combo_need', st.combo_need, 1, 3, 1, '同时满足几个') + ' 个</span></div>' +
+        '<div class="cbt-x"><label>' + check('sth_on', st.sth_on, 'Supertrend 护航') + '<span>Supertrend 在价格下面就继续拿 <i>Supertrend Hold</i></span></label>' +
+          '<span class="cbt-p">ST ' + numIn('sth_n', st.sth_n, 1, 200, 1, 'Supertrend ATR 长度') + ' , ' + numIn('sth_m', st.sth_m, 0.1, 20, 0.1, 'Supertrend 倍数') + '</span></div>' +
         '<p class="cbt-xh">止损 <i>Stop</i></p>' +
         '<div class="cbt-x"><label>' + check('stop_on', st.stop_on, '固定止损') + '<span>固定止损 <i>Stop Loss</i></span></label>' +
           '<span class="cbt-p">-' + numIn('stop_pct', st.stop_pct, 0.5, 90, 0.5, '止损百分比') + ' %</span></div>' +
@@ -5103,7 +5113,7 @@
         var v = parseFloat(e.target.value);
         if (isNum(v)) st[f] = v;
         // 在参数框里改了数字 = 顺便勾上那一条
-        var on = { combo_ema: 'combo_ema_on', combo_need: 'combo_on', ema_f: 'ema_on', ema_s: 'ema_on', swing_k: 'swing_on', stop_pct: 'stop_on', take_pct: 'take_on', max_hold: 'hold_on' }[f];
+        var on = { sth_n: 'sth_on', sth_m: 'sth_on', combo_ema: 'combo_ema_on', combo_need: 'combo_on', ema_f: 'ema_on', ema_s: 'ema_on', swing_k: 'swing_on', stop_pct: 'stop_on', take_pct: 'take_on', max_hold: 'hold_on' }[f];
         if (on && !st[on]) { st[on] = true; root.querySelector('[data-f="' + on + '"]').checked = true; }
       }
       save();

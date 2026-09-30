@@ -347,6 +347,9 @@ def clean_exit(ex):
         "swing_mode": "rebound" if ex.get("swing_mode") == "rebound" else "t2",
         "swing_alert": bool(ex.get("swing_alert", False)),  # True = 跌破浮动 HL 只发 alert (记在交易上)，不离场；离场交给 SAR / EMA 死叉
         "combo": clean_combo(ex.get("combo")),
+        # Supertrend(n, m) 在收盘价下面 (多头) 就继续持有，趋势类离场先不算 (网页 hold_st 同一套)；None = 不用
+        "hold_st": {"n": _int_in(ex["hold_st"].get("n", 3), 1, 200, 3), "m": _float_in(ex["hold_st"].get("m", 1.4), 0.1, 20, 1.4)}
+                   if isinstance(ex.get("hold_st"), dict) else None,
     }
 
 
@@ -451,6 +454,8 @@ def exit_labels(ex):
         cb = ex["combo"]
         names = [x for x, on in (("收盘跌破支撑 (最近回调低点)", cb["support"]), (f"收盘 < EMA{cb['ema']}", cb["ema"]), ("SAR 转空", cb["sar"])) if on]
         out.append(f"组合离场：{' / '.join(names)} 同时满足 {cb['need']} 个 (Combined Exit)")
+    if ex["hold_st"]:
+        out.append(f"Supertrend({ex['hold_st']['n']},{ex['hold_st']['m']:g}) 在价格下面就继续持有 (Supertrend Hold)")
     if ex["red_candle"]:
         out.append("跌破回调红K低点 (Pullback Red Candle)")
     if ex["max_risk"]:
@@ -581,6 +586,8 @@ def exit_series(bars, ex, ctx):
         "ema_f": engine.series_ema(c, ex["ema_cross"][0]) if ex["ema_cross"] else None,
         "ema_s": engine.series_ema(c, ex["ema_cross"][1]) if ex["ema_cross"] else None,
         "ema_combo": engine.series_ema(c, ex["combo"]["ema"]) if ex["combo"] and ex["combo"]["ema"] else None,
+        "st_hold": engine.series_supertrend(ctx.series["high"], ctx.series["low"], ctx.series["close"], ex["hold_st"]["m"], ex["hold_st"]["n"])
+                   if ex["hold_st"] else None,
         "trail": trail_levels(c, ex["swing_mode"], ex["swing_low"] or HL_K_DEFAULT),  # 回调低点 (收盘价)：入场风险 + 浮动止损
         "phi": pivot_highs([b["high"] for b in bars], RES_K) if ex["resistance"] else None,
     }
@@ -645,7 +652,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
     c = [b["close"] for b in bars]
     v = [b["volume"] for b in bars]
     sar, ema_f, ema_s, trail, phi = series["sar"], series["ema_f"], series["ema_s"], series["trail"], series.get("phi")
-    combo, ema_c = ex["combo"], series.get("ema_combo")
+    combo, ema_c, st_hold = ex["combo"], series.get("ema_combo"), series.get("st_hold")
     def bull(i):
         return sar[i] is not None and engine.js_round(c[i], 3) > engine.js_round(sar[i], 3)
 
@@ -704,17 +711,19 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
                     hits.append(f"EMA{combo['ema']}")
                 if combo["sar"] and sar[j] is not None and not bull(j):
                     hits.append("SAR")
+            # Supertrend 护航：还在收盘价下面 (多头) 就继续拿，趋势类离场 (组合 / 回调低点 / 红K / SAR / EMA 死叉) 先不算
+            guard = st_hold is not None and st_hold[j] is not None and st_hold[j] < c[j]
             if ex["stop_pct"] and c[j] <= entry_px * (1 - ex["stop_pct"] / 100):
                 reason = "stop"
-            elif combo and len(hits) >= combo["need"]:
+            elif not guard and combo and len(hits) >= combo["need"]:
                 reason, exit_hits = "combo", hits
-            elif ex["swing_low"] and swing is not None and c[j] < swing and not ex["swing_alert"]:
+            elif not guard and ex["swing_low"] and swing is not None and c[j] < swing and not ex["swing_alert"]:
                 reason = "swing"
-            elif red is not None and c[j] < red:
+            elif not guard and red is not None and c[j] < red:
                 reason = "red"
-            elif ex["sar"] and bull(j - 1) and not bull(j):
+            elif not guard and ex["sar"] and bull(j - 1) and not bull(j):
                 reason = "sar"
-            elif (ex["ema_cross"] and j >= 1 and None not in (ema_f[j], ema_s[j], ema_f[j - 1], ema_s[j - 1])
+            elif (not guard and ex["ema_cross"] and j >= 1 and None not in (ema_f[j], ema_s[j], ema_f[j - 1], ema_s[j - 1])
                   and ema_f[j] < ema_s[j] and ema_f[j - 1] >= ema_s[j - 1]):
                 reason = "ema"
             elif ex["take_pct"] and c[j] >= entry_px * (1 + ex["take_pct"] / 100):
