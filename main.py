@@ -301,6 +301,21 @@ def _float_in(v, lo, hi, default):
     return default if x != x else max(lo, min(hi, x))
 
 
+
+def clean_combo(c):
+    """组合离场 (网页 cleanCombo 同一套)：每天收盘看三个信号——A 收盘跌破支撑 (最近回调低点，只往上移)、
+    B 收盘 < EMA(n)、C SAR 在价格上面 (空头)——同时成立 need 个就离场。None = 不用"""
+    if not isinstance(c, dict):
+        return None
+    ema = _int_in(c.get("ema", 20), 0, 250, 20) if c.get("ema") not in (None, False, 0, "0") else 0
+    parts = {"support": bool(c.get("support", True)), "ema": ema, "sar": bool(c.get("sar", True))}
+    on = sum(1 for k in ("support", "ema", "sar") if parts[k])
+    if not on:
+        return None
+    parts["need"] = _int_in(c.get("need", 2), 1, on, min(2, on))
+    return parts
+
+
 def clean_exit(ex):
     """离场规则清洗一遍 (网页 cleanExit 同一套规则)：false / 0 = 不用这一条"""
     ex = ex if isinstance(ex, dict) else {}
@@ -324,10 +339,17 @@ def clean_exit(ex):
         "resistance": bool(ex.get("resistance", False)),
         "entry_close": bool(ex.get("entry_close", False)),  # True = 信号日收盘价进场 (False = 隔天开盘价)
         "max_risk": _float_in(ex.get("max_risk", 0), 0, 90, 0),  # 入场风险 (进场价到最近回调低点) 超过这个 % 就不进；0 = 不限
+        # 暴涨日 (信号日比前一天涨 ≥ surge_pct %) 风险上限放宽到 max_risk_surge %；0 = 不放宽
+        "max_risk_surge": _float_in(ex.get("max_risk_surge", 0), 0, 90, 0),
+        "surge_pct": _float_in(ex.get("surge_pct", 10), 0.5, 100, 10),
         # 回调低点怎么确认：rebound = 回调日 (连续收跌之后第一根收涨当天确认，取回调里最低的收盘价)；
         # t2 = 收盘价比左右各 swing_low 根都低，右边那几根走完才确认 (T+2)
         "swing_mode": "rebound" if ex.get("swing_mode") == "rebound" else "t2",
         "swing_alert": bool(ex.get("swing_alert", False)),  # True = 跌破浮动 HL 只发 alert (记在交易上)，不离场；离场交给 SAR / EMA 死叉
+        "combo": clean_combo(ex.get("combo")),
+        # Supertrend(n, m) 在收盘价下面 (多头) 就继续持有，趋势类离场先不算 (网页 hold_st 同一套)；None = 不用
+        "hold_st": {"n": _int_in(ex["hold_st"].get("n", 3), 1, 200, 3), "m": _float_in(ex["hold_st"].get("m", 1.4), 0.1, 20, 1.4)}
+                   if isinstance(ex.get("hold_st"), dict) else None,
     }
 
 
@@ -428,8 +450,16 @@ def exit_labels(ex):
     if ex["swing_low"]:
         how = "回调后第一根收涨确认" if ex["swing_mode"] == "rebound" else f"左右 {ex['swing_low']} 根确认"
         out.append(f"收盘跌破最近回调低点 (收盘价，{how}，只往上移) (Trailing Stop)" + ("：只提醒不离场 (Alert only)" if ex["swing_alert"] else ""))
+    if ex["combo"]:
+        cb = ex["combo"]
+        names = [x for x, on in (("收盘跌破支撑 (最近回调低点)", cb["support"]), (f"收盘 < EMA{cb['ema']}", cb["ema"]), ("SAR 转空", cb["sar"])) if on]
+        out.append(f"组合离场：{' / '.join(names)} 同时满足 {cb['need']} 个 (Combined Exit)")
+    if ex["hold_st"]:
+        out.append(f"Supertrend({ex['hold_st']['n']},{ex['hold_st']['m']:g}) 在价格下面就继续持有 (Supertrend Hold)")
     if ex["red_candle"]:
         out.append("跌破回调红K低点 (Pullback Red Candle)")
+    if ex["max_risk"]:
+        out.append(f"入场风险 > {ex['max_risk']:g}% 不进" + (f" (当天涨 ≥ {ex['surge_pct']:g}% 放宽到 {ex['max_risk_surge']:g}%)" if ex["max_risk_surge"] else "") + " (Max Entry Risk)")
     if ex["take_pct"]:
         out.append(f"止盈 +{ex['take_pct']:g}% (Take Profit)")
     if ex["prior_high"]:
@@ -488,7 +518,7 @@ BT_DIST_EDGES = (-10, -5, 0, 5, 10)  # 收益分布: < -10%、-10~-5、-5~0、0~
 CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
 EXIT_REASON_LABELS = {  # (中文, 英文)；网页 report.js EXIT_REASONS 同一份
     "stop": ("止损", "Stop Loss"), "swing": ("跌破回调低点", "Trailing Stop"), "red": ("回调红K", "Pullback Red Candle"),
-    "sar": ("SAR 转空", "SAR Flip"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
+    "sar": ("SAR 转空", "SAR Flip"), "combo": ("组合离场", "Combined Exit"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
     "high": ("历史高点", "Prior High"), "res": ("近期阻力", "Resistance"), "time": ("满期", "Time Stop"), "open": ("持有中", "Open"),
 }
 
@@ -555,6 +585,9 @@ def exit_series(bars, ex, ctx):
         "sar": engine.series_psar(ctx.series["high"], ctx.series["low"], ctx.series["close"]),
         "ema_f": engine.series_ema(c, ex["ema_cross"][0]) if ex["ema_cross"] else None,
         "ema_s": engine.series_ema(c, ex["ema_cross"][1]) if ex["ema_cross"] else None,
+        "ema_combo": engine.series_ema(c, ex["combo"]["ema"]) if ex["combo"] and ex["combo"]["ema"] else None,
+        "st_hold": engine.series_supertrend(ctx.series["high"], ctx.series["low"], ctx.series["close"], ex["hold_st"]["m"], ex["hold_st"]["n"])
+                   if ex["hold_st"] else None,
         "trail": trail_levels(c, ex["swing_mode"], ex["swing_low"] or HL_K_DEFAULT),  # 回调低点 (收盘价)：入场风险 + 浮动止损
         "phi": pivot_highs([b["high"] for b in bars], RES_K) if ex["resistance"] else None,
     }
@@ -619,6 +652,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
     c = [b["close"] for b in bars]
     v = [b["volume"] for b in bars]
     sar, ema_f, ema_s, trail, phi = series["sar"], series["ema_f"], series["ema_s"], series["trail"], series.get("phi")
+    combo, ema_c, st_hold = ex["combo"], series.get("ema_combo"), series.get("st_hold")
     def bull(i):
         return sar[i] is not None and engine.js_round(c[i], 3) > engine.js_round(sar[i], 3)
 
@@ -653,11 +687,14 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
                              entry_px * (1 - ex["stop_pct"] / 100) if ex["stop_pct"] else None) if x is not None and x < entry_px]
         risk_line = swing if swing is not None and swing < entry_px else max(stops) if stops else None
         risk = (entry_px - risk_line) / entry_px * 100 if risk_line is not None else None
-        if ex["max_risk"] and risk is not None and risk > ex["max_risk"]:  # 风险太大：这个信号不进
+        cap = ex["max_risk"]
+        if cap and ex["max_risk_surge"] and i > 0 and c[i - 1] and (c[i] / c[i - 1] - 1) * 100 >= ex["surge_pct"]:
+            cap = max(cap, ex["max_risk_surge"])  # 一天暴涨：回调低点离得远，风险上限放宽
+        if cap and risk is not None and risk > cap:  # 风险太大：这个信号不进
             i += 1
             continue
         hi, low_ = (entry_px, entry_px) if cl else (h[e], lo[e])
-        j, reason, alert = e, "open", None
+        j, reason, alert, exit_hits = e, "open", None, None
         while j < n:
             if cl and j == e:  # 收盘价进场：进场那天不检查离场，从隔天起
                 if e == n - 1:
@@ -666,15 +703,27 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
             hi, low_ = max(hi, h[j]), min(low_, lo[j])
             if trail[j] is not None and (swing is None or trail[j] > swing) and trail[j] < c[j]:
                 swing = trail[j]  # 新确认的回调低点更高 → 止损往上移 (浮动止盈)，只升不降
+            hits = []
+            if combo:  # 组合离场：A 跌破支撑 / B 收盘 < EMA / C SAR 空头，同时成立 need 个
+                if combo["support"] and swing is not None and c[j] < swing:
+                    hits.append("支撑")
+                if combo["ema"] and ema_c[j] is not None and c[j] < ema_c[j]:
+                    hits.append(f"EMA{combo['ema']}")
+                if combo["sar"] and sar[j] is not None and not bull(j):
+                    hits.append("SAR")
+            # Supertrend 护航：还在收盘价下面 (多头) 就继续拿，趋势类离场 (组合 / 回调低点 / 红K / SAR / EMA 死叉) 先不算
+            guard = st_hold is not None and st_hold[j] is not None and st_hold[j] < c[j]
             if ex["stop_pct"] and c[j] <= entry_px * (1 - ex["stop_pct"] / 100):
                 reason = "stop"
-            elif ex["swing_low"] and swing is not None and c[j] < swing and not ex["swing_alert"]:
+            elif not guard and combo and len(hits) >= combo["need"]:
+                reason, exit_hits = "combo", hits
+            elif not guard and ex["swing_low"] and swing is not None and c[j] < swing and not ex["swing_alert"]:
                 reason = "swing"
-            elif red is not None and c[j] < red:
+            elif not guard and red is not None and c[j] < red:
                 reason = "red"
-            elif ex["sar"] and bull(j - 1) and not bull(j):
+            elif not guard and ex["sar"] and bull(j - 1) and not bull(j):
                 reason = "sar"
-            elif (ex["ema_cross"] and j >= 1 and None not in (ema_f[j], ema_s[j], ema_f[j - 1], ema_s[j - 1])
+            elif (not guard and ex["ema_cross"] and j >= 1 and None not in (ema_f[j], ema_s[j], ema_f[j - 1], ema_s[j - 1])
                   and ema_f[j] < ema_s[j] and ema_f[j - 1] >= ema_s[j - 1]):
                 reason = "ema"
             elif ex["take_pct"] and c[j] >= entry_px * (1 + ex["take_pct"] / 100):
@@ -685,6 +734,8 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
                 reason = "res"
             elif ex["max_hold"] and j - e + (0 if cl else 1) >= ex["max_hold"]:
                 reason = "time"
+            if combo and hits and reason == "open" and alert is None:  # 还不够离场，先提醒
+                alert = {"date": dates[j], "price": c[j], "hl": swing, "hits": hits}
             if ex["swing_alert"] and ex["swing_low"] and swing is not None and c[j] < swing and alert is None:
                 alert = {"date": dates[j], "price": c[j], "hl": swing}  # 跌破最近回调低点：提醒，等 SAR / EMA 确认才离场
             if reason != "open" or j == n - 1:
@@ -699,7 +750,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
             "sig": dates[i], "sig_ago": n - 1 - i, "entry_date": dates[e], "entry": entry_px, "exit": c[j], "exit_date": dates[j],
             "days": j - e + (0 if cl else 1), "reason": reason, "ret": _r(ret), "net": _r(ret - cost),
             "mfe": _r((hi / entry_px - 1) * 100), "mae": _r((low_ / entry_px - 1) * 100),
-            "risk": _r(risk) if risk else None, "alert": alert, "h": horizons, "strats": entry[i], "rm": rmask[i] if rmask else None, "rvol": _r(rel_volume_at(v, i), 4),
+            "risk": _r(risk) if risk else None, "alert": alert, "hits": exit_hits, "h": horizons, "strats": entry[i], "rm": rmask[i] if rmask else None, "rvol": _r(rel_volume_at(v, i), 4),
             "fresh": 1 if i == 0 or not entry[i - 1] else 0,  # 新出现的信号 (前一天还没有)；满仓跳过只数这种
         })
         i = i + 1 if every_signal else j + 1
@@ -2789,6 +2840,7 @@ MARKET_CSS = """
   .cbt-xh { margin: 0.7rem 0 0; font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); }
   .cbt-xh:first-child { margin-top: 0.1rem; }
   .cbt-xh i { font-style: normal; font-weight: 400; color: var(--muted); margin-left: 0.2rem; }
+  .cbt-combo { justify-content: flex-start; } .cbt-combo label { display: inline-flex; align-items: center; gap: 0.3rem; }
   .cbt-x { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.3rem 0.8rem; padding: 0.5rem 0;
     border-bottom: 1px solid var(--border); font-size: 0.82rem; }
   .dlg .cbt-x label, .dlg label.cbt-x { display: flex; flex-direction: row; align-items: center; gap: 0.55rem; cursor: pointer;
