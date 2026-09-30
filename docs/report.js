@@ -4858,8 +4858,10 @@
     var st = stateFrom(baseExit, be ? be.cost : COST_DEFAULT, POSITION_BACKEND, SLOTS_BACKEND);
     if (saved.st && typeof saved.st === 'object') {
       Object.keys(st).forEach(function (k) {
+        if (!(k in saved.st)) return; // 以前存的设定里没有这一项 (后来才加的，例如「信号日收盘进场」) → 用后台的，不要当成关掉
         var v = saved.st[k];
         if (typeof st[k] === 'boolean') st[k] = !!v; else if (isNum(v)) st[k] = v;
+        else if (k === 'swing_mode' && (v === 'rebound' || v === 't2')) st[k] = v;
       });
     }
     var srcKey = opts.src || saved.src || 'backend';
@@ -4890,11 +4892,19 @@
         '<ul class="sp-rules cbt-rules"></ul>' +
         '<button type="button" class="sp-btn cbt-edit" data-act="edit">✎ 修改条件 / 换指标</button></section>' +
       '<section class="cbt-sec"><h4>离场规则 <i>Exit Rules</i>' + infoBtn('exit', '离场规则') + '</h4><div class="cbt-exits">' +
+        '<p class="cbt-xh">进场 <i>Entry</i></p>' +
+        '<label class="cbt-x">' + check('entry_close', st.entry_close, '信号日收盘价进场') + '<span>信号当天收盘价进场 <i>Same-day Close</i></span></label>' +
+        '<div class="cbt-x cbt-cost"><span>入场风险上限 <i>Max Risk</i></span>' +
+          '<span class="cbt-p">' + numIn('max_risk', st.max_risk, 0, 90, 0.5, '进场价到最近回调低点超过几 % 就不进，0 = 不限') + ' %</span></div>' +
         '<p class="cbt-xh">止损 <i>Stop</i></p>' +
         '<div class="cbt-x"><label>' + check('stop_on', st.stop_on, '固定止损') + '<span>固定止损 <i>Stop Loss</i></span></label>' +
           '<span class="cbt-p">-' + numIn('stop_pct', st.stop_pct, 0.5, 90, 0.5, '止损百分比') + ' %</span></div>' +
-        '<div class="cbt-x"><label>' + check('swing_on', st.swing_on, '浮动 HL') + '<span>浮动 HL <i>Trailing HL</i></span></label>' +
-          '<span class="cbt-p">左右 ' + numIn('swing_k', st.swing_k, 1, 10, 1, '波段低点左右各几根确认') + ' 根</span></div>' +
+        '<div class="cbt-x"><label>' + check('swing_on', st.swing_on, '跌破回调低点') + '<span>跌破回调低点 (浮动) <i>Trailing Stop</i></span></label>' +
+          '<span class="cbt-p"><select class="cbt-num cbt-wide" data-f="swing_mode" aria-label="回调低点怎么确认">' +
+          '<option value="rebound"' + (st.swing_mode === 'rebound' ? ' selected' : '') + '>回调后收涨确认</option>' +
+          '<option value="t2"' + (st.swing_mode !== 'rebound' ? ' selected' : '') + '>左右 N 根确认</option></select>' +
+          ' ' + numIn('swing_k', st.swing_k, 1, 10, 1, '选「左右 N 根确认」时，左右各几根') + ' 根</span></div>' +
+        '<label class="cbt-x">' + check('swing_alert', st.swing_alert, '跌破回调低点只提醒') + '<span>跌破只提醒，不离场 <i>Alert only</i></span></label>' +
         '<label class="cbt-x">' + check('red_on', st.red_on, '回调红K') + '<span>回调红K 低点 <i>Pullback Red Candle</i></span></label>' +
         '<p class="cbt-xh">止盈 <i>Target</i></p>' +
         '<div class="cbt-x"><label>' + check('take_on', st.take_on, '固定止盈') + '<span>固定止盈 <i>Take Profit</i></span></label>' +
@@ -5045,6 +5055,7 @@
       if (!f) return;
       if (f === 'src') { srcKey = e.target.value; save(); renderSources(); run(); return; }
       if (e.target.type === 'checkbox') st[f] = e.target.checked;
+      else if (f === 'swing_mode') { st.swing_mode = e.target.value; st.swing_on = true; save(); schedule(); return; }
       else {
         var v = parseFloat(e.target.value);
         if (isNum(v)) st[f] = v;

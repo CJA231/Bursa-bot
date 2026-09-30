@@ -1,6 +1,8 @@
 // 首页收纳：组件原样不动，只把标题后面的内容包进可以折叠的一层，收起时标题下面留一行摘要；
 // 信号卡片 (图表) 移到后台信号标题正下方；页面顶部加一排目录，点了跳过去并展开。开合状态记在这台设备
 (function () {
+  if (window.__bursaFold) return; // 只跑一次 (页面重复载入也不会把区块再包一层)
+  window.__bursaFold = true;
   var KEY = 'bursa_fold_v1', state = {};
   try { state = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
   function keep() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
