@@ -324,6 +324,9 @@ def clean_exit(ex):
         "resistance": bool(ex.get("resistance", False)),
         "entry_close": bool(ex.get("entry_close", False)),  # True = 信号日收盘价进场 (False = 隔天开盘价)
         "max_risk": _float_in(ex.get("max_risk", 0), 0, 90, 0),  # 入场风险 (进场价到最近回调低点) 超过这个 % 就不进；0 = 不限
+        # 回调低点怎么确认：rebound = 回调日 (连续收跌之后第一根收涨当天确认，取回调里最低的收盘价)；
+        # t2 = 收盘价比左右各 swing_low 根都低，右边那几根走完才确认 (T+2)
+        "swing_mode": "rebound" if ex.get("swing_mode") == "rebound" else "t2",
         "swing_alert": bool(ex.get("swing_alert", False)),  # True = 跌破浮动 HL 只发 alert (记在交易上)，不离场；离场交给 SAR / EMA 死叉
     }
 
@@ -420,7 +423,8 @@ def exit_labels(ex):
     if ex["stop_pct"]:
         out.append(f"止损 -{ex['stop_pct']:g}% (Stop Loss)")
     if ex["swing_low"]:
-        out.append(f"跌破浮动 HL，左右 {ex['swing_low']} 根 (Trailing HL)" + ("：只提醒不离场 (Alert only)" if ex["swing_alert"] else ""))
+        how = "回调后第一根收涨确认" if ex["swing_mode"] == "rebound" else f"左右 {ex['swing_low']} 根确认"
+        out.append(f"收盘跌破最近回调低点 (收盘价，{how}，只往上移) (Trailing Stop)" + ("：只提醒不离场 (Alert only)" if ex["swing_alert"] else ""))
     if ex["red_candle"]:
         out.append("跌破回调红K低点 (Pullback Red Candle)")
     if ex["take_pct"]:
@@ -480,7 +484,7 @@ BT_RECENT_SHOW = 10       # 先显示 10 条，其余按「显示全部」(CSS .
 BT_DIST_EDGES = (-10, -5, 0, 5, 10)  # 收益分布: < -10%、-10~-5、-5~0、0~5、5~10、> 10%
 CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
 EXIT_REASON_LABELS = {  # (中文, 英文)；网页 report.js EXIT_REASONS 同一份
-    "stop": ("止损", "Stop Loss"), "swing": ("浮动 HL", "Trailing HL"), "red": ("回调红K", "Pullback Red Candle"),
+    "stop": ("止损", "Stop Loss"), "swing": ("跌破回调低点", "Trailing Stop"), "red": ("回调红K", "Pullback Red Candle"),
     "sar": ("SAR 转空", "SAR Flip"), "ema": ("EMA 死叉", "EMA Cross-down"), "take": ("止盈", "Take Profit"),
     "high": ("历史高点", "Prior High"), "res": ("近期阻力", "Resistance"), "time": ("满期", "Time Stop"), "open": ("持有中", "Open"),
 }
@@ -494,6 +498,31 @@ def df_to_bars(df):
              "volume": int(v) if pd.notna(v) else 0}
             for o, h, lo, c, v in zip(df["Open"], df["High"], df["Low"], df["Close"], df["Volume"])]
     return bars, [d.strftime("%Y-%m-%d") for d in df.index]
+
+
+def trail_levels(close, mode, k):
+    """每一根收盘时已经确认的「最近一次回调低点」(用收盘价，网页 trailLevels 同一套)：
+    rebound (回调日)：收盘比前一根低 = 回调中，回调里最低的收盘价就是回调低点；之后第一根收盘比前一根高的那天确认。
+    t2：收盘价比左边 k 根都低、不高于右边 k 根的那一根，右边 k 根走完才确认。
+    入场风险 = 进场价到这条线；持有中每确认一次更高的回调低点，止损就往上移 (浮动止盈)"""
+    n = len(close)
+    out = [None] * n
+    level = None
+    if mode == "rebound":
+        low = None
+        for i in range(1, n):
+            if close[i] < close[i - 1]:
+                low = close[i] if low is None else min(low, close[i])
+            elif close[i] > close[i - 1] and low is not None:
+                level, low = low, None
+            out[i] = level
+        return out
+    piv = pivot_lows(close, k)
+    for i in range(n):
+        if i - k >= 0 and piv[i - k]:
+            level = close[i - k]
+        out[i] = level
+    return out
 
 
 def pivot_lows(low, k):
@@ -523,7 +552,7 @@ def exit_series(bars, ex, ctx):
         "sar": engine.series_psar(ctx.series["high"], ctx.series["low"], ctx.series["close"]),
         "ema_f": engine.series_ema(c, ex["ema_cross"][0]) if ex["ema_cross"] else None,
         "ema_s": engine.series_ema(c, ex["ema_cross"][1]) if ex["ema_cross"] else None,
-        "piv": pivot_lows([b["low"] for b in bars], ex["swing_low"] or HL_K_DEFAULT),  # 浮动 HL + 入场风险 (HL)
+        "trail": trail_levels(c, ex["swing_mode"], ex["swing_low"] or HL_K_DEFAULT),  # 回调低点 (收盘价)：入场风险 + 浮动止损
         "phi": pivot_highs([b["high"] for b in bars], RES_K) if ex["resistance"] else None,
     }
 
@@ -586,9 +615,7 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
     lo = [b["low"] for b in bars]
     c = [b["close"] for b in bars]
     v = [b["volume"] for b in bars]
-    sar, ema_f, ema_s, piv, phi = series["sar"], series["ema_f"], series["ema_s"], series["piv"], series.get("phi")
-    k = ex["swing_low"] or HL_K_DEFAULT
-
+    sar, ema_f, ema_s, trail, phi = series["sar"], series["ema_f"], series["ema_s"], series["trail"], series.get("phi")
     def bull(i):
         return sar[i] is not None and engine.js_round(c[i], 3) > engine.js_round(sar[i], 3)
 
@@ -613,8 +640,9 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
             continue
         e = i if cl else i + 1
         entry_px = c[e] if cl else o[e]
-        swing_p = latest_pivot(piv, k, i) if piv else None
-        swing = lo[swing_p] if swing_p is not None else None
+        swing = trail[i]  # 信号日收盘时最近一次回调低点 (收盘价)
+        if swing is not None and swing >= entry_px:  # 已经在进场价上面 = 不能当止损
+            swing = None
         red = red_candle_low(o, c, lo, i) if ex["red_candle"] else None
         high_t, res_t = exit_targets(h, phi, i, entry_px, ex)
         # 入场风险：计入价到最近一次回调低点 (HL)；没有 HL (或在计入价上面) 才看其他离场线里最近的一条
@@ -633,9 +661,8 @@ def backtest_stock(bars, dates, entry, ex, cost, series, every_signal=False, rma
                     break
                 j += 1
             hi, low_ = max(hi, h[j]), min(low_, lo[j])
-            if piv and j - 1 - k > (swing_p if swing_p is not None else -1) and j - 1 - k >= 0 and piv[j - 1 - k]:
-                swing_p = j - 1 - k
-                swing = lo[swing_p] if swing is None else max(swing, lo[swing_p])  # 只往上移 (跟踪止损)
+            if trail[j] is not None and (swing is None or trail[j] > swing) and trail[j] < c[j]:
+                swing = trail[j]  # 新确认的回调低点更高 → 止损往上移 (浮动止盈)，只升不降
             if ex["stop_pct"] and c[j] <= entry_px * (1 - ex["stop_pct"] / 100):
                 reason = "stop"
             elif ex["swing_low"] and swing is not None and c[j] < swing and not ex["swing_alert"]:
@@ -995,9 +1022,9 @@ def get_stock_data(symbol, retries=1, check_volume=True):
             last_close = bars[-1]["close"] if bars else None
             stop_refs, hl_ref = [], None
             if last_close:
-                p = latest_pivot(series["piv"], ex["swing_low"] or HL_K_DEFAULT, len(bars) - 1)
-                if p is not None and bars[p]["low"] < last_close:
-                    hl_ref = (bars[p]["low"], "最近回调低点 HL")
+                hl = series["trail"][-1] if series["trail"] else None
+                if hl is not None and hl < last_close:
+                    hl_ref = (hl, "最近回调低点 (收盘价)")
                 if ex["sar"] and series["sar"] and series["sar"][-1] is not None and series["sar"][-1] < last_close:
                     stop_refs.append((series["sar"][-1], "SAR"))
                 if ex["red_candle"]:

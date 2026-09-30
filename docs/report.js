@@ -3862,7 +3862,7 @@
   var BT_HORIZONS = [5, 10, 20], BT_START = 25, BT_RECENT_BARS = 20, BT_DIST_EDGES = [-10, -5, 0, 5, 10];
   var EXIT_DEFAULT = { sar: true, ema_cross: [5, 20], swing_low: 2, max_hold: 30, stop_pct: 0, take_pct: 0, red_candle: false, prior_high: false, resistance: false, swing_alert: false, entry_close: false, max_risk: 0 };
   var EXIT_REASONS = { // main.py EXIT_REASON_LABELS 同一份
-    stop: ['止损', 'Stop Loss'], swing: ['浮动 HL', 'Trailing HL'], red: ['回调红K', 'Pullback Red Candle'], sar: ['SAR 转空', 'SAR Flip'],
+    stop: ['止损', 'Stop Loss'], swing: ['跌破回调低点', 'Trailing Stop'], red: ['回调红K', 'Pullback Red Candle'], sar: ['SAR 转空', 'SAR Flip'],
     ema: ['EMA 死叉', 'EMA Cross-down'], take: ['止盈', 'Take Profit'], high: ['历史高点', 'Prior High'], res: ['近期阻力', 'Resistance'],
     time: ['满期', 'Time Stop'], open: ['持有中', 'Open']
   };
@@ -3906,13 +3906,14 @@
       resistance: !!ex.resistance,
       entry_close: !!ex.entry_close, // 信号日收盘价进场 (否则隔天开盘)
       max_risk: floatIn(ex.max_risk === undefined ? 0 : ex.max_risk, 0, 90, 0), // 入场风险超过这个 % 不进，0 = 不限
-      swing_alert: !!ex.swing_alert // 跌破浮动 HL 只提醒 (记在交易上)，不离场
+      swing_mode: ex.swing_mode === 'rebound' ? 'rebound' : 't2', // 回调低点：rebound = 回调后第一根收涨确认；t2 = 左右各 N 根确认
+      swing_alert: !!ex.swing_alert // 跌破回调低点只提醒 (记在交易上)，不离场
     };
   }
   function exitLabels(ex) { // main.py exit_labels 同一个顺序：止损 → 止盈 → 趋势 / 时间
     var out = [];
     if (ex.stop_pct) out.push('止损 -' + fmtG(ex.stop_pct) + '% (Stop Loss)');
-    if (ex.swing_low) out.push('跌破浮动 HL，左右 ' + ex.swing_low + ' 根 (Trailing HL)' + (ex.swing_alert ? '：只提醒不离场 (Alert only)' : ''));
+    if (ex.swing_low) out.push('收盘跌破最近回调低点 (收盘价，' + (ex.swing_mode === 'rebound' ? '回调后第一根收涨确认' : '左右 ' + ex.swing_low + ' 根确认') + '，只往上移) (Trailing Stop)' + (ex.swing_alert ? '：只提醒不离场 (Alert only)' : ''));
     if (ex.red_candle) out.push('跌破回调红K低点 (Pullback Red Candle)');
     if (ex.take_pct) out.push('止盈 +' + fmtG(ex.take_pct) + '% (Take Profit)');
     if (ex.prior_high) out.push('涨到历史高点 (Prior High)');
@@ -3985,6 +3986,23 @@
     }
     return out;
   }
+  // 每一根收盘时已经确认的最近一次回调低点 (收盘价) (main.py trail_levels)：
+  // rebound = 连续收跌里最低的收盘价，之后第一根收涨确认；t2 = 收盘价比左右各 k 根都低，右边走完才确认
+  function trailLevels(close, mode, k) {
+    var n = close.length, out = new Array(n).fill(null), level = null, i;
+    if (mode === 'rebound') {
+      var low = null;
+      for (i = 1; i < n; i++) {
+        if (close[i] < close[i - 1]) low = low === null ? close[i] : Math.min(low, close[i]);
+        else if (close[i] > close[i - 1] && low !== null) { level = low; low = null; }
+        out[i] = level;
+      }
+      return out;
+    }
+    var piv = pivotLows(close, k);
+    for (i = 0; i < n; i++) { if (i - k >= 0 && piv[i - k]) level = close[i - k]; out[i] = level; }
+    return out;
+  }
   function latestPivot(piv, k, upto) {
     for (var p = Math.min(upto - k, piv.length - 1); p >= 0; p--) if (piv[p]) return p;
     return null;
@@ -4039,7 +4057,7 @@
     var sar = seriesPSAR(h, lo, c);
     var emaF = ex.ema_cross ? seriesEMA(c, ex.ema_cross[0]) : null, emaS = ex.ema_cross ? seriesEMA(c, ex.ema_cross[1]) : null;
     var vol = p.ctx.series.volume;
-    var k = ex.swing_low || HL_K_DEFAULT, piv = pivotLows(lo, k), phi = ex.resistance ? pivotHighs(h, RES_K) : null;
+    var trail = trailLevels(c, ex.swing_mode, ex.swing_low || HL_K_DEFAULT), phi = ex.resistance ? pivotHighs(h, RES_K) : null;
     function bull(i) { return sar[i] !== null && sar[i] !== undefined && rnd3(c[i]) > rnd3(sar[i]); }
     var i, j, hz;
     var cl = !!ex.entry_close;
@@ -4058,8 +4076,8 @@
     while (i < (cl ? n : n - 1)) { // 隔天开盘进场：今天的信号不算；收盘价进场：今天的信号也算
       if (!entry[i] || !((cl ? c[i] : o[i + 1]) > 0)) { i++; continue; }
       var e = cl ? i : i + 1, entryPx = cl ? c[e] : o[e];
-      var swingP = piv ? latestPivot(piv, k, i) : null;
-      var swing = swingP !== null ? lo[swingP] : null;
+      var swing = trail[i]; // 信号日收盘时最近一次回调低点 (收盘价)
+      if (swing !== null && swing >= entryPx) swing = null; // 已经在进场价上面 = 不能当止损
       var red = ex.red_candle ? redCandleLow(o, c, lo, i) : null;
       var tg = exitTargets(h, phi, i, entryPx, ex);
       // 入场风险：计入价到最近一次回调低点 (HL)；没有 HL 才看其他离场线里最近的一条 (main.py 同一套)
@@ -4075,11 +4093,7 @@
         if (cl && j === e) { if (e === n - 1) break; j++; } // 收盘价进场：进场那天不检查离场
         hi = Math.max(hi, h[j]);
         low = Math.min(low, lo[j]);
-        var q = j - 1 - k;
-        if (piv && q > (swingP !== null ? swingP : -1) && q >= 0 && piv[q]) {
-          swingP = q;
-          swing = swing === null ? lo[q] : Math.max(swing, lo[q]); // 只往上移 (跟踪止损 = 浮动 HL)
-        }
+        if (trail[j] !== null && (swing === null || trail[j] > swing) && trail[j] < c[j]) swing = trail[j]; // 更高的回调低点 → 止损往上移 (浮动止盈)
         if (ex.swing_low && swing !== null && (!hl.length || hl[hl.length - 1][1] !== swing)) hl.push([dates[j], swing]); // 追溯图上画浮动 HL 用
         if (ex.stop_pct && c[j] <= entryPx * (1 - ex.stop_pct / 100)) reason = 'stop';
         else if (ex.swing_low && swing !== null && c[j] < swing && !ex.swing_alert) reason = 'swing';
@@ -4834,7 +4848,7 @@
         sar: ex.sar, ema_on: !!ex.ema_cross, ema_f: ex.ema_cross ? ex.ema_cross[0] : 5, ema_s: ex.ema_cross ? ex.ema_cross[1] : 20,
         swing_on: !!ex.swing_low, swing_k: ex.swing_low || 2, stop_on: !!ex.stop_pct, stop_pct: ex.stop_pct || 8,
         take_on: !!ex.take_pct, take_pct: ex.take_pct || 20, hold_on: !!ex.max_hold, max_hold: ex.max_hold || 30,
-        red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, swing_alert: !!ex.swing_alert, entry_close: !!ex.entry_close, max_risk: ex.max_risk || 0, cost: cost, pos: pos, slots: slots
+        red_on: !!ex.red_candle, high_on: !!ex.prior_high, res_on: !!ex.resistance, swing_alert: !!ex.swing_alert, swing_mode: ex.swing_mode || 't2', entry_close: !!ex.entry_close, max_risk: ex.max_risk || 0, cost: cost, pos: pos, slots: slots
       };
     }
     var st = stateFrom(baseExit, be ? be.cost : COST_DEFAULT, POSITION_BACKEND, SLOTS_BACKEND);
@@ -4849,7 +4863,7 @@
       return cleanExit({
         sar: st.sar, ema_cross: st.ema_on ? [st.ema_f, st.ema_s] : null, swing_low: st.swing_on ? st.swing_k : 0,
         max_hold: st.hold_on ? st.max_hold : 0, stop_pct: st.stop_on ? st.stop_pct : 0, take_pct: st.take_on ? st.take_pct : 0,
-        red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on, swing_alert: st.swing_alert, entry_close: st.entry_close, max_risk: st.max_risk
+        red_candle: st.red_on, prior_high: st.high_on, resistance: st.res_on, swing_alert: st.swing_alert, swing_mode: st.swing_mode, entry_close: st.entry_close, max_risk: st.max_risk
       });
     }
     function costOf() { return floatIn(st.cost, 0, 10, COST_DEFAULT); }
