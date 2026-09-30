@@ -1,7 +1,8 @@
 {
-  "说明": "入场 (全部满足)：① SAR 由上往下穿过当前价格 (SAR 转多，当天出现)；② 价格 > EMA20；③ EMA5 > EMA20；④ 成交量 ≥ 1M 股；⑤ Supertrend(3,1.4) < 当前价格；⑥ 价格 > EMA50 或 EMA5 > EMA50；另外市值 ≤ RM3B、价格 ≥ RM0.10、最近 40 个交易日收盘价区间 > RM0.05 (横盘太窄的不要)。信号日收盘价进场；进场价到最近回调低点 (收盘价) 超过 10% 不进，当天涨 ≥ 10% 的暴涨日放宽到 15%。离场：收盘跌破 EMA20 第一天只提醒，隔天收盘收回 EMA20 上面就继续拿，还在下面就当天全部离场；收盘涨到 +10% 止盈；或 收盘跌破支撑 (最近回调低点)、收盘 < EMA20、SAR 转空 三个同时成立 (只成立一两个先记提醒)；Supertrend(3,1.4) 一直在价格下面就继续持有 (趋势类离场先不算，止盈照样)。",
+  "说明": "入场 (全部满足)：① SAR 由上往下穿过当前价格 (SAR 转多，当天出现)；② 价格 > EMA20；③ EMA5 > EMA20；④ 成交量 ≥ 1M 股；⑤ Supertrend(3,1.4) < 当前价格；⑥ 价格 > EMA50 或 EMA5 > EMA50；另外市值 ≤ RM3B、价格 ≥ RM0.10、最近 40 个交易日收盘价区间 > RM0.05 (横盘太窄的不要)。信号日收盘价进场；进场价到最近回调低点 (收盘价) 超过 10% 不进，当天涨 ≥ 10% 的暴涨日放宽到 15%。离场：收盘跌破 EMA20 第一天只提醒，隔天收盘收回 EMA20 上面就继续拿，还在下面就当天全部离场；趋势健康检查按顺序看 ① 收盘跌破 Supertrend(3,1.4) ② SAR 转空 ③ 跌破最新的更高低点 (T2 左右 2 根确认，只往上移) ④ 放量抛售 (收跌、量 ≥ 20 天均量 2 倍) ⑤ EMA5 < EMA20，坏掉 2 个就离场 (只坏 1 个先记提醒)，Supertrend(3,1.4) 还在价格下面就继续拿；收盘涨到 +15% 不马上卖，开始锁利润：之后上面 5 个坏掉任何 1 个就止盈。",
   "name": "SAR 转多",
   "min_price": 0.10,
+  "paper_start": "2026-09-30",
   "max_mcap": {"MY": 3000000000},
   "min_range": {"days": 40, "rm": 0.05},
   "match": "all",
@@ -13,5 +14,5 @@
     {"a":{"k":"st","n":3,"m":1.4},"op":"<","b":{"k":"close"}},
     {"formula":"close > ema(close,50) or ema(close,5) > ema(close,50)","label":"价格 > EMA50 或 EMA5 > EMA50"}
   ],
-  "exit": {"sar":false,"ema_cross":null,"swing_low":2,"swing_mode":"rebound","swing_alert":true,"entry_close":true,"max_risk":10,"max_hold":90,"stop_pct":0,"take_pct":10,"max_risk_surge":15,"surge_pct":10,"combo":{"support":true,"ema":20,"sar":true,"need":3,"ema_days":2},"hold_st":{"n":3,"m":1.4},"ema_break":{"n":20,"days":2}}
+  "exit": {"sar": false, "ema_cross": null, "swing_low": 2, "swing_mode": "t2", "swing_alert": true, "entry_close": true, "max_risk": 10, "max_hold": 90, "stop_pct": 0, "take_pct": 15, "max_risk_surge": 15, "surge_pct": 10, "combo": {"st": true, "st_n": 3, "st_m": 1.4, "sar": true, "support": true, "vol": 2, "emax": true, "emax_f": 5, "emax_s": 20, "ema": 0, "need": 2}, "hold_st": {"n": 3, "m": 1.4}, "ema_break": {"n": 20, "days": 2}, "take_trail": true}
 }
