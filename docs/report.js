@@ -178,7 +178,8 @@
       grid: st.getPropertyValue('--gridline').trim(),
       up: st.getPropertyValue('--up').trim(),
       down: st.getPropertyValue('--down').trim(),
-      ema: st.getPropertyValue('--ema').trim()
+      ema: st.getPropertyValue('--ema').trim(),
+      font: getComputedStyle(document.body).fontFamily
     };
   }
   var colors = computeColors();
@@ -2373,7 +2374,7 @@
     var chart = LWC.createChart(el, {
       width: el.clientWidth,
       height: mainHeightOf(el),
-      layout: { background: { color: 'transparent' }, textColor: colors.text, attributionLogo: false, // 署名放在页脚
+      layout: { fontFamily: colors.font, background: { color: 'transparent' }, textColor: colors.text, attributionLogo: false, // 署名放在页脚
         panes: { separatorColor: colors.grid, separatorHoverColor: colors.grid } },
       grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
       rightPriceScale: { borderColor: colors.grid },
@@ -5012,7 +5013,7 @@
     if (!LWC) { eqEl.innerHTML = '<p class="hint">图表库没有载入</p>'; return { destroy: function () {} }; }
     var chart = LWC.createChart(eqEl, {
       width: eqEl.clientWidth, height: 300,
-      layout: { background: { color: 'transparent' }, textColor: colors.text, attributionLogo: false, panes: { separatorColor: colors.grid } },
+      layout: { fontFamily: colors.font, background: { color: 'transparent' }, textColor: colors.text, attributionLogo: false, panes: { separatorColor: colors.grid } },
       grid: { vertLines: { visible: false }, horzLines: { color: colors.grid } },
       rightPriceScale: { borderVisible: false }, timeScale: { borderVisible: false, fixLeftEdge: true, fixRightEdge: true },
       crosshair: { mode: LWC.CrosshairMode.Magnet }, handleScroll: false, handleScale: false, localization: { locale: 'zh-CN', dateFormat: 'yyyy-MM-dd' }
@@ -5073,7 +5074,7 @@
     } else {
       chart = LWC.createChart(eqEl, {
         width: eqEl.clientWidth, height: 280,
-        layout: { background: { color: 'transparent' }, textColor: colors.text, attributionLogo: false, panes: { separatorColor: colors.grid } },
+        layout: { fontFamily: colors.font, background: { color: 'transparent' }, textColor: colors.text, attributionLogo: false, panes: { separatorColor: colors.grid } },
         grid: { vertLines: { visible: false }, horzLines: { color: colors.grid } },
         rightPriceScale: { borderVisible: false }, timeScale: { borderVisible: false, fixLeftEdge: true, fixRightEdge: true },
         crosshair: { mode: LWC.CrosshairMode.Magnet },

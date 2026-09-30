@@ -348,7 +348,7 @@
     bar.appendChild(b);
   }
   var st = document.createElement('style');
-  st.textContent = '.lang-btn{margin-left:auto;flex:none;white-space:nowrap;font:inherit;font-size:0.78rem;font-weight:600;padding:0.25rem 0.6rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-secondary);cursor:pointer}' +
+  st.textContent = '.lang-btn{margin-left:auto;flex:none;white-space:nowrap;font:inherit;font-size:var(--fs-sm);font-weight:600;padding:0.25rem 0.6rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-secondary);cursor:pointer}' +
     '.lang-btn:hover{color:var(--text-primary)}' +
     // 英文模式：中英并排的标签里，英文那一半原本是灰色小字，现在是主文字
     'html[data-lang="en"] :is(h4,h5,.cbt-x,.cbt-xh,.bt-head,.section,.subsection,.dash-h) > :is(i,small){font-style:normal;color:inherit;font-size:inherit;margin-left:0}' +
