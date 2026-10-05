@@ -2811,7 +2811,17 @@ CARD_CSS = """
   .fold-toc button { flex: 0 0 auto; font: inherit; font-size: var(--fs-sm); padding: 0.3rem 0.75rem; border-radius: 999px; cursor: pointer;
     border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); }
   .fold-toc button:hover { color: var(--text-primary); }
-  .fold-toc .fold-all { margin-left: auto; border-style: dashed; }
+  .fold-toc button { flex: 1 1 0; text-align: center; padding-inline: 0.4rem; white-space: nowrap; } .fold-toc button b { color: var(--muted); font-weight: 600; margin-left: 0.1rem; }
+  .fold-toc button[aria-selected="true"] { color: var(--text-primary); border-color: var(--ema); background: color-mix(in srgb, var(--ema) 12%, transparent); }
+  .tab-pane[hidden] { display: none; }
+  /* 今天关注：一支股票一行 (名称 + 价格，下面一行小字写关键数字) */
+  .fc-row { padding: 0.4rem 0.65rem; gap: 0; } .fc-list { gap: 0.3rem; } .fc-l { font-size: var(--fs-xs); }
+  /* 图表下面的条件清单 */
+  .rc { margin: 0.6rem 0 0; padding-top: 0.5rem; border-top: 1px solid var(--border); } .rc:empty { display: none; }
+  .rc-h { font-size: var(--fs-sm); color: var(--text-secondary); margin: 0 0 0.3rem; } .rc-h b { font-size: var(--fs-md); }
+  .rc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; font-size: var(--fs-sm); }
+  .rc-list li { display: grid; grid-template-columns: 1.1rem minmax(0, 1fr); gap: 0.3rem; } .rc-list i { font-style: normal; font-weight: 600; }
+  .rc-list li.ok i { color: var(--up); } .rc-list li.no i { color: var(--down); } .rc-list li.no span { color: var(--muted); }
   .fold-bar { display: flex; align-items: center; gap: 0.5rem 0.9rem; width: 100%; margin: 0.2rem 0 0.9rem; padding: 0.55rem 0.8rem;
     font: inherit; text-align: left; cursor: pointer; color: var(--text-secondary); background: var(--surface);
     border: 1px solid var(--border); border-radius: 10px; }
@@ -2848,7 +2858,8 @@ CARD_CSS = """
   .chart-set .set-h { margin: 1rem 0 0.4rem; font-size: var(--fs-md); } .grid-set { display: grid; gap: 0.5rem; }
   .grid-set .check { display: flex; flex-direction: row; align-items: center; gap: 0.5rem; font-size: var(--fs-md); color: var(--text-primary); }
   /* 我的持仓 vs 信号 */
-  .hold-form { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0 0 0.6rem; } .hold-form .cbt-num { width: 6.2rem; }
+  .hold-form { display: grid; grid-template-columns: 1.3fr 1fr 1fr auto; gap: 0.4rem 0.5rem; align-items: end; margin: 0 0 0.6rem; } .hold-form .hold-code { grid-column: 1 / -1; width: 100%; text-align: left; }
+  .hold-form label { display: grid; gap: 0.15rem; font-size: var(--fs-xs); color: var(--text-secondary); min-width: 0; } .hold-form .cbt-num { width: 100%; min-width: 0; text-align: left; }
   .hold-list { display: grid; gap: 0.5rem; margin: 0 0 0.8rem; } .hold-sum { margin: 0 0 0.3rem; font-size: var(--fs-xs); color: var(--muted); } .hold-head { margin: 0 0 0.5rem; font-size: var(--fs-lg); }
   .ds-legend .lg-m::before { border-top: 3px solid var(--text-primary); } .hold-res .hold-eq { height: 240px; margin-bottom: 0.4rem; } .hold .set-h { margin: 1rem 0 0.4rem; font-size: var(--fs-md); }
   .hold-cmp th, .hold-rows th { text-align: left; font-weight: 500; } .hold-cmp tr.me th { font-weight: 600; }
@@ -4319,6 +4330,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
     cards = []
     chips = []
     focus_new = []  # 首页「今天关注」的新增信号
+    take_pct = STRATEGY["exit"].get("take_pct") or 0
     chart_payload = {}
     table_rows = []
     no_data_count = 0
@@ -4455,14 +4467,17 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
             ("ATR(14)", pct_text(data.get("atr_pct"), 1, plus=False), "atr", ""),
             ("风险", pct_text(-risk, 1) if risk else "—", "risk",
              f"最近的离场线：{stop_ref[1]} {fmt_price(stop_ref[0])}" if stop_ref else "现价下方没有离场线"),
-            ("R/R", "2.0" if risk else "—", "rr",
-             (f"默认计划：目标 = 2 倍风险。历史参考 (回测同类信号期间最大涨幅中位数 {pct_text(mfe_median, 1)}) = 1 : {rr:.1f}，不是计划" if mfe_median and rr else "默认计划：目标 = 2 倍风险")),
+            ("R/R", f"{take_pct / risk:.1f}" if take_pct and risk else "—", "rr",
+             (f"策略目标 +{take_pct:g}% ÷ 到最近更高低点的风险 {risk:.1f}%" if take_pct and risk else "策略没有设目标")
+             + (f"。历史参考 (回测同类信号期间最大涨幅中位数 {pct_text(mfe_median, 1)}) = 1 : {rr:.1f}，不是计划" if mfe_median and rr else "")),
         ]
         quote_grid = "".join(f'<div{tip_attrs(g, t) if g or t else ""}><dt>{k}</dt><dd>{v}</dd></div>' for k, v, g, t in quote_items)
         focus_new.append({
             "code": code, "name": s["name"], "price": data["close"], "chg": round(change_pct, 2), "date": data.get("last_date"),
             "strat": [name for name, _ in groups], "why": [x for _, tags in groups for x in tags], "rv": round(rel_vol, 2) if rel_vol is not None else None,
             "stop": round(stop_ref[0], 4) if stop_ref and stop_ref[0] < close else None, "stop_by": stop_ref[1] if stop_ref and stop_ref[0] < close else None,
+            # 目标 = 策略里设的止盈 / 锁利润线 (take_pct)；报酬风险比 = 这个 % ÷ 到最近更高低点的风险 %；策略没设 take_pct 就没有目标
+            "target": round(close * (1 + take_pct / 100), 4) if take_pct else None, "tp": take_pct or None, "rr": round(take_pct / risk, 1) if take_pct and risk else None,
             "mfe": mfe_median, "hist_rr": round(rr, 1) if rr else None})
         live_badge = '<span class="live-badge" title="盘中信号：用的是还没收完的日线，收盘前可能消失">盘中</span>' if state == "live" else ""
 
