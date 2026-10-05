@@ -2847,6 +2847,12 @@ CARD_CSS = """
   .quote-live .ql-time { color: var(--muted); }
   .chart-set .set-h { margin: 1rem 0 0.4rem; font-size: var(--fs-md); } .grid-set { display: grid; gap: 0.5rem; }
   .grid-set .check { display: flex; flex-direction: row; align-items: center; gap: 0.5rem; font-size: var(--fs-md); color: var(--text-primary); }
+  /* 我的持仓 vs 信号 */
+  .hold-form { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0 0 0.6rem; } .hold-form .cbt-num { width: 6.2rem; }
+  .hold-list { display: grid; gap: 0.5rem; margin: 0 0 0.8rem; } .hold-sum { margin: 0 0 0.3rem; font-size: var(--fs-xs); color: var(--muted); } .hold-head { margin: 0 0 0.5rem; font-size: var(--fs-lg); }
+  .ds-legend .lg-m::before { border-top: 3px solid var(--text-primary); } .hold-res .hold-eq { height: 240px; margin-bottom: 0.4rem; } .hold .set-h { margin: 1rem 0 0.4rem; font-size: var(--fs-md); }
+  .hold-cmp th, .hold-rows th { text-align: left; font-weight: 500; } .hold-cmp tr.me th { font-weight: 600; }
+  .hold-rows td small { display: block; color: var(--muted); font-size: var(--fs-xs); } .hold-sig { white-space: normal !important; min-width: 9rem; font-size: var(--fs-xs); color: var(--text-secondary); }
   .sv-key { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem 0.6rem; margin: 0 0 0.5rem; }
   .sv-key div { min-width: 0; } .sv-key dt { color: var(--muted); font-size: var(--fs-xs); } .sv-key dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .sv-key dd small, .quote-grid .lv-cell dd small { font-weight: 400; }
@@ -4246,6 +4252,7 @@ def build_backtest_html(bt):
     return f"""<div class="bt" id="sec-backtest">
   <div class="bt-head"><h4>策略回测 <i>Backtest</i>{info_btn("backtest", "策略回测", rule_tip)}</h4>
     <span class="bt-sub">{period} · {a['n']} 笔{f" · {bt['slots']} 个仓位 · 满仓跳过 {bt['skipped']}" if bt.get("slots") else ""}</span>
+    <button type="button" class="sp-btn bt-custom" data-act="my-holdings">我的持仓 ›</button>
     <button type="button" class="sp-btn bt-custom" data-act="custom-backtest">自定义回测 ›</button></div>
   {paper_html}
   {windows}

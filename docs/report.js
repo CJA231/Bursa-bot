@@ -4974,7 +4974,7 @@
   // 基准 = 报告里全部股票等权持有 (同一笔本金全仓)，不是指数；报告里只有今天还上市、成交量够的股票 → 有幸存者偏差
   function pad2(x) { return (x < 10 ? '0' : '') + x; }
   function daysBetween(a, b) { return Math.round((Date.parse(b) - Date.parse(a)) / 864e5); }
-  function equityDaily(bt, items) {
+  function equityDaily(bt, items, from) {
     var slots = bt.all.slots || maxSlots(bt.trades) || 1, cost = bt.cost, byCode = {}, noBars = 0;
     items.forEach(function (it) {
       var p = btPrep(it), map = {};
@@ -4982,9 +4982,10 @@
       byCode[it.stock.code] = { dates: p.dates, close: map };
     });
     var traded = bt.trades.filter(function (t) { return t.code; });
-    if (!traded.length) return null;
-    var dset = {}, start = traded.reduce(function (m, t) { return t.entry_date < m ? t.entry_date : m; }, traded[0].entry_date);
+    if (!traded.length && !from) return null;
+    var dset = {}, start = from || traded.reduce(function (m, t) { return t.entry_date < m ? t.entry_date : m; }, traded[0].entry_date);
     traded.forEach(function (t) { var b = byCode[t.code]; if (b) b.dates.forEach(function (d) { if (d >= start) dset[d] = 1; }); else noBars++; });
+    if (from) items.forEach(function (it) { byCode[it.stock.code].dates.forEach(function (d) { if (d >= start) dset[d] = 1; }); }); // 基准用全部股票的交易日
     var dates = Object.keys(dset).sort();
     if (dates.length < 2) return null;
     var last = {}, pts = [], peak = 0, E;
@@ -5297,6 +5298,183 @@
       return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return legacy(); });
     }
     return Promise.resolve(legacy());
+  }
+
+  // ---------- 我的持仓：自己真的买进的股票，跟「信号」「基准」比收益率 ----------
+  // 持仓存在这台设备 (bursa_hold_v1)：股票、买入日、买入价、股数，卖掉了再填卖出日 / 卖出价。
+  // 收益 = 浮盈亏 (已扣跟回测一样的来回成本) ÷ 最高同时投入的成本；信号 = 同一天起、照后台策略自动买卖的模拟账户 (同样的仓位数)；基准 = 报告里全部股票等权持有
+  var HOLD_KEY = 'bursa_hold_v1_' + MARKET.id;
+  function loadHold() {
+    var l = loadJSON(HOLD_KEY, []);
+    return (isArr(l) ? l : []).filter(function (x) { return x && typeof x.code === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.buy_date || '') && x.buy_px > 0 && x.shares > 0; });
+  }
+  function saveHold(l) { saveJSON(HOLD_KEY, l); }
+  function holdSeries(list, items, from, cost) {
+    var byCode = {}, dset = {}, lastD = null;
+    items.forEach(function (it) { var p = btPrep(it), map = {}; p.dates.forEach(function (d, i) { map[d] = p.bars[i].close; if (!lastD || d > lastD) lastD = d; if (d >= from) dset[d] = 1; }); byCode[it.stock.code] = map; });
+    var dates = Object.keys(dset).sort(), carry = {}, pts = [], peak = 0, base = 0;
+    if (dates.length < 1) return null;
+    list.forEach(function (x) { x._noBars = !byCode[x.code]; });
+    // 最高同时投入的成本 (收益率的分母)
+    dates.forEach(function (d) {
+      var open = 0;
+      list.forEach(function (x) { if (x.buy_date <= d && !(x.sell_date && x.sell_date <= d)) open += x.shares * x.buy_px; });
+      base = Math.max(base, open);
+    });
+    if (!(base > 0)) return null;
+    dates.forEach(function (d) {
+      var pl = 0;
+      list.forEach(function (x) {
+        if (x.buy_date > d) return;
+        var c = cost / 100 * x.shares * x.buy_px;
+        if (x.sell_date && x.sell_px > 0 && x.sell_date <= d) { pl += x.shares * (x.sell_px - x.buy_px) - c; return; }
+        var m = byCode[x.code], px = m && m[d];
+        if (px !== undefined) carry[x.code + x.buy_date] = px;
+        var cur = carry[x.code + x.buy_date];
+        pl += x.shares * ((cur !== undefined ? cur : x.buy_px) - x.buy_px) - c;
+      });
+      peak = Math.max(peak, pl);
+      pts.push({ time: d, pl: pl, ret: pl / base * 100, dd: (pl - peak) / (base + peak) * 100 });
+    });
+    return { pts: pts, base: base };
+  }
+  function holdStats(list, cost, lastPx) {
+    var rows = list.map(function (x) {
+      var done = !!(x.sell_date && x.sell_px > 0), px = done ? x.sell_px : lastPx[x.code];
+      var gross = isNum(px) ? (px / x.buy_px - 1) * 100 : null, net = gross === null ? null : gross - cost;
+      var days = Math.max(0, daysBetween(x.buy_date, done ? x.sell_date : (lastPx._date || x.buy_date)));
+      return { x: x, done: done, px: px, net: net, rm: net === null ? null : x.shares * x.buy_px * net / 100, days: days };
+    });
+    var closed = rows.filter(function (r) { return r.done && r.net !== null; }), wins = closed.filter(function (r) { return r.net > 0; });
+    return { rows: rows, n: rows.length, closed: closed.length, open: rows.length - closed.length, win: closed.length ? wins.length / closed.length * 100 : null,
+      avg: closed.length ? sumOf(closed.map(function (r) { return r.net; })) / closed.length : null, days: closed.length ? sumOf(closed.map(function (r) { return r.days; })) / closed.length : null };
+  }
+  function openHoldingsDialog() {
+    var be = backendStrategy(), cost = be ? be.cost : COST_DEFAULT, ex = be ? be.exit : cleanExit(EXIT_DEFAULT), list = loadHold(), root = document.createElement('div'), U = null, ctx = null, charts2 = null;
+    root.className = 'hold';
+    root.innerHTML = '<div class="hold-add"></div><div class="hold-res"><p class="hint">载入每日价格…</p></div><h4 class="set-h">持仓</h4><div class="hold-list"></div>';
+    var dlg = openDialog({ title: '我的持仓 vs 信号', body: root, className: 'dlg-hold', onClose: function () { if (charts2) charts2.destroy(); } });
+    function nameOf(code) { var m = META.stocks[code]; return namePair(code, m && m.n)[0]; }
+    function today() { return ctx && ctx.to || isoDay(Date.now() / 1000); }
+    function closeOn(code, day) {
+      var it = U && U.items.filter(function (z) { return z.stock.code === code; })[0];
+      if (!it) return null;
+      var p = btPrep(it);
+      for (var i = 0; i < p.dates.length; i++) if (p.dates[i] >= day) return p.bars[i].close;
+      return null;
+    }
+    function drawAdd() {
+      root.querySelector('.hold-add').innerHTML = '<div class="hold-form"><input class="cbt-num cbt-wide" list="hold-dl" data-h="code" placeholder="代码或名称" aria-label="股票">' +
+        '<datalist id="hold-dl">' + (U ? U.items : []).map(function (it) { return '<option value="' + escapeHtml(it.stock.code + ' ' + it.stock.name) + '">'; }).join('') + '</datalist>' +
+        '<input class="cbt-num cbt-date" type="date" data-h="buy_date" value="' + today() + '" aria-label="买入日">' +
+        '<input class="cbt-num" type="number" inputmode="decimal" step="any" min="0" data-h="buy_px" placeholder="买入价" aria-label="买入价">' +
+        '<input class="cbt-num" type="number" inputmode="numeric" step="1" min="1" data-h="shares" placeholder="股数" aria-label="股数">' +
+        '<button type="button" class="sp-btn primary" data-act="hold-add">加进持仓</button></div>';
+    }
+    function drawList() {
+      var box = root.querySelector('.hold-list');
+      if (!list.length) { box.innerHTML = '<p class="hint">还没有持仓：上面填你真的买进的股票。</p>'; return; }
+      box.innerHTML = list.map(function (x, k) {
+        function f(key, label, type, ph) { return '<label><span>' + label + '</span><input class="cbt-num' + (type === 'date' ? ' cbt-date' : '') + '" type="' + type + '" ' + (type === 'number' ? 'inputmode="decimal" step="any" min="0" ' : '') + 'data-hk="' + k + '" data-f="' + key + '" value="' + (x[key] || '') + '"' + (ph ? ' placeholder="' + ph + '"' : '') + '></label>'; }
+        return '<div class="cbt-pk"><div class="cbt-pk-h"><b>' + escapeHtml(nameOf(x.code)) + '</b><small>' + escapeHtml(x.code) + '</small><button type="button" class="cbt-pk-del" data-act="hold-del" data-k="' + k + '" aria-label="删除">×</button></div>' +
+          '<div class="cbt-pk-g">' + f('buy_date', '买入日', 'date') + f('buy_px', '买入价', 'number') + f('shares', '股数', 'number') + f('sell_date', '卖出日', 'date') + f('sell_px', '卖出价', 'number', '没卖就空着') + '</div>' +
+          (x._noBars ? '<p class="ds-note">这支不在今天的报告里，没有每日价格，只在卖出日计入。</p>' : '') + '</div>';
+      }).join('');
+    }
+    function pctC(v, d) { return '<b class="' + btCls(v) + '">' + fmtPct(v, d === undefined ? 1 : d) + '</b>'; }
+    function compute() {
+      var res = root.querySelector('.hold-res');
+      if (!U) return;
+      if (!list.length) { res.innerHTML = ''; if (charts2) { charts2.destroy(); charts2 = null; } return; }
+      var start = list.reduce(function (m, x) { return x.buy_date < m ? x.buy_date : m; }, list[0].buy_date);
+      list.forEach(function (x) { x._noBars = !U.items.some(function (z) { return z.stock.code === x.code; }); });
+      var mine = holdSeries(list, U.items, start, cost);
+      if (!mine) { res.innerHTML = '<p class="hint">买入日之后还没有每日价格。</p>'; return; }
+      var strategies = [];
+      if (be) be.strategies.forEach(function (x) {
+        var compiled = compileRules({ rules: cleanRules(x.rules) }).filter(function (c) { return !c.error; });
+        if (compiled.length) strategies.push({ name: x.name, compiled: compiled, spec: specOf(x) });
+      });
+      if (!ctx) { var bt0 = strategies.length ? runBacktest(U, strategies, ex, cost, POSITION_BACKEND, SLOTS_BACKEND) : null; ctx = { all: bt0 && bt0.allTrades || [], to: bt0 && bt0.to || null }; }
+      var slots = SLOTS_BACKEND || 3, sim = simulateAccount(U, ctx.all, ex, cost, slots, start, []);
+      var eq = equityDaily({ trades: sim.trades, all: { slots: slots }, position: POSITION_BACKEND, cost: cost }, U.items, start);
+      var sPts = {}, bPts = {};
+      if (eq) eq.pts.forEach(function (q) { sPts[q.time] = q; });
+      var lastPx = {}, lastDate = mine.pts[mine.pts.length - 1].time;
+      list.forEach(function (x) { var it = U.items.filter(function (z) { return z.stock.code === x.code; })[0]; if (it) { var p = btPrep(it); lastPx[x.code] = p.bars[p.bars.length - 1].close; } });
+      lastPx._date = lastDate;
+      var hs = holdStats(list, cost, lastPx), ss = tradeStats(sim.trades, slots);
+      var myL = mine.pts[mine.pts.length - 1], stL = eq ? eq.pts[eq.pts.length - 1] : null;
+      var myDD = Math.min.apply(null, mine.pts.map(function (q) { return q.dd; })), stDD = eq ? Math.min.apply(null, eq.pts.map(function (q) { return q.dd; })) : null;
+      var diff = stL ? myL.ret - stL.ret : null;
+      function kpi(name, ret, dd, a, b, c2, cls2) {
+        return '<tr class="' + (cls2 || '') + '"><th>' + name + '</th><td class="num">' + (ret === null ? '—' : pctC(ret)) + '</td><td class="num">' + (dd === null ? '—' : fmtPct(dd, 1)) + '</td><td class="num">' + a + '</td><td class="num">' + b + '</td><td class="num">' + c2 + '</td></tr>';
+      }
+      function wr(v) { return isNum(v) ? v.toFixed(0) + '%' : '—'; }
+      var table = '<div class="bt-table-wrap"><table class="bt-table hold-cmp"><thead><tr><th></th><th class="num">收益率</th><th class="num">最大回撤</th><th class="num">笔数</th><th class="num">胜率</th><th class="num">平均持有</th></tr></thead><tbody>' +
+        kpi('我的持仓', myL.ret, myDD, hs.closed + ' 平 · ' + hs.open + ' 持', wr(hs.win), isNum(hs.days) ? hs.days.toFixed(0) + ' 天' : '—', 'me') +
+        kpi('信号 (' + slots + ' 仓)', stL ? stL.ret : null, stDD, ss.closed + ' 平 · ' + ss.open + ' 持', wr(ss.win_rate), isNum(ss.avg_days) ? ss.avg_days.toFixed(0) + ' 天' : '—') +
+        kpi('基准 (等权)', stL ? stL.bench : null, null, '—', '—', '—') + '</tbody></table></div>';
+      // 每笔：对应的信号 (买入日前 5 天到后 1 天里这支股票出现的信号)，你的价钱比信号日收盘贵 / 便宜多少
+      var sigTrades = ctx.all;
+      function matchSig(x) {
+        var lo = new Date(Date.parse(x.buy_date) - 7 * 864e5).toISOString().slice(0, 10), hi = new Date(Date.parse(x.buy_date) + 2 * 864e5).toISOString().slice(0, 10);
+        var m = sigTrades.filter(function (t) { return t.code === x.code && t.sig >= lo && t.sig <= hi; }).sort(function (a, b) { return a.sig < b.sig ? 1 : -1; })[0];
+        return m || null;
+      }
+      var withSig = [], noSig = [];
+      var rowsHtml = hs.rows.map(function (r) {
+        var m = matchSig(r.x);
+        (m ? withSig : noSig).push(r);
+        var cmp = m ? '信号 ' + md(m.sig) + ' 收盘 ' + fmtPrice(m.entry) + ' · 你 ' + fmtPct((r.x.buy_px / m.entry - 1) * 100, 1) + (m.reason !== 'open' && r.net !== null ? ' · 信号这笔 ' + fmtPct(m.net, 1) : '') : '<span class="hint">没有对应信号 (自己找的)</span>';
+        return '<tr><td><b>' + escapeHtml(nameOf(r.x.code)) + '</b><small>' + escapeHtml(r.x.code) + '</small></td><td>' + md(r.x.buy_date) + '<small>' + fmtPrice(r.x.buy_px) + '</small></td><td>' + (r.done ? md(r.x.sell_date) : '持有') + '<small>' + (isNum(r.px) ? fmtPrice(r.px) : '—') + '</small></td>' +
+          '<td class="num ' + btCls(r.net) + '">' + (r.net === null ? '—' : fmtPct(r.net, 1)) + '<small>' + (r.rm === null ? '' : fmtRMAmount(r.rm)) + '</small></td><td class="hold-sig">' + cmp + '</td></tr>';
+      }).join('');
+      function avgNet(rs) { var v = rs.filter(function (r) { return r.net !== null; }).map(function (r) { return r.net; }); return v.length ? sumOf(v) / v.length : null; }
+      var split = withSig.length && noSig.length ? '<p class="ds-note">跟信号买的 ' + withSig.length + ' 笔平均 ' + fmtPct(avgNet(withSig), 1) + '，自己找的 ' + noSig.length + ' 笔平均 ' + fmtPct(avgNet(noSig), 1) + '</p>' : '';
+      res.innerHTML = '<p class="hold-sum">' + md(start) + ' – ' + md(lastDate) + ' · 来回成本 ' + fmtG(cost) + '% · 本金 = 最高同时投入 ' + fmtRMAmount(mine.base, false) + '</p>' +
+        '<p class="hold-head">我 ' + pctC(myL.ret) + (stL ? ' · 信号 ' + pctC(stL.ret) + ' · 基准 ' + pctC(stL.bench) + ' · 比信号 ' + pctC(diff) : '') + '</p>' +
+        '<div class="cbt-chart-head"><h4>收益率对比 <i>% of capital</i></h4></div><div class="cbt-eq hold-eq"></div>' +
+        '<p class="ds-legend"><span class="lg-m">我的持仓</span><span class="lg-s">信号</span><span class="lg-b">基准</span></p>' + table + split +
+        '<div class="cbt-chart-head"><h4>每一笔 <i>vs 信号</i></h4></div><div class="bt-table-wrap"><table class="bt-table hold-rows"><thead><tr><th>股票</th><th>买进</th><th>卖出 / 现价</th><th class="num">收益</th><th>对应信号</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+      if (charts2) charts2.destroy();
+      var el = res.querySelector('.hold-eq');
+      if (!LWC) return;
+      var ch = LWC.createChart(el, { width: el.clientWidth, height: 240, layout: { fontFamily: colors.font, background: { color: 'transparent' }, textColor: colors.text, attributionLogo: false },
+        grid: gridOpts(), rightPriceScale: { borderVisible: false }, timeScale: { borderVisible: false, fixLeftEdge: true, fixRightEdge: true }, handleScroll: false, handleScale: false, localization: { locale: 'zh-CN', dateFormat: 'yyyy-MM-dd' } });
+      var pf = { type: 'custom', minMove: 0.01, formatter: function (v) { return v.toFixed(1) + '%'; } }, ink = getComputedStyle(document.body).color;
+      function line(color, w, style, data) { var sr = ch.addSeries(LWC.LineSeries, { color: color, lineWidth: w, lineStyle: style, priceLineVisible: false, lastValueVisible: true, priceFormat: pf }); sr.setData(data); }
+      if (eq) { line(withAlpha(colors.text, 0.8), 1, 2, eq.pts.map(function (q) { return { time: q.time, value: q.bench }; })); line(colors.ema, 2, 0, eq.pts.map(function (q) { return { time: q.time, value: q.ret }; })); }
+      line(ink, 3, 0, mine.pts.map(function (q) { return { time: q.time, value: q.ret }; }));
+      ch.timeScale().fitContent();
+      var ro = new ResizeObserver(function () { ch.resize(el.clientWidth, 240); });
+      ro.observe(el);
+      charts2 = { destroy: function () { ro.disconnect(); ch.remove(); } };
+    }
+    root.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-act]');
+      if (!b) return;
+      if (b.dataset.act === 'hold-del') { list.splice(+b.dataset.k, 1); saveHold(list); drawList(); compute(); return; }
+      if (b.dataset.act === 'hold-add') {
+        var q = function (k) { return root.querySelector('.hold-form [data-h="' + k + '"]'); }, code = q('code').value.trim().split(/\s+/)[0].toUpperCase();
+        var item = { code: code, buy_date: q('buy_date').value, buy_px: parseFloat(q('buy_px').value) || closeOn(code, q('buy_date').value), shares: parseFloat(q('shares').value) };
+        if (!U || !U.items.some(function (z) { return z.stock.code === code; })) { toast('报告里没有这支股票'); return; }
+        if (!item.buy_date || !(item.buy_px > 0) || !(item.shares > 0)) { toast('要填买入日、买入价 (不填用当天收盘)、股数'); return; }
+        list.push(item); saveHold(list); drawAdd(); drawList(); compute();
+      }
+    });
+    root.addEventListener('change', function (e) {
+      var t = e.target, k = t.dataset && t.dataset.hk;
+      if (k === undefined || k === null) return;
+      var x = list[+k], f = t.dataset.f;
+      if (!x) return;
+      if (f === 'buy_date' || f === 'sell_date') { if (t.value) x[f] = t.value; else delete x[f]; }
+      else { var v = parseFloat(t.value); if (v > 0) x[f] = v; else if (f === 'sell_px') delete x[f]; }
+      saveHold(list); compute();
+    });
+    drawAdd(); drawList();
+    loadUniverse().then(function (u) { U = u; drawAdd(); drawList(); compute(); });
+    return dlg;
   }
   function openBacktestDialog(opts) {
     opts = opts || {};
@@ -5773,6 +5951,7 @@
   }
   document.addEventListener('click', function (e) {
     if (e.target.closest('#sec-backtest [data-act="custom-backtest"]')) openBacktestDialog({ src: 'backend' });
+    if (e.target.closest('#sec-backtest [data-act="my-holdings"]')) openHoldingsDialog();
   });
 
   var SP_PAGE = 30;
