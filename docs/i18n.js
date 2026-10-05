@@ -177,6 +177,10 @@
 
   // ---------- 2. 带数字的句型 (按顺序全部套用) ----------
   var PATTERNS = [
+    [/^报告里没有「(.*)」$/, 'No "$1" in the report'],
+
+    [/^报告里找不到「(.*)」，试试股票代码或简称$/, 'Cannot find "$1" in the report; try the stock code or short name'],
+
     [/(^|\s)转盈$/, '$1turned profit'], [/(^|\s)转亏$/, '$1turned loss'], [/(^|\s)转正$/, '$1turned positive'], [/(^|\s)转负$/, '$1turned negative'],
 
     [/^成本：来回 ([\d.]+)% · 每笔 RM\s?([\d,]+)$/, 'Cost: round-trip $1% · RM $2 per trade'],
@@ -331,6 +335,9 @@
     '转盈': 'turned profit', '转亏': 'turned loss', '转正': 'turned positive', '转负': 'turned negative', '需要资金': 'Capital needed',
     '：比较': ': compare', '，组合': ', combine', '；变量': '; variables', '；函数': '; functions', '： 比较': ': compare', '， 组合': ', combine', '； 变量': '; variables', '； 函数': '; functions', '例子：': 'Example:', ': 比较': ': compare', ', 组合': ', combine', '; 变量': '; variables', '; 函数': '; functions', '例子:': 'Example:', '还没有条件': 'No rules yet', '条件都有错，暂时算不了': 'Some rules have errors; cannot compute yet', '(当前)': '(current)'
   });
+  Object.assign(EXACT, {
+    '股票名称或代码，例如 PENTECH / 0457': 'Stock name or code, e.g. PENTECH / 0457', '先填股票名称或代码': 'Enter a stock name or code first'
+  });
   Object.assign(PHRASES, {
     '市值': 'Mkt cap', '没有': 'no ', '标 = ': 'Target = ', '全部满足': 'all must hold', '进场：': 'Entry: ', '「SAR 转多」': '"SAR turns bullish"', 'K 线图': 'Candles', '空心K线图': 'Hollow candles', 'K线图': 'Candles', '均线金叉': 'MA golden cross', 'RSI 超卖回升': 'RSI oversold rebound', 'MACD 线上穿信号线': 'MACD line crosses above signal line',
     '内置策略': 'Built-in strategy', '后台信号': 'Strategy signal', '我的筛选器': 'My screener', '当前价格上穿': 'Price crosses above', '前 20 日最高': 'prior 20d high', '筛选器': 'Screener',
@@ -414,48 +421,8 @@
   }
 
 
-  // ---- 中文字体：英文 / 数字一直用等宽字，中文部分可选 (记在这台设备) ----
-  var FKEY = 'bursa_font_cjk', MONO = 'ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas';
-  var FONTS = [
-    ['hei', '黑体 (苹方)', 'PingFang', 'Sans', '"PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'],
-    ['song', '宋体', 'Songti SC', 'Serif', '"Songti SC", STSong, "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", SimSun, serif'],
-    ['round', '圆体', 'Rounded', 'Round', '"Yuanti SC", "Hiragino Maru Gothic ProN", "PingFang SC", "Noto Sans CJK SC", sans-serif'],
-    ['kai', '楷体', 'Kaiti', 'Kai', '"Kaiti SC", STKaiti, "Noto Serif CJK SC", KaiTi, serif'],
-    ['fang', '仿宋', 'Fangsong', 'Fang', '"STFangsong", "Songti SC", "Noto Serif CJK SC", FangSong, serif']
-  ];
-  function applyFont(id) {
-    var f = FONTS.filter(function (x) { return x[0] === id; })[0] || FONTS[0];
-    document.documentElement.style.setProperty('--font', MONO + ', ' + f[4] + ', monospace');
-    return f;
-  }
-  var fontId = 'hei';
-  try { fontId = localStorage.getItem(FKEY) || 'hei'; } catch (e) { /* 读不到就用默认 */ }
-  if (lang !== 'en') applyFont(fontId);
-  function fontButton(bar) {
-    if (lang === 'en' || document.getElementById('font-btn')) return; // 英文版固定 Times New Roman + 等宽数字
-    var b = document.createElement('button');
-    b.type = 'button'; b.id = 'font-btn'; b.className = 'lang-btn'; b.setAttribute('data-keep', '1');
-    b.textContent = 'Aa'; b.setAttribute('aria-label', lang === 'en' ? 'Chinese font' : '中文字体');
-    b.addEventListener('click', function (e) {
-      e.stopPropagation();
-      var old = document.getElementById('font-pop');
-      if (old) { old.remove(); return; }
-      var pop = document.createElement('div'); pop.id = 'font-pop'; pop.setAttribute('data-keep', '1');
-      pop.innerHTML = FONTS.map(function (f) {
-        return '<button type="button" data-f="' + f[0] + '" style="font-family:' + f[4].replace(/"/g, '&quot;') + '"' + (f[0] === fontId ? ' class="on"' : '') + '><b>' + (lang === 'en' ? f[3] : f[1]) + '</b> 稳健回测 0123 +12.5%</button>';
-      }).join('');
-      pop.addEventListener('click', function (ev) {
-        var t = ev.target.closest('[data-f]'); if (!t) return;
-        fontId = t.getAttribute('data-f'); applyFont(fontId);
-        try { localStorage.setItem(FKEY, fontId); } catch (er) { /* 存不了就只换这一次 */ }
-        pop.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === t); });
-        window.dispatchEvent(new Event('resize'));
-      });
-      document.body.appendChild(pop);
-      setTimeout(function () { document.addEventListener('click', function off() { pop.remove(); document.removeEventListener('click', off); }); }, 0);
-    });
-    bar.appendChild(b);
-  }
+  // ---- 字体：中文 = 黑体 (苹方)；英文 = Times New Roman + 等宽数字 (见下面的 CSS)；英文 / 数字一直用等宽字 ----
+  if (lang !== 'en') document.documentElement.style.setProperty('--font', 'ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, "PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif, monospace');
   function button() {
     var bar = document.querySelector('.topbar');
     if (!bar || document.getElementById('lang-btn')) return;
@@ -469,16 +436,13 @@
       location.replace(location.pathname + u + location.hash); // 重新载入：中文 = 原文，英文 = 重新翻译
     });
     bar.appendChild(b);
-    fontButton(bar);
   }
   var st = document.createElement('style');
   st.textContent = '.lang-btn{flex:none;white-space:nowrap;font:inherit;font-size:var(--fs-sm);font-weight:600;padding:0.25rem 0.6rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-secondary);cursor:pointer}' +
     '.lang-btn:hover{color:var(--text-primary)}' +
     '@font-face{font-family:"Bursa Num";src:local("SF Mono"),local("Menlo"),local("Consolas"),local("DejaVu Sans Mono"),local("Courier New");unicode-range:U+0025,U+002B,U+0030-0039,U+003A}' +
     'html[data-lang="en"]{--font:"Bursa Num","Times New Roman",Times,"Liberation Serif","Noto Serif",serif}' +
-    '#lang-btn{margin-left:auto}#font-btn{margin-left:0.4rem}' +
-    '#font-pop{position:fixed;top:52px;right:12px;z-index:9999;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:12px;padding:6px;display:flex;flex-direction:column;gap:2px;box-shadow:0 8px 24px #0005;max-width:calc(100vw - 24px)}' +
-    '#font-pop button{all:unset;cursor:pointer;padding:9px 10px;border-radius:8px;font-size:var(--fs-md,14px);white-space:nowrap}#font-pop button b{display:inline-block;min-width:5.5em}#font-pop button.on{background:var(--border)}' +
+    '#lang-btn{margin-left:auto}' +
     // 英文模式：中英并排的标签里，英文那一半原本是灰色小字，现在是主文字
     'html[data-lang="en"] :is(h4,h5,.cbt-x,.cbt-xh,.bt-head,.section,.subsection,.dash-h) > :is(i,small){font-style:normal;color:inherit;font-size:inherit;margin-left:0}' +
     'html[data-lang="en"] .cbt-x > span > i, html[data-lang="en"] .cbt-xh > i{font-style:normal;color:inherit;font-size:inherit;margin-left:0}';

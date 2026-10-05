@@ -2109,9 +2109,24 @@ _NAME_SUFFIX_RE = re.compile(r"[\s,.&]*\b(berhad|bhd)\b\.?\s*$", re.I)
 
 
 def short_company_name(code, name):
-    """公司名去掉 Berhad / Bhd 这类后缀 (JAG Berhad → JAG)；去完是空的就用原来的"""
-    full = full_name(code, name)
-    return _NAME_SUFFIX_RE.sub("", full).strip() or full
+    """显示用的名称 = Bursa 股票简称"""
+    return name  # 显示 Bursa 的股票简称 (VITROX / RAMSSOL / CBHB)，不用公司全名
+
+
+TABLE_MIN_VOLUME = 800_000  # 「其余股票」表格：马股成交量要大于 80 万股
+
+
+def table_ok(symbol, data):
+    """「其余股票」只放：成交量 > 80 万股 (马股)、价格和市值照后台设定 (min_price / max_mcap)、现价 > EMA20"""
+    close, ema = data.get("close"), data.get("ema20_latest")
+    if close is None or ema is None or not close > ema:
+        return False
+    if MARKET_ID == "MY" and not (data.get("volume") or 0) > TABLE_MIN_VOLUME:
+        return False
+    if close < STRATEGY["min_price"]:
+        return False
+    mcap = (QUOTE_META.get(symbol) or {}).get("mcap")
+    return not (STRATEGY["max_mcap"] and mcap and mcap > STRATEGY["max_mcap"])
 
 
 def name_pair(code, name):
@@ -2859,6 +2874,10 @@ CARD_CSS = """
   .grid-set .check { display: flex; flex-direction: row; align-items: center; gap: 0.5rem; font-size: var(--fs-md); color: var(--text-primary); }
   /* 我的持仓 vs 信号 */
   .hold-form { display: grid; grid-template-columns: 1.3fr 1fr 1fr auto; gap: 0.4rem 0.5rem; align-items: end; margin: 0 0 0.6rem; } .hold-form .hold-code { grid-column: 1 / -1; width: 100%; text-align: left; }
+  .hold-find { grid-column: 1 / -1; } .hold-find .hold-code { width: 100%; text-align: left; }
+  .hold-sug { list-style: none; margin: 0.25rem 0 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+  .hold-sug li { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.6rem 0.75rem; cursor: pointer; } .hold-sug li + li { border-top: 1px solid var(--border); } .hold-sug li:active { background: var(--border); }
+  .hold-sug small { color: var(--text-secondary); font-size: var(--fs-xs); }
   .hold-form label { display: grid; gap: 0.15rem; font-size: var(--fs-xs); color: var(--text-secondary); min-width: 0; } .hold-form .cbt-num { width: 100%; min-width: 0; text-align: left; }
   .hold-list { display: grid; gap: 0.5rem; margin: 0 0 0.8rem; } .hold-sum { margin: 0 0 0.3rem; font-size: var(--fs-xs); color: var(--muted); } .hold-head { margin: 0 0 0.5rem; font-size: var(--fs-lg); }
   .ds-legend .lg-m::before { border-top: 3px solid var(--text-primary); } .hold-res .hold-eq { height: 240px; margin-bottom: 0.4rem; } .hold .set-h { margin: 1rem 0 0.4rem; font-size: var(--fs-md); }
@@ -4404,7 +4423,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
             # 马股: 徽章 = 名称、灰字 = 代号；美股公司全名太长 (Micron Technology, Inc.)，手机上会把代号挤掉 → 徽章 = 代号、灰字 = 公司名
             main_label, sub_label = (html.escape(x) for x in name_pair(code, s["name"]))
-            table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()} {fname.lower()}" data-code="{code}" data-name="{fname}" tabindex="0" {flags}>
+            if table_ok(s["symbol"], data): table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()} {fname.lower()}" data-code="{code}" data-name="{fname}" tabindex="0" {flags}>
                 <td class="idx-cell"></td>
                 <td class="stock-cell" data-value="{main_label}"><span class="ticker">{main_label}</span><span class="stock-code">{sub_label}</span>{new_badge}</td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>

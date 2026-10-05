@@ -5454,11 +5454,32 @@
       return null;
     }
     var MAXH = SLOTS_BACKEND || 3;
+    // 输入的可能是代码 (0457)、简称 (PENTECH) 或其中一段；找出报告里的股票
+    function findStocks(text) {
+      var q = text.trim().toUpperCase(); if (!q || !U) return [];
+      var all = U.items.map(function (z) { return z.stock; }), exact = all.filter(function (e) { return e.code === q || String(e.name).toUpperCase() === q; });
+      if (exact.length) return exact;
+      var starts = all.filter(function (e) { return e.code.indexOf(q) === 0 || String(e.name).toUpperCase().indexOf(q) === 0; });
+      var rest = all.filter(function (e) { return starts.indexOf(e) < 0 && String(e.name).toUpperCase().indexOf(q) >= 0; });
+      return starts.concat(rest);
+    }
+    function showSug() {
+      var inp = root.querySelector('.hold-code'), ul = root.querySelector('.hold-sug'); if (!inp || !ul) return;
+      var found = findStocks(inp.value).slice(0, 6);
+      if (!found.length || (found.length === 1 && (found[0].code === inp.value.trim() || String(found[0].name).toUpperCase() === inp.value.trim().toUpperCase()))) { ul.hidden = true; return; }
+      ul.innerHTML = found.map(function (e) { return '<li data-code="' + escapeHtml(e.code) + '"><b>' + escapeHtml(e.name) + '</b><small>' + escapeHtml(e.code) + '</small></li>'; }).join('');
+      ul.hidden = false;
+    }
+    root.addEventListener('input', function (e) { if (e.target.classList && e.target.classList.contains('hold-code')) showSug(); });
+    root.addEventListener('click', function (e) {
+      var li = e.target.closest('.hold-sug li'); if (!li) return;
+      var inp = root.querySelector('.hold-code'); inp.value = li.dataset.code; root.querySelector('.hold-sug').hidden = true;
+      var px = root.querySelector('[data-h="buy_px"]'); if (px) px.focus();
+    });
     function drawAdd() {
       var box = root.querySelector('.hold-add');
       if (list.length >= MAXH) { box.innerHTML = '<p class="hint">已满 ' + MAXH + ' 仓 (跟信号账户的仓位数一样)；要换股先删掉一笔。</p>'; return; }
-      box.innerHTML = '<div class="hold-form"><input class="cbt-num hold-code" list="hold-dl" data-h="code" placeholder="股票代码或名称" aria-label="股票">' +
-        '<datalist id="hold-dl">' + (U ? U.items : []).map(function (it) { return '<option value="' + escapeHtml(it.stock.code + ' ' + it.stock.name) + '">'; }).join('') + '</datalist>' +
+      box.innerHTML = '<div class="hold-form"><div class="hold-find"><input class="cbt-num hold-code" data-h="code" placeholder="股票名称或代码，例如 PENTECH / 0457" aria-label="股票" autocomplete="off" autocapitalize="characters" spellcheck="false"><ul class="hold-sug" hidden></ul></div>' +
         '<label><span>买入日</span><input class="cbt-num cbt-date" type="date" data-h="buy_date" value="' + today() + '"></label>' +
         '<label><span>买入价</span><input class="cbt-num" type="number" inputmode="decimal" step="any" min="0" data-h="buy_px" placeholder="收盘价"></label>' +
         '<label><span>股数</span><input class="cbt-num" type="number" inputmode="numeric" step="1" min="1" data-h="shares" placeholder="10000"></label>' +
@@ -5548,9 +5569,9 @@
       if (!b) return;
       if (b.dataset.act === 'hold-del') { list.splice(+b.dataset.k, 1); saveHold(list); drawList(); compute(); return; }
       if (b.dataset.act === 'hold-add') {
-        var q = function (k) { return root.querySelector('.hold-form [data-h="' + k + '"]'); }, code = q('code').value.trim().split(/\s+/)[0].toUpperCase();
+        var q = function (k) { return root.querySelector('.hold-form [data-h="' + k + '"]'); }, typed = q('code').value, hit = findStocks(typed)[0], code = hit ? hit.code : typed.trim().toUpperCase();
         var item = { code: code, buy_date: q('buy_date').value, buy_px: parseFloat(q('buy_px').value) || closeOn(code, q('buy_date').value), shares: parseFloat(q('shares').value) };
-        if (!U || !U.items.some(function (z) { return z.stock.code === code; })) { toast('报告里没有这支股票'); return; }
+        if (!hit) { toast(typed.trim() ? '报告里找不到「' + typed.trim() + '」，试试股票代码或简称' : '先填股票名称或代码'); return; }
         if (!item.buy_date || !(item.buy_px > 0) || !(item.shares > 0)) { toast('要填买入日、买入价 (不填用当天收盘)、股数'); return; }
         if (list.length >= MAXH) { toast('最多 ' + MAXH + ' 仓'); return; }
         list.push(item); saveHold(list); drawAdd(); drawList(); compute();
@@ -6884,7 +6905,7 @@
     ['template', '模板', '一个模板 = 选股条件 + 图表上的指标。筛选器标题下面那行就是正在使用的模板，点一下可以改名；加、删、调整都会自动存进正在使用的模板。模板只存在这个浏览器里，换手机 / 电脑前可以先导出备份。'],
     ['backend', '后台信号', '后台每次运行用 strategy.json 的条件扫描全部股票 (成交量达标的)，命中的做成卡片、附多周期 K 线图。条件可以在「策略回测 → 自定义回测」里调好，再按「设为后台信号」换掉。'],
     ['ann', '公司公告', '报告里的股票最近的公告 (马股 = Bursa 官网，美股 = SEC EDGAR)。点标题看原文，点股票名看图表、财报和这支股票的全部公告；上面的分类按钮可以只看某一类。'],
-    ['table', '其余股票', '成交量达标、但没有命中后台信号的股票。相对量 = 今天成交量 ÷ 前 20 天平均；SAR 多头 / 空头；EMA20 绿色 = 价格在均线上方。点一行看完整图表和财报，点表头 (手机上用下拉框) 换排序。'],
+    ['table', '其余股票', '没有命中后台信号的股票，只列出：成交量 > 80 万股、价格和市值在后台设定范围内、现价 > EMA20 的。相对量 = 今天成交量 ÷ 前 20 天平均；SAR 多头 / 空头；EMA20 绿色 = 价格在均线上方。点一行看完整图表和财报，点表头 (手机上用下拉框) 换排序。'],
     ['backtest', '策略回测 (Backtest)', '用近 6 个月日线逐日判断进场条件：开着「信号当天收盘价进场」就按信号日收盘价计入，否则隔天开盘价计入；之后每天收盘检查离场规则，先碰到哪一条就按那天收盘价结算，每笔扣来回成本。上个月 = 完整一个月当基准，本月至今另外算。只统计今天进报告的股票 (有幸存者偏差)，历史不代表未来，也不是投资建议。'],
     ['winrate', '胜率 (Win Rate)', '已结算的信号里，扣完成本还赚钱的比例。'],
     ['expectancy', '期望值 (Expectancy)', '平均每笔赚多少 % (已扣成本) = 胜率 × 平均赚 − 败率 × 平均亏。下面的 RM = 每笔投入 RM20,000 (自定义回测里可以改「每笔金额」) 平均赚 / 亏多少令吉。大于 0 = 这套规则长期平均是赚的。'],
