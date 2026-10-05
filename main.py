@@ -5081,6 +5081,17 @@ def main():
         write_manifest()
     except OSError as e:
         print(f"⚠️ manifest 写入失败 ({e})")
+    # 公开展示站 (精简版：没有指标、规则、回测)：写到 public_site/，workflow 再推到另一个公开仓库；出错不影响完整报告
+    if MARKET_ID == "MY":
+        try:
+            import public_site
+            now_dt = datetime.now(LOCAL_TZ)
+            out_dir = public_site.build(stocks, market, market_state(now_dt), now_dt.strftime("%Y-%m-%d %H:%M") + f" ({MKT['tz_label']})",
+                                        MKT["title"], CURRENCY_SYMBOL, os.path.join(DOCS_ROOT, "vendor", "lightweight-charts.js"))
+            if out_dir:
+                print(f"🌐 公开展示站已生成: {out_dir}/")
+        except Exception as e:
+            print(f"⚠️ 公开展示站生成失败 ({type(e).__name__}: {e})")
     report_secs = time.perf_counter() - t_report
 
     hits = sum(1 for s in stocks if s["matched"])

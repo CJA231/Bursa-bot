@@ -291,3 +291,17 @@ Bursa-bot/
 本仓库为 **All Rights Reserved**，详见 [`LICENSE`](./LICENSE)。仓库保持公开是为了使用免费版 GitHub Pages，并不代表开放授权使用；vendor 引入的第三方组件（TradingView Lightweight Charts）保留其原有的 Apache 2.0 授权。
 
 **回测账本 (Backtest ledger)**：后台回测的交易记录固定存在 `docs/backtest_ledger.json` (美股 `docs/us/`)，不会因为每天进报告的股票不同而重算。第一次 (或进场 / 离场规则、成本、仓位数改了) 用手上的日线建账本；之后只加账本建好以后新出现的信号、并让持有中的交易继续走到结算，已结算的交易不再改动。想手动重建，删掉这个文件即可。
+
+## 公开展示站 (精简版，给更多人看)
+
+完整报告 (`docs/`) 里有指标、进场 / 离场规则、回测，只给自己看。要给别人看，用 `public_site.py` 另外生成一份精简版 `public_site/`：
+只有今日市场综述、强势股、今日机会 (价格 / 风险 / 报酬风险比)、其余股票、纯K线 + 成交量；数据文件里也只有价格、成交量、成交额，没有任何指标值或策略。
+
+要真的保密，策略和代码必须放在**私有仓库**，精简版发布到**另一个公开仓库**：
+1. 本仓库改成私有 (Settings → General → Danger Zone → Change visibility)。
+2. 新建一个公开仓库 (例如 `Bursa-bot-public`)，Settings → Pages → Deploy from a branch → `main` / `(root)`。
+3. 新建 fine-grained token：只选那个公开仓库，Contents = Read and write。
+4. 本仓库 Settings → Secrets and variables → Actions：Secret `PUBLIC_REPO_TOKEN` = 上面的 token；Variable `PUBLIC_REPO` = `你的用户名/Bursa-bot-public`。
+5. 之后 `daily.yml` 每次运行完会自动把 `public_site/` 推过去 (没设置就跳过)。
+
+注意：私有仓库的 GitHub Pages 要付费版，而且发布出来的网址仍然是公开的 —— 所以完整版不要再用 Pages 发布，自己看的话用 Actions 跑完后拉取 `docs/` 在本机打开。
