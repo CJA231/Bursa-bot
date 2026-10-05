@@ -2836,6 +2836,11 @@ CARD_CSS = """
   .quote-live { display: flex; flex-wrap: wrap; gap: 0.2rem 0.7rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; min-height: 1.2em; }
   .quote-live b { color: var(--text-primary); font-weight: 600; }
   .quote-live .ql-time { color: var(--muted); }
+  .sv-key { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem 0.6rem; margin: 0 0 0.5rem; }
+  .sv-key div { min-width: 0; } .sv-key dt { color: var(--muted); font-size: var(--fs-xs); } .sv-key dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sv-key dd small, .quote-grid .lv-cell dd small { font-weight: 400; }
+  .sv-key dd small { display: block; line-height: 1.2; }
+  @media (max-width: 380px) { .sv-key { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .quote-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.35rem 0.6rem; margin: 0.45rem 0 0; }
   .quote-grid div { min-width: 0; }
   .quote-grid dt { color: var(--muted); font-size: var(--fs-xs); }

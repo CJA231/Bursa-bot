@@ -1738,6 +1738,17 @@
   function mainHeightOf(el) {
     return el && el.dataset.square ? Math.max(260, Math.min(720, Math.round(el.clientWidth))) : mainPaneHeight();
   }
+  // 整张图 (主图 + 副图) 的总高度：塞进一屏，不用滑才看得到下面的副图和数据。
+  // 信号卡片 = 屏幕高度 − 顶部目录 − 底部搜索栏 − 卡片里图表以外的部分 (标题、数据格)；详情 = 屏幕高度 − 图表上面的东西 − 图表下面一行读数
+  function fitTotal(el) {
+    var vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight, avail, card = el.closest && el.closest('.card');
+    if (el.dataset.square) avail = vh - el.getBoundingClientRect().top - 78;
+    else if (card) {
+      var toc = document.querySelector('.fold-toc'), dock = document.querySelector('.dock');
+      avail = vh - (toc ? toc.offsetHeight : 0) - (dock && getComputedStyle(dock).display !== 'none' ? dock.offsetHeight : 88) - (card.offsetHeight - el.offsetHeight) - 12;
+    } else return null;
+    return Math.max(300, Math.min(720, Math.round(avail)));
+  }
   // 手机 (没有鼠标): 在图表上下滑 = 滑动整个页面 (图表只接左右拖动)；右边价格轴不能拖动缩放，
   // 不然用拇指在右边滑页面时老是误触把价格轴拉歪
   var TOUCH_ONLY = !!(window.matchMedia && window.matchMedia('(hover: none)').matches);
@@ -1989,16 +2000,68 @@
 
     layoutPanes(st);
   }
+
+  // ---------- 最近的支撑 / 主力位 ----------
+  // 支撑 = 现价下面最近的、左右各 2 根确认过的波段低点 (最近 120 根)；主力位 = 最近 60 根里成交量最集中的价格 (按典型价 (高+低+收)/3 分 30 档，量加总最大的那一档的中点)
+  function keyLevels(bars) {
+    var n = bars.length;
+    if (n < 8) return null;
+    var close = bars[n - 1].close, low = bars.map(function (b) { return b.low; }), piv = pivotLows(low, 2), support = null, i;
+    for (i = Math.max(0, n - 120); i < n; i++) if (piv[i] && low[i] < close && (support === null || low[i] > support)) support = low[i];
+    var seg = bars.slice(-60), lo = Math.min.apply(null, seg.map(function (b) { return b.low; })), hi = Math.max.apply(null, seg.map(function (b) { return b.high; })), bins = 30, step = (hi - lo) / bins, vol = [];
+    if (!(step > 0)) return { support: support, poc: null, close: close };
+    for (i = 0; i < bins; i++) vol.push(0);
+    seg.forEach(function (b) { var tp = (b.high + b.low + b.close) / 3; vol[Math.min(bins - 1, Math.floor((tp - lo) / step))] += b.volume || 0; });
+    var best = 0;
+    vol.forEach(function (v, k) { if (v > vol[best]) best = k; });
+    return { support: support, poc: lo + step * (best + 0.5), close: close };
+  }
+  function levelCells(st) {
+    var lv = keyLevels(st.bars), last = st.bars[st.bars.length - 1];
+    if (!last) return '';
+    function lvl(label, v) {
+      return '<div><dt>' + label + '</dt><dd>' + (isNum(v) ? fmtPrice(v) + ' <small class="' + (v < lv.close ? 'change-down' : 'change-up') + '">' + pctShort((v / lv.close - 1) * 100) + '</small>' : '—') + '</dd></div>';
+    }
+    return '<div><dt>成交量</dt><dd>' + fmtCompact(last.volume || 0) + '</dd></div><div><dt>日期</dt><dd>' + isoDay(last.time).slice(5) + '</dd></div>' +
+      (lv ? lvl('支撑', lv.support) + lvl('主力位', lv.poc) : '');
+  }
+  function applyKeyLevels(st) {
+    if (!st || !st.main || !st.bars || !st.bars.length) return;
+    (st.levelLines || []).forEach(function (l) { try { st.main.removePriceLine(l); } catch (e) { /* 主图换了类型，旧线已经没了 */ } });
+    st.levelLines = [];
+    var lv = keyLevels(st.bars);
+    if (lv && st.main.createPriceLine) {
+      [['支撑', lv.support, colors.down], ['主力位', lv.poc, colors.ema]].forEach(function (x) {
+        if (isNum(x[1])) st.levelLines.push(st.main.createPriceLine({ price: x[1], color: x[2], lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: x[0] }));
+      });
+    }
+    var host = st.el.id.indexOf('chart-') === 0 ? cardOf(st.id) : st.el.closest('.stock-view'), grid = host && host.querySelector(host.classList.contains('card') ? '.quote-grid' : '.sv-key');
+    if (grid) {
+      grid.querySelectorAll('.lv-cell').forEach(function (x) { x.remove(); });
+      var tmp = document.createElement('div');
+      tmp.innerHTML = levelCells(st);
+      [].slice.call(tmp.children).reverse().forEach(function (c) { c.classList.add('lv-cell'); grid.insertBefore(c, grid.firstChild); });
+    }
+  }
   function layoutPanes(st) {
     var panes = st.chart.panes();
-    var mainH = mainHeightOf(st.el), subH = subPaneHeight();
-    var height = mainH + subH * (panes.length - 1);
+    applyKeyLevels(st); // 先放好支撑 / 主力位那一行，再量剩下多少高度给图
+    var mainH = mainHeightOf(st.el), subH = subPaneHeight(), height = mainH + subH * (panes.length - 1), fit = fitTotal(st.el);
+    if (fit) { // 副图各占 ~24%，其余给主图
+      var subShare = Math.min(0.24, 0.5 / Math.max(1, panes.length - 1));
+      subH = Math.round(fit * subShare); mainH = fit - subH * (panes.length - 1); height = fit;
+    }
     panes.forEach(function (pane, i) { pane.setStretchFactor(i === 0 ? mainH : subH); });
     st.el.style.height = height + 'px';
     st.chart.resize(st.el.clientWidth, height);
     requestAnimationFrame(function () { renderLegends(st); });
   }
 
+  var fitTimer = null;
+  window.addEventListener('resize', function () { // 转屏 / 地址栏收起：重新塞进一屏
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(function () { Object.keys(charts).forEach(function (k) { if (charts[k] && charts[k].chart) layoutPanes(charts[k]); }); }, 200);
+  });
   var VISIBLE_BARS_PHONE = 80;
   function showRecentBars(st) {
     var n = st.bars.length, extra = 0; // 一目均衡表往未来多画了 (位移 − 1) 根，也要露出来
@@ -2092,6 +2155,7 @@
     showRecentBars(st);
     applyMarks(st);
     updateQuoteLive(st, null);
+    requestAnimationFrame(function () { if (charts[st.id] === st) layoutPanes(st); }); // 读数 / 数据格填好以后再量一次剩下的高度，整张卡片刚好塞进一屏
     var note = document.getElementById(st.id + '-tfnote');
     if (note) {
       note.hidden = use === tf;
@@ -2265,7 +2329,7 @@
     box.classList.toggle('mine', !!pl.mine);
     card.classList.add('has-plan');
     box.title = pl.mine ? '自己设的计划 (点一下调整)' : '默认：现价 / 最近离场线 / 2R (点一下调整)';
-    box.innerHTML = row('entry', '进', pl.entry, pl.mine ? '自设' : '', 'pt-e') +
+    box.innerHTML = (pl.mine ? row('entry', '进', pl.entry, '自设', 'pt-e') : '') +
       row('stop', '损', pl.stop, c.ok ? pctShort(-c.risk) : '⚠', 'pt-s') +
       row('target', '标', pl.target, pctShort((pl.target / pl.entry - 1) * 100), 'pt-t');
     // 标题区比这三行矮的时候，图表往下让一点，不会被盖住
@@ -3213,7 +3277,7 @@
       (ctx ? '<div class="sv-nav"><button type="button" class="sv-act" data-act="prev" aria-label="上一支"' + (ctx.i <= 0 ? ' disabled' : '') + '>‹</button>' +
         '<span>' + (ctx.label ? ctx.label + ' ' : '') + (ctx.i + 1) + ' / ' + ctx.list.length + '</span>' +
         '<button type="button" class="sv-act" data-act="next" aria-label="下一支"' + (ctx.i >= ctx.list.length - 1 ? ' disabled' : '') + '>›</button></div>' : '') +
-      '</div>' + stockStatsHtml(opts.code) + stockPlanHtml(opts.code) +
+      '</div><dl class="sv-key"></dl>' +
       // 电脑: 左边正方形K线图，右边财报，下面公告、新闻；手机: 从上到下排，图表右边留一条滑动页面用的空白
       '<div class="sv-grid"><section class="sv-chart" aria-label="K线图">' +
       '<div class="sv-toolbar"><div class="sv-tf"></div>' +
@@ -3226,7 +3290,7 @@
       '<div class="tabs fin-tabs" role="tablist"><button type="button" role="tab" data-fin="quarterly" aria-selected="true">近 4 季</button>' +
       '<button type="button" role="tab" data-fin="annual" aria-selected="false">近 2 年 (年报)</button></div></div>' +
       '<div class="fin-body"><p class="hint">财报载入中…</p></div>' +
-      '<p class="hint fin-foot"></p></section></div>' +
+      '<p class="hint fin-foot"></p></section></div>' + stockPlanHtml(opts.code) + stockStatsHtml(opts.code) +
       '<section class="news ann-sec" aria-label="公司公告"><h4>公司公告</h4><div class="ann-body"><p class="hint">公告载入中…</p></div></section>' +
       '<section class="news" aria-label="最近新闻"><h4>最近新闻</h4><div class="news-body"><p class="hint">新闻载入中…</p></div></section>';
     var dlg = openDialog({
