@@ -2864,6 +2864,7 @@ CARD_CSS = """
   .ds-legend .lg-m::before { border-top: 3px solid var(--text-primary); } .hold-res .hold-eq { height: 240px; margin-bottom: 0.4rem; } .hold .set-h { margin: 1rem 0 0.4rem; font-size: var(--fs-md); }
   .hold-cmp th, .hold-rows th { text-align: left; font-weight: 500; } .hold-cmp tr.me th { font-weight: 600; }
   .hold-rows td small { display: block; color: var(--muted); font-size: var(--fs-xs); } .hold-sig { white-space: normal !important; min-width: 9rem; font-size: var(--fs-xs); color: var(--text-secondary); }
+  .sv-nums { margin: 0.8rem 0; } .sv-nums > div { min-width: 0; } .sv-nums { margin: 0.6rem 0 0; }
   .sv-key { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem 0.6rem; margin: 0 0 0.5rem; }
   .sv-key div { min-width: 0; } .sv-key dt { color: var(--muted); font-size: var(--fs-xs); } .sv-key dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .sv-key dd small, .quote-grid .lv-cell dd small { font-weight: 400; }

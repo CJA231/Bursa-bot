@@ -2019,6 +2019,31 @@
     vol.forEach(function (v, k) { if (v > vol[best]) best = k; });
     return { support: support, poc: lo + step * (best + 0.5), close: close };
   }
+
+  // ---------- 点开股票：具体数字 (流动性 / 趋势 / 波动)，用来评估潜力、风险和好不好进出 ----------
+  function lastOf(a) { for (var i = a.length - 1; i >= 0; i--) if (a[i] !== null && a[i] !== undefined && !isNaN(a[i])) return a[i]; return null; }
+  function indNumbers(bars) {
+    var n = bars.length;
+    if (n < 5) return null;
+    var ctx = makeCtx(bars), c = ctx.series.close, h = ctx.series.high, l = ctx.series.low, v = ctx.series.volume, price = c[n - 1], last = bars[n - 1];
+    var ema = lastOf(seriesEMA(c, 20)), sma = lastOf(seriesSMA(c, 50)), rsi = lastOf(seriesRSI(c, 14)), atr = lastOf(seriesATR(ctx, 14));
+    var sarArr = seriesPSAR(h, l, c, 0.02, 0.2), sar = sarArr[n - 1];
+    var t = price * (last.volume || 0), vs = 0, ts = 0, k;
+    for (k = Math.max(0, n - 21); k < n - 1; k++) { vs += v[k]; ts += v[k] * c[k]; }
+    var cnt = Math.min(20, n - 1), avgV = cnt ? vs / cnt : 0, avgT = cnt ? ts / cnt : 0, rv = avgV > 0 ? (last.volume || 0) / avgV : null;
+    function vs0(x) { return isNum(x) ? ' <small class="' + (x >= 0 ? 'change-up' : 'change-down') + '">' + pctShort(x) + '</small>' : ''; }
+    function cell(label, val, extra, tip) { return '<div' + (tip ? ' title="' + tip + '"' : '') + '><dt>' + label + '</dt><dd>' + val + (extra || '') + '</dd></div>'; }
+    var bull = isNum(sar) && rnd3(price) > rnd3(sar), lv = keyLevels(bars), sup = lv && lv.support;
+    return cell('成交额', CUR_SYM + ' ' + fmtCompact(t), '', '今天成交额 = 价格 × 成交量；越大越容易进出') +
+      cell('20 日均额', isNum(avgT) && avgT > 0 ? CUR_SYM + ' ' + fmtCompact(avgT) : '—', '', '前 20 个交易日平均每天的成交额') +
+      cell('相对量', isNum(rv) ? rv.toFixed(2) + '×' : '—', '', '今天成交量 ÷ 前 20 天平均') +
+      cell('EMA20', isNum(ema) ? fmtPrice(ema) : '—', isNum(ema) ? vs0((price / ema - 1) * 100) : '', '旁边 = 现价比它高 / 低多少') +
+      cell('50 日均线', isNum(sma) ? fmtPrice(sma) : '—', isNum(sma) ? vs0((price / sma - 1) * 100) : '', '旁边 = 现价比它高 / 低多少') +
+      cell('SAR', isNum(sar) ? '<span class="' + (bull ? 'change-up' : 'change-down') + '">' + (bull ? '多头' : '空头') + '</span> ' + fmtPrice(sar) : '—', isNum(sar) ? vs0((sar / price - 1) * 100) : '', bull ? 'SAR 在现价下面：这个价位 = 跟踪止损线，收盘跌破就转空' : 'SAR 在现价上面：收盘涨过它就转多') +
+      cell('RSI(14)', isNum(rsi) ? rsi.toFixed(1) : '—', isNum(rsi) ? (rsi >= 70 ? ' <small class="change-down">超买区</small>' : rsi <= 30 ? ' <small class="change-up">超卖区</small>' : '') : '', '70 以上偏热、30 以下偏冷') +
+      cell('ATR(14)', isNum(atr) ? fmtPrice(atr) : '—', isNum(atr) ? ' <small>' + (atr / price * 100).toFixed(1) + '%</small>' : '', '平均每天的波动幅度 (价格)；旁边 = 占现价 %') +
+      cell('支撑距离', isNum(sup) && isNum(atr) && atr > 0 ? ((price - sup) / atr).toFixed(1) + '× ATR' : '—', isNum(sup) ? vs0((sup / price - 1) * 100) : '', '现价到最近支撑有几个 ATR；小于 1 = 正常波动就可能碰到');
+  }
   function levelCells(st) {
     var lv = keyLevels(st.bars), last = st.bars[st.bars.length - 1];
     if (!last) return '';
@@ -2039,6 +2064,10 @@
       });
     }
     var host = st.el.id.indexOf('chart-') === 0 ? cardOf(st.id) : st.el.closest('.stock-view'), grid = host && host.querySelector(host.classList.contains('card') ? '.quote-grid' : '.sv-key');
+    if (st.el.id.indexOf('chart-') === 0 && st.tf && st.tf.id === 'D' && st.bars.length > 15) { // 卡片的 ATR(14) 格：写价格 + 占现价 %
+      var atrDd = cardOf(st.id) && cardOf(st.id).querySelector('[data-gloss="atr"] dd'), nm0 = atrDd && indNumbers(st.bars), mm0 = nm0 && /ATR\(14\)<\/dt><dd>([^<]+)<small>([^<]+)</.exec(nm0);
+      if (mm0) atrDd.textContent = mm0[1].trim() + ' · ' + mm0[2];
+    }
     if (grid) {
       grid.querySelectorAll('.lv-cell').forEach(function (x) { x.remove(); });
       var tmp = document.createElement('div');
@@ -3364,7 +3393,7 @@
       '<p class="tf-note" id="' + id + '-tfnote" hidden></p>' +
       '<p class="sv-msg hint">图表载入中…</p>' +
       '<div class="chart-wrap"><div id="' + id + '" class="chart" data-square="1"></div><div class="chart-legends" id="' + id + '-legends"></div></div>' +
-      '<div class="quote"><div class="quote-live" id="' + id + '-live"></div></div></section>' +
+      '<div class="quote"><div class="quote-live" id="' + id + '-live"></div></div><dl class="sv-nums quote-grid"></dl></section>' +
       '<section class="fin" aria-label="财务报表"><div class="fin-head"><h4>财务报表</h4>' +
       '<div class="tabs fin-tabs" role="tablist"><button type="button" role="tab" data-fin="quarterly" aria-selected="true">近 4 季</button>' +
       '<button type="button" role="tab" data-fin="annual" aria-selected="false">近 2 年 (年报)</button></div></div>' +
@@ -3420,6 +3449,7 @@
     ready.then(function (bars) {
       if (!root.isConnected) return;
       data[id] = { bars: bars };
+      try { var nb = bars['1d'] ? rawToObjs(bars['1d']) : null, nm = nb && indNumbers(nb), nbox = root.querySelector('.sv-nums'); if (nbox) { if (nm) nbox.innerHTML = nm; else nbox.remove(); } } catch (e) { /* 数据不够 */ }
       var src = opts.sourceChartId && data[opts.sourceChartId];
       if (src && src.iu) { data[id].intra = src.intra; data[id].iu = src.iu; } // 信号股的分时文件共用 (下载一次，卡片和详情都有)
       if (opts.marks) { data[id].marks = opts.marks; data[id].focus = opts.focus; data[id].levels = opts.levels || null; }
