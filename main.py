@@ -2113,6 +2113,22 @@ def short_company_name(code, name):
     return name  # 显示 Bursa 的股票简称 (VITROX / RAMSSOL / CBHB)，不用公司全名
 
 
+TABLE_MIN_VOLUME = 800_000  # 「其余股票」表格：马股成交量要大于 80 万股
+
+
+def table_ok(symbol, data):
+    """「其余股票」只放：成交量 > 80 万股 (马股)、价格和市值照后台设定 (min_price / max_mcap)、现价 > EMA20"""
+    close, ema = data.get("close"), data.get("ema20_latest")
+    if close is None or ema is None or not close > ema:
+        return False
+    if MARKET_ID == "MY" and not (data.get("volume") or 0) > TABLE_MIN_VOLUME:
+        return False
+    if close < STRATEGY["min_price"]:
+        return False
+    mcap = (QUOTE_META.get(symbol) or {}).get("mcap")
+    return not (STRATEGY["max_mcap"] and mcap and mcap > STRATEGY["max_mcap"])
+
+
 def name_pair(code, name):
     """(主名称, 副标)。马股名称短，主名称 = 名称、副标 = 代号；美股公司全名很长 (Micron Technology, Inc.)，
     手机上会把代号挤掉 → 主名称 = 代号 (MU)、副标 = 公司名"""
@@ -4407,7 +4423,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
             # 马股: 徽章 = 名称、灰字 = 代号；美股公司全名太长 (Micron Technology, Inc.)，手机上会把代号挤掉 → 徽章 = 代号、灰字 = 公司名
             main_label, sub_label = (html.escape(x) for x in name_pair(code, s["name"]))
-            table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()} {fname.lower()}" data-code="{code}" data-name="{fname}" tabindex="0" {flags}>
+            if table_ok(s["symbol"], data): table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()} {fname.lower()}" data-code="{code}" data-name="{fname}" tabindex="0" {flags}>
                 <td class="idx-cell"></td>
                 <td class="stock-cell" data-value="{main_label}"><span class="ticker">{main_label}</span><span class="stock-code">{sub_label}</span>{new_badge}</td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
