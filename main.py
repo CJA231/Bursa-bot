@@ -2105,10 +2105,19 @@ def full_name(code, name):
     return _FULL_NAMES[code] or name
 
 
+_NAME_SUFFIX_RE = re.compile(r"[\s,.&]*\b(berhad|bhd)\b\.?\s*$", re.I)
+
+
+def short_company_name(code, name):
+    """公司名去掉 Berhad / Bhd 这类后缀 (JAG Berhad → JAG)；去完是空的就用原来的"""
+    full = full_name(code, name)
+    return _NAME_SUFFIX_RE.sub("", full).strip() or full
+
+
 def name_pair(code, name):
     """(主名称, 副标)。马股名称短，主名称 = 名称、副标 = 代号；美股公司全名很长 (Micron Technology, Inc.)，
     手机上会把代号挤掉 → 主名称 = 代号 (MU)、副标 = 公司名"""
-    return (code, name) if MARKET_ID == "US" else (full_name(code, name), code)
+    return (code, name) if MARKET_ID == "US" else (short_company_name(code, name), code)
 
 
 def chip_code(code, name):
@@ -2836,6 +2845,8 @@ CARD_CSS = """
   .quote-live { display: flex; flex-wrap: wrap; gap: 0.2rem 0.7rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; min-height: 1.2em; }
   .quote-live b { color: var(--text-primary); font-weight: 600; }
   .quote-live .ql-time { color: var(--muted); }
+  .chart-set .set-h { margin: 1rem 0 0.4rem; font-size: var(--fs-md); } .grid-set { display: grid; gap: 0.5rem; }
+  .grid-set .check { display: flex; flex-direction: row; align-items: center; gap: 0.5rem; font-size: var(--fs-md); color: var(--text-primary); }
   .sv-key { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem 0.6rem; margin: 0 0 0.5rem; }
   .sv-key div { min-width: 0; } .sv-key dt { color: var(--muted); font-size: var(--fs-xs); } .sv-key dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .sv-key dd small, .quote-grid .lv-cell dd small { font-weight: 400; }
@@ -4315,7 +4326,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
         turnover = data.get("turnover") or data["close"] * data["volume"]
         q = QUOTE_META.get(s["symbol"]) or {}
-        m = {"n": s["name"], **({"fn": full_name(code, s["name"])} if MARKET_ID != "US" and full_name(code, s["name"]) != s["name"] else {}), "p": data["close"], "c": round(change_pct_of(data), 2), "t": round(turnover), "sig": 1 if s["matched"] else 0}
+        m = {"n": s["name"], **({"fn": short_company_name(code, s["name"])} if MARKET_ID != "US" and short_company_name(code, s["name"]) != s["name"] else {}), "p": data["close"], "c": round(change_pct_of(data), 2), "t": round(turnover), "sig": 1 if s["matched"] else 0}
         for key, v in (("a", data.get("turnover_avg20")), ("atr", data.get("atr_pct")), ("sar", data.get("sar")),
                        ("rsi", data.get("rsi")), ("l", data.get("listed_days")), ("mc", q.get("mcap")), ("pe", q.get("pe")),
                        ("dy", q.get("dy")), ("hi", q.get("hi52")), ("lo", q.get("lo52"))):
@@ -4350,7 +4361,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
                 spark_title = "近 30 日走势"
 
             name = html.escape(s["name"])
-            fname = html.escape(full_name(code, s["name"]))
+            fname = html.escape(short_company_name(code, s["name"]))
             rel_vol = data.get("rel_volume")
             if rel_vol is None:
                 rel_vol_cell = '<td class="num col-relvol" data-label="相对量" data-value="-1">—</td>'
@@ -4524,7 +4535,8 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
     --border: rgba(11,11,11,0.10);
     --up: #0ca30c;      /* 阳线(上涨) 边框+影线颜色，空心 */
     --down: #d03b3b;    /* 阴线(下跌) 实心颜色 */
-    --ema: #4a3aa7;     /* EMA20 均线颜色 */
+    --ema: #4a3aa7;     /* 强调色 (选中的标签、按钮…) */
+    --ema-line: #b59f5b; /* 图表上 EMA20 / 线形图的默认颜色：柔和的卡其色 */
     /* 字体：英文 / 数字用等宽无衬线 (列对得齐)，中文用宋体；等宽字体没有汉字，浏览器逐字回退到后面的宋体 */
     --font: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, "Songti SC", STSong, "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", SimSun, monospace;
     /* 字号阶梯 (rem，1rem = 16px)：12 / 13 / 14 / 16 / 20 / 24 —— 12px 是宋体在手机上还看得清的下限，16px 是输入框的下限 (iOS 不会自动放大页面)；
@@ -4545,6 +4557,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
       --up: #0ca30c;
       --down: #e66767;
       --ema: #9085e9;
+      --ema-line: #d1bf84;
     }}
   }}
   * {{ box-sizing: border-box; }}
@@ -5113,7 +5126,7 @@ def main():
             import public_site
             now_dt = datetime.now(LOCAL_TZ)
             out_dir = public_site.build(stocks, market, market_state(now_dt), now_dt.strftime("%Y-%m-%d %H:%M") + f" ({MKT['tz_label']})",
-                                        MKT["title"], CURRENCY_SYMBOL, os.path.join(DOCS_ROOT, "vendor", "lightweight-charts.js"), full_name=full_name)
+                                        MKT["title"], CURRENCY_SYMBOL, os.path.join(DOCS_ROOT, "vendor", "lightweight-charts.js"), full_name=short_company_name)
             if out_dir:
                 print(f"🌐 公开展示站已生成: {out_dir}/")
         except Exception as e:

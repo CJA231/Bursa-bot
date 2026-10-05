@@ -152,7 +152,7 @@
   }
 
   // ---------- 颜色: 读取/应用/持久化 ----------
-  var COLOR_KEYS = ['up', 'down', 'ema'];
+  var COLOR_KEYS = ['up', 'down', 'ema', 'ema-line'];
   var COLOR_STORAGE_KEY = 'bursa_colors_v1';
 
   function saveColors() {
@@ -173,14 +173,17 @@
 
   function computeColors() {
     var st = getComputedStyle(document.documentElement);
-    return {
+    var c = {
       text: st.getPropertyValue('--text-secondary').trim(),
       grid: st.getPropertyValue('--gridline').trim(),
       up: st.getPropertyValue('--up').trim(),
       down: st.getPropertyValue('--down').trim(),
       ema: st.getPropertyValue('--ema').trim(),
+      line: st.getPropertyValue('--ema-line').trim() || st.getPropertyValue('--ema').trim(), // 图表上的 EMA20 / 线形图 (柔和卡其色)
       font: getComputedStyle(document.body).fontFamily
     };
+    c['ema-line'] = c.line;
+    return c;
   }
   var colors = computeColors();
 
@@ -1773,16 +1776,16 @@
         main = chart.addSeries(LWC.CandlestickSeries, Object.assign({ upColor: up, downColor: down, borderUpColor: up, borderDownColor: down, wickUpColor: up, wickDownColor: down }, base));
         break;
       case 'highlow':
-        main = chart.addSeries(LWC.CandlestickSeries, Object.assign({ upColor: withAlpha(colors.ema, 0.75), downColor: withAlpha(colors.ema, 0.75), borderVisible: false, wickVisible: false }, base));
+        main = chart.addSeries(LWC.CandlestickSeries, Object.assign({ upColor: withAlpha(colors.line, 0.75), downColor: withAlpha(colors.line, 0.75), borderVisible: false, wickVisible: false }, base));
         break;
       case 'line':
       case 'linemarkers':
       case 'step':
-        main = chart.addSeries(LWC.LineSeries, Object.assign({ color: colors.ema, lineWidth: 2, lineType: chartType === 'step' ? LWC.LineType.WithSteps : LWC.LineType.Simple,
+        main = chart.addSeries(LWC.LineSeries, Object.assign({ color: colors.line, lineWidth: 2, lineType: chartType === 'step' ? LWC.LineType.WithSteps : LWC.LineType.Simple,
           pointMarkersVisible: chartType === 'linemarkers', pointMarkersRadius: 2 }, base));
         break;
       case 'area':
-        main = chart.addSeries(LWC.AreaSeries, Object.assign({ lineColor: colors.ema, topColor: withAlpha(colors.ema, 0.35), bottomColor: withAlpha(colors.ema, 0.02), lineWidth: 2 }, base));
+        main = chart.addSeries(LWC.AreaSeries, Object.assign({ lineColor: colors.line, topColor: withAlpha(colors.line, 0.35), bottomColor: withAlpha(colors.line, 0.02), lineWidth: 2 }, base));
         break;
       case 'baseline':
         main = chart.addSeries(LWC.BaselineSeries, Object.assign({ topLineColor: up, topFillColor1: withAlpha(up, 0.28), topFillColor2: withAlpha(up, 0.04),
@@ -1851,14 +1854,14 @@
   }
   function baseEmaOptions() {
     var b = baseEma();
-    return Object.assign({ color: b.color || colors.ema, lineWidth: b.width, visible: !b.hidden, lineStyle: LWC.LineStyle.Solid, lineType: LWC.LineType.Simple,
+    return Object.assign({ color: b.color || colors.line, lineWidth: b.width, visible: !b.hidden, lineStyle: LWC.LineStyle.Solid, lineType: LWC.LineType.Simple,
       lineVisible: true, pointMarkersVisible: false }, kindOptions(b.kind, b.width));
   }
   function openBaseEmaSettings() {
     var b = baseEma(), root = document.createElement('form');
     root.className = 'ind-set'; root.noValidate = true;
     root.innerHTML = '<label>长度<input type="number" inputmode="numeric" name="len" min="2" max="250" step="1" value="' + b.len + '"></label>' +
-      '<label class="color-row"><span>颜色</span><input type="color" name="color" value="' + (b.color || colors.ema) + '"></label>' +
+      '<label class="color-row"><span>颜色</span><input type="color" name="color" value="' + (b.color || colors.line) + '"></label>' +
       '<label>线宽<select name="width">' + [1, 2, 3, 4].map(function (w) { return '<option value="' + w + '"' + (b.width === w ? ' selected' : '') + '>' + w + ' px</option>'; }).join('') + '</select></label>' +
       '<label>线型<select name="kind">' + LINE_KINDS.map(function (k) { return '<option value="' + k[0] + '"' + (b.kind === k[0] ? ' selected' : '') + '>' + k[1] + '</option>'; }).join('') + '</select></label>' +
       '<label class="check"><input type="checkbox" name="visible"' + (b.hidden ? '' : ' checked') + '> 在图上显示</label>';
@@ -2193,7 +2196,7 @@
       var rows = '';
       if (p === 0) {
         var be = baseEma();
-        rows += '<div class="lg-row lg-base' + (be.hidden ? ' lg-hidden' : '') + '" data-base="ema"><span class="lg-swatch" style="background:' + (be.color || colors.ema) + '"></span>' +
+        rows += '<div class="lg-row lg-base' + (be.hidden ? ' lg-hidden' : '') + '" data-base="ema"><span class="lg-swatch" style="background:' + (be.color || colors.line) + '"></span>' +
           '<button type="button" class="lg-name" data-act="base" title="点一下改长度 / 颜色 / 线型">EMA ' + be.len + '</button><span class="lg-val"></span></div>';
       }
       (byPane[p] || []).forEach(function (e) {
@@ -2440,7 +2443,7 @@
       height: mainHeightOf(el),
       layout: { fontFamily: colors.font, background: { color: 'transparent' }, textColor: colors.text, attributionLogo: false, // 署名放在页脚
         panes: { separatorColor: colors.grid, separatorHoverColor: colors.grid } },
-      grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
+      grid: gridOpts(),
       rightPriceScale: { borderColor: colors.grid },
       timeScale: { borderColor: colors.grid, rightOffset: 2 },
       crosshair: { mode: LWC.CrosshairMode.Normal },
@@ -2506,6 +2509,15 @@
     delete charts[chartId];
   }
   // 换图表类型 / 换颜色: 已经画好的图全部重建
+  // ---------- 网格：横线 / 竖线开关、颜色、线型 (背景浅色 / 深色跟着系统走，网格颜色浅色和深色各记一份) ----------
+  var GRID_KEY = 'bursa_grid_v1', GRID_STYLES = [['实线', 0], ['点线', 1], ['虚线', 2]];
+  function isDarkNow() { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); }
+  function gridPrefs() { var g = loadJSON(GRID_KEY, {}) || {}; return { h: g.h !== false, v: g.v !== false, style: [0, 1, 2].indexOf(g.style) >= 0 ? g.style : 0, light: g.light || null, dark: g.dark || null }; }
+  function gridColor(g) { var c = isDarkNow() ? g.dark : g.light; return /^#[0-9a-f]{6}$/i.test(c || '') ? c : colors.grid; }
+  function gridOpts() {
+    var g = gridPrefs(), col = gridColor(g);
+    return { vertLines: { visible: g.v, color: col, style: g.style }, horzLines: { visible: g.h, color: col, style: g.style } };
+  }
   function rerenderAll() {
     Object.keys(charts).forEach(function (id) { destroyChart(id); renderChart(id); });
   }
@@ -3047,14 +3059,30 @@
     var root = document.createElement('div');
     root.className = 'chart-set';
     root.innerHTML = '<div class="color-grid">' +
-      [['up', '上涨'], ['down', '下跌'], ['ema', 'EMA 20 / 线形图']].map(function (c) {
+      [['up', '上涨'], ['down', '下跌'], ['ema-line', 'EMA 20 / 线形图']].map(function (c) {
         return '<label class="color-row"><span>' + c[1] + '</span><input type="color" data-key="' + c[0] + '" value="' + colors[c[0]] + '"></label>';
       }).join('') + '</div>' +
-      '<p class="hint">只存在这个浏览器里</p>';
+      '<h4 class="set-h">网格</h4><div class="grid-set"><label class="check"><input type="checkbox" data-g="h"> 横线</label><label class="check"><input type="checkbox" data-g="v"> 竖线</label>' +
+      '<label class="color-row"><span>颜色 (' + (isDarkNow() ? '深色' : '浅色') + '背景)</span><input type="color" data-g="color"></label>' +
+      '<label class="color-row"><span>线型</span><select data-g="style">' + GRID_STYLES.map(function (x) { return '<option value="' + x[1] + '">' + x[0] + '</option>'; }).join('') + '</select></label></div>' +
+      '<p class="hint">背景浅色 / 深色跟着系统；只存在这个浏览器里</p>';
     var dlg = openDialog({ title: '图表设置', body: root, footer: true, className: 'dlg-set' });
-    dlg.foot.innerHTML = '<button type="button" data-act="reset">恢复默认颜色</button><span class="grow"></span><button type="button" class="btn-primary" data-act="ok">完成</button>';
-    var timer = null;
-    root.querySelectorAll('input[type=color]').forEach(function (input) {
+    dlg.foot.innerHTML = '<button type="button" data-act="reset">恢复默认</button><span class="grow"></span><button type="button" class="btn-primary" data-act="ok">完成</button>';
+    var timer = null, gp = gridPrefs();
+    function syncGrid() {
+      root.querySelector('[data-g="h"]').checked = gp.h; root.querySelector('[data-g="v"]').checked = gp.v;
+      root.querySelector('[data-g="style"]').value = String(gp.style); root.querySelector('[data-g="color"]').value = gridColor(gp);
+    }
+    syncGrid();
+    root.querySelectorAll('[data-g]').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var k = el.dataset.g;
+        if (k === 'h' || k === 'v') gp[k] = el.checked; else if (k === 'style') gp.style = +el.value; else gp[isDarkNow() ? 'dark' : 'light'] = el.value;
+        saveJSON(GRID_KEY, gp);
+        Object.keys(charts).forEach(function (id) { if (charts[id] && charts[id].chart) charts[id].chart.applyOptions({ grid: gridOpts() }); });
+      });
+    });
+    root.querySelectorAll('input[type=color]:not([data-g])').forEach(function (input) {
       input.addEventListener('input', function () {
         document.documentElement.style.setProperty('--' + input.dataset.key, input.value);
         colors = computeColors();
@@ -3067,10 +3095,13 @@
       var act = e.target.dataset && e.target.dataset.act;
       if (act === 'ok') dlg.close();
       if (act === 'reset') {
+        try { localStorage.removeItem(GRID_KEY); } catch (ex) {}
+        gp = gridPrefs(); syncGrid();
+        Object.keys(charts).forEach(function (id) { if (charts[id] && charts[id].chart) charts[id].chart.applyOptions({ grid: gridOpts() }); });
         COLOR_KEYS.forEach(function (k) { document.documentElement.style.removeProperty('--' + k); });
         try { localStorage.removeItem(COLOR_STORAGE_KEY); } catch (ex) {}
         colors = computeColors();
-        root.querySelectorAll('input[type=color]').forEach(function (i) { i.value = colors[i.dataset.key]; });
+        root.querySelectorAll('input[type=color][data-key]').forEach(function (i) { i.value = colors[i.dataset.key]; });
         rerenderAll();
       }
     });
