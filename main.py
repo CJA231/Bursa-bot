@@ -2091,10 +2091,39 @@ def fmt_compact(v):
     return f"{v:.0f}"
 
 
+_FULL_NAMES = {}
+
+
+def full_name(code, name):
+    """公司全名 (个股资料 stock/代码.json 里的 long_name，例如 "Northern Solar Berhad")；没有就用短名。美股不用 (名称本来就是全名)"""
+    if code not in _FULL_NAMES:
+        try:
+            with open(os.path.join(DETAIL_DIR, f"{code}.json"), encoding="utf-8") as f:
+                _FULL_NAMES[code] = (json.load(f).get("long_name") or "").strip() or None
+        except (OSError, ValueError):
+            _FULL_NAMES[code] = None
+    return _FULL_NAMES[code] or name
+
+
+_NAME_SUFFIX_RE = re.compile(r"[\s,.&]*\b(berhad|bhd)\b\.?\s*$", re.I)
+
+
+def short_company_name(code, name):
+    """公司名去掉 Berhad / Bhd 这类后缀 (JAG Berhad → JAG)；去完是空的就用原来的"""
+    full = full_name(code, name)
+    return _NAME_SUFFIX_RE.sub("", full).strip() or full
+
+
 def name_pair(code, name):
     """(主名称, 副标)。马股名称短，主名称 = 名称、副标 = 代号；美股公司全名很长 (Micron Technology, Inc.)，
     手机上会把代号挤掉 → 主名称 = 代号 (MU)、副标 = 公司名"""
-    return (code, name) if MARKET_ID == "US" else (name, code)
+    return (code, name) if MARKET_ID == "US" else (short_company_name(code, name), code)
+
+
+def chip_code(code, name):
+    """标签里名称后面的灰色代码；名称就是代码 (新股还没有名称) 时不重复"""
+    main, sub = name_pair(code, name)
+    return "" if main == sub else f'<small class="chip-code">{html.escape(sub)}</small>'
 
 
 def display_name(code, name):
@@ -2782,7 +2811,17 @@ CARD_CSS = """
   .fold-toc button { flex: 0 0 auto; font: inherit; font-size: var(--fs-sm); padding: 0.3rem 0.75rem; border-radius: 999px; cursor: pointer;
     border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); }
   .fold-toc button:hover { color: var(--text-primary); }
-  .fold-toc .fold-all { margin-left: auto; border-style: dashed; }
+  .fold-toc button { flex: 1 1 0; text-align: center; padding-inline: 0.4rem; white-space: nowrap; } .fold-toc button b { color: var(--muted); font-weight: 600; margin-left: 0.1rem; }
+  .fold-toc button[aria-selected="true"] { color: var(--text-primary); border-color: var(--ema); background: color-mix(in srgb, var(--ema) 12%, transparent); }
+  .tab-pane[hidden] { display: none; }
+  /* 今天关注：一支股票一行 (名称 + 价格，下面一行小字写关键数字) */
+  .fc-row { padding: 0.4rem 0.65rem; gap: 0; } .fc-list { gap: 0.3rem; } .fc-l { font-size: var(--fs-xs); }
+  /* 图表下面的条件清单 */
+  .rc { margin: 0.6rem 0 0; padding-top: 0.5rem; border-top: 1px solid var(--border); } .rc:empty { display: none; }
+  .rc-h { font-size: var(--fs-sm); color: var(--text-secondary); margin: 0 0 0.3rem; } .rc-h b { font-size: var(--fs-md); }
+  .rc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; font-size: var(--fs-sm); }
+  .rc-list li { display: grid; grid-template-columns: 1.1rem minmax(0, 1fr); gap: 0.3rem; } .rc-list i { font-style: normal; font-weight: 600; }
+  .rc-list li.ok i { color: var(--up); } .rc-list li.no i { color: var(--down); } .rc-list li.no span { color: var(--muted); }
   .fold-bar { display: flex; align-items: center; gap: 0.5rem 0.9rem; width: 100%; margin: 0.2rem 0 0.9rem; padding: 0.55rem 0.8rem;
     font: inherit; text-align: left; cursor: pointer; color: var(--text-secondary); background: var(--surface);
     border: 1px solid var(--border); border-radius: 10px; }
@@ -2816,6 +2855,21 @@ CARD_CSS = """
   .quote-live { display: flex; flex-wrap: wrap; gap: 0.2rem 0.7rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; min-height: 1.2em; }
   .quote-live b { color: var(--text-primary); font-weight: 600; }
   .quote-live .ql-time { color: var(--muted); }
+  .chart-set .set-h { margin: 1rem 0 0.4rem; font-size: var(--fs-md); } .grid-set { display: grid; gap: 0.5rem; }
+  .grid-set .check { display: flex; flex-direction: row; align-items: center; gap: 0.5rem; font-size: var(--fs-md); color: var(--text-primary); }
+  /* 我的持仓 vs 信号 */
+  .hold-form { display: grid; grid-template-columns: 1.3fr 1fr 1fr auto; gap: 0.4rem 0.5rem; align-items: end; margin: 0 0 0.6rem; } .hold-form .hold-code { grid-column: 1 / -1; width: 100%; text-align: left; }
+  .hold-form label { display: grid; gap: 0.15rem; font-size: var(--fs-xs); color: var(--text-secondary); min-width: 0; } .hold-form .cbt-num { width: 100%; min-width: 0; text-align: left; }
+  .hold-list { display: grid; gap: 0.5rem; margin: 0 0 0.8rem; } .hold-sum { margin: 0 0 0.3rem; font-size: var(--fs-xs); color: var(--muted); } .hold-head { margin: 0 0 0.5rem; font-size: var(--fs-lg); }
+  .ds-legend .lg-m::before { border-top: 3px solid var(--text-primary); } .hold-res .hold-eq { height: 240px; margin-bottom: 0.4rem; } .hold .set-h { margin: 1rem 0 0.4rem; font-size: var(--fs-md); }
+  .hold-cmp th, .hold-rows th { text-align: left; font-weight: 500; } .hold-cmp tr.me th { font-weight: 600; }
+  .hold-rows td small { display: block; color: var(--muted); font-size: var(--fs-xs); } .hold-sig { white-space: normal !important; min-width: 9rem; font-size: var(--fs-xs); color: var(--text-secondary); }
+  .sv-nums { margin: 0.8rem 0; } .sv-nums > div { min-width: 0; } .sv-nums { margin: 0.6rem 0 0; }
+  .sv-key { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem 0.6rem; margin: 0 0 0.5rem; }
+  .sv-key div { min-width: 0; } .sv-key dt { color: var(--muted); font-size: var(--fs-xs); } .sv-key dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sv-key dd small, .quote-grid .lv-cell dd small { font-weight: 400; }
+  .sv-key dd small { display: block; line-height: 1.2; }
+  @media (max-width: 380px) { .sv-key { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .quote-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.35rem 0.6rem; margin: 0.45rem 0 0; }
   .quote-grid div { min-width: 0; }
   .quote-grid dt { color: var(--muted); font-size: var(--fs-xs); }
@@ -4020,7 +4074,7 @@ def build_market_html(market, stocks):
     if listed:
         def chip(s, value, cls):
             code = s["symbol"].split(".")[0]
-            return (f'<button type="button" class="mk-chip" data-code="{html.escape(code)}" title="{html.escape(s["name"])}"><b>{html.escape(display_name(code, s["name"]))}</b><small class="chip-code">{html.escape(name_pair(code, s["name"])[1])}</small>'
+            return (f'<button type="button" class="mk-chip" data-code="{html.escape(code)}" title="{html.escape(s["name"])}"><b>{html.escape(display_name(code, s["name"]))}</b>{chip_code(code, s["name"])}'
                     f'<span class="{cls}">{value}</span></button>')
         liquid = [s for s in listed if (s["data"].get("turnover") or 0) >= MOVER_MIN_TURNOVER]
         gainers = sorted((s for s in liquid if change_pct_of(s["data"]) > 0), key=lambda s: -change_pct_of(s["data"]))[:3]
@@ -4210,6 +4264,7 @@ def build_backtest_html(bt):
     return f"""<div class="bt" id="sec-backtest">
   <div class="bt-head"><h4>策略回测 <i>Backtest</i>{info_btn("backtest", "策略回测", rule_tip)}</h4>
     <span class="bt-sub">{period} · {a['n']} 笔{f" · {bt['slots']} 个仓位 · 满仓跳过 {bt['skipped']}" if bt.get("slots") else ""}</span>
+    <button type="button" class="sp-btn bt-custom" data-act="my-holdings">我的持仓 ›</button>
     <button type="button" class="sp-btn bt-custom" data-act="custom-backtest">自定义回测 ›</button></div>
   {paper_html}
   {windows}
@@ -4252,7 +4307,7 @@ def build_board_html(board):
                   for c, label in ANN_CATS if counts.get(c)]
         items = "".join(
             f'<li class="ann-item" data-cat="{it["cat"]}"><time datetime="{it["date"]}">{it["date"][5:].replace("-", "/")}</time>'
-            f'<button type="button" class="ann-stock{" sig" if it["signal"] else ""}" data-code="{html.escape(it["code"])}" title="{html.escape(it["name"])}">{html.escape(display_name(it["code"], it["name"]))}</button><small class="chip-code">{html.escape(name_pair(it["code"], it["name"])[1])}</small>'
+            f'<button type="button" class="ann-stock{" sig" if it["signal"] else ""}" data-code="{html.escape(it["code"])}" title="{html.escape(it["name"])}">{html.escape(display_name(it["code"], it["name"]))}</button>{chip_code(it["code"], it["name"])}'
             f'<span class="ann-cat">{cat_label.get(it["cat"], "其他")}</span>'
             f'<a href="{html.escape(it["link"])}" target="_blank" rel="noopener noreferrer">{html.escape(it["title"])}</a></li>'
             for it in board)
@@ -4276,6 +4331,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
     cards = []
     chips = []
     focus_new = []  # 首页「今天关注」的新增信号
+    take_pct = STRATEGY["exit"].get("take_pct") or 0
     chart_payload = {}
     table_rows = []
     no_data_count = 0
@@ -4290,7 +4346,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
         turnover = data.get("turnover") or data["close"] * data["volume"]
         q = QUOTE_META.get(s["symbol"]) or {}
-        m = {"n": s["name"], "p": data["close"], "c": round(change_pct_of(data), 2), "t": round(turnover), "sig": 1 if s["matched"] else 0}
+        m = {"n": s["name"], **({"fn": short_company_name(code, s["name"])} if MARKET_ID != "US" and short_company_name(code, s["name"]) != s["name"] else {}), "p": data["close"], "c": round(change_pct_of(data), 2), "t": round(turnover), "sig": 1 if s["matched"] else 0}
         for key, v in (("a", data.get("turnover_avg20")), ("atr", data.get("atr_pct")), ("sar", data.get("sar")),
                        ("rsi", data.get("rsi")), ("l", data.get("listed_days")), ("mc", q.get("mcap")), ("pe", q.get("pe")),
                        ("dy", q.get("dy")), ("hi", q.get("hi52")), ("lo", q.get("lo52"))):
@@ -4325,6 +4381,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
                 spark_title = "近 30 日走势"
 
             name = html.escape(s["name"])
+            fname = html.escape(short_company_name(code, s["name"]))
             rel_vol = data.get("rel_volume")
             if rel_vol is None:
                 rel_vol_cell = '<td class="num col-relvol" data-label="相对量" data-value="-1">—</td>'
@@ -4347,7 +4404,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
             # 马股: 徽章 = 名称、灰字 = 代号；美股公司全名太长 (Micron Technology, Inc.)，手机上会把代号挤掉 → 徽章 = 代号、灰字 = 公司名
             main_label, sub_label = (html.escape(x) for x in name_pair(code, s["name"]))
-            table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()}" data-code="{code}" data-name="{name}" tabindex="0" {flags}>
+            table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()} {fname.lower()}" data-code="{code}" data-name="{fname}" tabindex="0" {flags}>
                 <td class="idx-cell"></td>
                 <td class="stock-cell" data-value="{main_label}"><span class="ticker">{main_label}</span><span class="stock-code">{sub_label}</span>{new_badge}</td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
@@ -4411,23 +4468,26 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
             ("ATR(14)", pct_text(data.get("atr_pct"), 1, plus=False), "atr", ""),
             ("风险", pct_text(-risk, 1) if risk else "—", "risk",
              f"最近的离场线：{stop_ref[1]} {fmt_price(stop_ref[0])}" if stop_ref else "现价下方没有离场线"),
-            ("计划 R/R", "2.0" if risk else "—", "rr",
-             (f"默认计划：目标 = 2 倍风险。历史参考 (回测同类信号期间最大涨幅中位数 {pct_text(mfe_median, 1)}) = 1 : {rr:.1f}，不是计划" if mfe_median and rr else "默认计划：目标 = 2 倍风险")),
+            ("R/R", f"{take_pct / risk:.1f}" if take_pct and risk else "—", "rr",
+             (f"策略目标 +{take_pct:g}% ÷ 到最近更高低点的风险 {risk:.1f}%" if take_pct and risk else "策略没有设目标")
+             + (f"。历史参考 (回测同类信号期间最大涨幅中位数 {pct_text(mfe_median, 1)}) = 1 : {rr:.1f}，不是计划" if mfe_median and rr else "")),
         ]
         quote_grid = "".join(f'<div{tip_attrs(g, t) if g or t else ""}><dt>{k}</dt><dd>{v}</dd></div>' for k, v, g, t in quote_items)
         focus_new.append({
             "code": code, "name": s["name"], "price": data["close"], "chg": round(change_pct, 2), "date": data.get("last_date"),
             "strat": [name for name, _ in groups], "why": [x for _, tags in groups for x in tags], "rv": round(rel_vol, 2) if rel_vol is not None else None,
             "stop": round(stop_ref[0], 4) if stop_ref and stop_ref[0] < close else None, "stop_by": stop_ref[1] if stop_ref and stop_ref[0] < close else None,
+            # 目标 = 策略里设的止盈 / 锁利润线 (take_pct)；报酬风险比 = 这个 % ÷ 到最近更高低点的风险 %；策略没设 take_pct 就没有目标
+            "target": round(close * (1 + take_pct / 100), 4) if take_pct else None, "tp": take_pct or None, "rr": round(take_pct / risk, 1) if take_pct and risk else None,
             "mfe": mfe_median, "hist_rr": round(rr, 1) if rr else None})
         live_badge = '<span class="live-badge" title="盘中信号：用的是还没收完的日线，收盘前可能消失">盘中</span>' if state == "live" else ""
 
         # 图表下方只放数据 (quote)，不放说明文字/图例/符号；AI 点评只保留在下载的 Excel/PDF 里
-        chips.append(f'''<button type="button" class="sym-chip" data-strats="{strat_idx}" aria-current="false"><b>{html.escape(display_name(code, s['name']))}</b><small class="chip-code">{html.escape(name_pair(code, s['name'])[1])}</small>'''
+        chips.append(f'''<button type="button" class="sym-chip" data-strats="{strat_idx}" aria-current="false"><b>{html.escape(display_name(code, s['name']))}</b>{chip_code(code, s['name'])}'''
                      f'''<span class="sym-price">{fmt_price(data['close'])}</span><span class="{change_class}">{sign}{change_pct:.2f}%</span></button>''')
         cards.append(f"""<section class="card" data-chart="{chart_id}" data-strats="{strat_idx}" aria-roledescription="卡片" aria-label="{html.escape(s['name'])} {code}">
             <div class="card-head">
-                <h2>{html.escape(s['name'])} <span class="code">{code}</span>{history_badge(data)}{live_badge}</h2>
+                <h2>{html.escape(display_name(code, s['name']))}{'' if display_name(code, s['name']) == code else f' <span class="code">{code}</span>'}{history_badge(data)}{live_badge}</h2>
                 <div class="card-price"><b>{fmt_price(data['close'])}</b> <span class="{change_class}">{sign}{fmt_price(change)} ({sign}{change_pct:.2f}%)</span></div>
             </div>
             <p class="card-tags">{tags_html}</p>
@@ -4498,9 +4558,10 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
     --border: rgba(11,11,11,0.10);
     --up: #0ca30c;      /* 阳线(上涨) 边框+影线颜色，空心 */
     --down: #d03b3b;    /* 阴线(下跌) 实心颜色 */
-    --ema: #4a3aa7;     /* EMA20 均线颜色 */
+    --ema: #4a3aa7;     /* 强调色 (选中的标签、按钮…) */
+    --ema-line: #b59f5b; /* 图表上 EMA20 / 线形图的默认颜色：柔和的卡其色 */
     /* 字体：英文 / 数字用等宽无衬线 (列对得齐)，中文用宋体；等宽字体没有汉字，浏览器逐字回退到后面的宋体 */
-    --font: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, "Songti SC", STSong, "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", SimSun, monospace;
+    --font: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, "PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif, monospace;
     /* 字号阶梯 (rem，1rem = 16px)：12 / 13 / 14 / 16 / 20 / 24 —— 12px 是宋体在手机上还看得清的下限，16px 是输入框的下限 (iOS 不会自动放大页面)；
        每一级约 ×1.15–1.25。用法：xs = 注脚 / 单位 / 说明，sm = 表格和标签，md = 正文和一行一行的内容，lg = 关键数字和输入，xl = 大数字 / 小标题，xxl = 页面标题 */
     --fs-xs: 0.75rem; --fs-sm: 0.8125rem; --fs-md: 0.875rem; --fs-lg: 1rem; --fs-xl: 1.25rem; --fs-xxl: 1.5rem;
@@ -4519,6 +4580,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
       --up: #0ca30c;
       --down: #e66767;
       --ema: #9085e9;
+      --ema-line: #d1bf84;
     }}
   }}
   * {{ box-sizing: border-box; }}
@@ -5081,6 +5143,17 @@ def main():
         write_manifest()
     except OSError as e:
         print(f"⚠️ manifest 写入失败 ({e})")
+    # 公开展示站 (精简版：没有指标、规则、回测)：写到 public_site/，workflow 再推到另一个公开仓库；出错不影响完整报告
+    if MARKET_ID == "MY":
+        try:
+            import public_site
+            now_dt = datetime.now(LOCAL_TZ)
+            out_dir = public_site.build(stocks, market, market_state(now_dt), now_dt.strftime("%Y-%m-%d %H:%M") + f" ({MKT['tz_label']})",
+                                        MKT["title"], CURRENCY_SYMBOL, os.path.join(DOCS_ROOT, "vendor", "lightweight-charts.js"), full_name=short_company_name)
+            if out_dir:
+                print(f"🌐 公开展示站已生成: {out_dir}/")
+        except Exception as e:
+            print(f"⚠️ 公开展示站生成失败 ({type(e).__name__}: {e})")
     report_secs = time.perf_counter() - t_report
 
     hits = sum(1 for s in stocks if s["matched"])

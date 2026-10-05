@@ -81,3 +81,21 @@ jobs:
           # 两个市场写的是不同目录 (docs/ 和 docs/us/)，不会冲突
           git pull --rebase origin "${GITHUB_REF_NAME}"
           git push
+
+      # 公开展示站 (精简版，没有指标 / 规则 / 回测)：推到另一个公开仓库的根目录。
+      # 需要在这个 (私有) 仓库设置：Secret PUBLIC_REPO_TOKEN (对公开仓库有 Contents 写权限的 fine-grained token)、Variable PUBLIC_REPO (例如 CJA231/Bursa-bot-public)。没设置就跳过
+      - name: Publish public showcase
+        if: ${{ github.event.inputs.market != 'US' }}
+        env:
+          PUBLIC_REPO_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          PUBLIC_REPO: ${{ vars.PUBLIC_REPO }}
+        run: |
+          if [ -z "$PUBLIC_REPO_TOKEN" ] || [ -z "$PUBLIC_REPO" ] || [ ! -d public_site ]; then echo "没有设置公开仓库，跳过"; exit 0; fi
+          git clone --depth 1 "https://x-access-token:${PUBLIC_REPO_TOKEN}@github.com/${PUBLIC_REPO}.git" pub
+          rsync -a --delete --exclude '.git' public_site/ pub/
+          cd pub
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet || git commit -m "Update public showcase"
+          git push
