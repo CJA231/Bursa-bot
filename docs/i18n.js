@@ -126,9 +126,84 @@
     '威廉指标 Williams %R': 'Williams %R', '平均真实波幅 ATR': 'Average True Range (ATR)', '布林带带宽': 'Bollinger Bandwidth', '成交量均线': 'Volume MA', '能量潮 OBV': 'On-Balance Volume (OBV)', '滚动 VWAP': 'Rolling VWAP'
   });
 
+
+  Object.assign(EXACT, {
+    '机会': 'Setups', '日期': 'Date', '主力位': 'Key level', '达标': 'Rules met', '我的持仓 ›': 'My holdings ›', '页面': 'Pages', '没有月线的数据': 'No monthly data', '近 30 日走势': 'Last 30 days',
+    '图表载入失败：这次运行没有生成完整图表数据': 'Chart failed to load: full chart data was not generated this run',
+    // 财报
+    '营业收入': 'Revenue', '净利润': 'Net income', '净利率': 'Net margin', '经营现金流': 'Operating cash flow', '项目': 'Item', '毛利': 'Gross profit', '营业利润': 'Operating income', '每股盈利 (EPS)': 'EPS', '每股Profit (EPS)': 'EPS',
+    '总资产': 'Total assets', '总负债': 'Total liabilities', '股东权益': "Shareholders' equity", '现金及等价物': 'Cash & equivalents', '总债务': 'Total debt', '自由现金流': 'Free cash flow',
+    '财报说明': 'About financials', '新闻说明': 'About news', '自设': 'Custom', '现价': 'Last', '转盈': 'turned profitable', '转正': 'turned positive',
+    // 计算器
+    '交易成本 · 保本价': 'Costs · Break-even', '按风险算股数': 'Size by risk', '买入价 (RM)': 'Buy price (RM)', '卖出价 (RM)': 'Sell price (RM)', '数量': 'Quantity', '手': 'Lots', '股': 'Shares', '股数': 'Shares',
+    '买入金额': 'Buy amount', '买入费用': 'Buy fees', '买入总成本': 'Total buy cost', '保本卖价': 'Break-even sell price', '卖出金额': 'Sell amount', '卖出费用': 'Sell fees', '净赚': 'Net profit', '来回费用合计': 'Total round-trip fees',
+    '收费标准': 'Fee schedule', '佣金 (%)': 'Brokerage (%)', '最低佣金 (RM)': 'Min brokerage (RM)', '佣金服务税 SST (%)': 'Brokerage SST (%)', '结算费 (%)': 'Clearing fee (%)', '结算费上限 (RM)': 'Clearing fee cap (RM)',
+    '印花税 (每 RM1,000，RM)': 'Stamp duty (per RM1,000, RM)', '印花税上限 (RM)': 'Stamp duty cap (RM)', '每笔其他费用 (RM)': 'Other fees per trade (RM)', '这一笔最多亏 (RM)': 'Max loss on this trade (RM)',
+    '风险价': 'Risk price', '预期卖价': 'Target sell price', '可以买': 'Can buy', '需要本金': 'Capital needed', '跌到风险价': 'If it falls to the risk price', '到预期卖价': 'At the target price',
+    '用这个股数算交易成本 ›': 'Use this size in the cost calculator ›', '数量单位': 'Quantity unit', '收费标准说明': 'About fees', '按风险算股数说明': 'About sizing by risk', '填上买入价和数量': 'Enter the buy price and quantity',
+    '填上进场价、风险价和最多亏多少': 'Enter the entry price, risk price and max loss', '资本 (RM)': 'Capital (RM)', '本金 (RM)': 'Capital (RM)',
+    // 指标数字
+    '20 日均额': '20d avg turnover', '50 日均线': 'SMA50', '支撑距离': 'Support distance', '支撑': 'Support',
+    '今天成交额 = 价格 × 成交量；越大越容易进出': "Today's turnover = price × volume; the larger, the easier to enter / exit", '前 20 个交易日平均每天的成交额': 'Average daily turnover over the previous 20 sessions',
+    '今天成交量 ÷ 前 20 天平均': "Today's volume ÷ the previous 20-day average", '旁边 = 现价比它高 / 低多少': 'Next to it = how far price is above / below it', '旁边 = 现价比它高 / 低多少 (%)': 'Next to it = how far price is above / below it',
+    'SAR 在现价下面：这个价位 = 跟踪止损线，收盘跌破就转空': 'SAR is below price: this level is the trailing stop; a close below it flips SAR bearish', 'SAR 在现价上面：收盘涨过它就转多': 'SAR is above price: a close above it flips SAR bullish',
+    '70 以上偏热、30 以下偏冷': 'Above 70 = hot, below 30 = cold', '平均每天的波动幅度 (价格)；旁边 = 占现价 %': 'Average daily range (in price); next to it = % of price', '现价到最近支撑有几个 ATR；小于 1 = 正常波动就可能碰到': 'How many ATRs from price to the nearest support; below 1 = normal volatility can reach it',
+    '回测里同类信号的历史统计，不是这份计划': 'Historical statistics of similar backtested signals — not this plan',
+    // 计划滚轮 / 设置
+    '止损用': 'Stop at', '回调低点': 'Pullback low', '进场': 'Entry', '上涨': 'Up', '下跌': 'Down', 'EMA 20 / 线形图': 'EMA 20 / line chart', '网格': 'Grid', '横线': 'Horizontal lines', '竖线': 'Vertical lines', '线型': 'Line style', '实线': 'Solid', '点线': 'Dotted', '虚线': 'Dashed',
+    '背景浅色 / 深色跟着系统；只存在这个浏览器里': 'Light / dark background follows the system; stored only in this browser', '完成': 'Done', '只存在这个浏览器里': 'Stored only in this browser', '恢复默认': 'Reset',
+    // 模板 / 条件编辑
+    '＋ 当前模板另存一份': '+ Save a copy of this template', '＋ 空白模板': '+ Blank template', '⤓ 导出备份': '⤓ Export backup', '⤒ 导入备份': '⤒ Import backup', '模板说明': 'About templates',
+    '至少 N 条': 'At least N rules', '至少满足': 'At least', '条': 'rules', '还没有条件，点下面的「＋ 添加条件」。': 'No rules yet — tap "+ Add rule" below.', '公式条件': 'Formula rule', '怎么看、怎么写': 'How to read and write rules',
+    '每支股票只看': 'Each stock is checked on', '最新一根日线': 'its latest daily bar', '日': 'd', '等': 'etc.', '例子:': 'Examples:', '怎样算命中': 'What counts as a match', '至少满足几条': 'How many rules must hold',
+    '= 报告更新时的最新成交价 (跟表格"价格"一样，收盘后就是收盘价)；「今日」= 最新这一根，「昨日收盘」= 前一根': '= last traded price when the report was generated (same as "Price" in the table; after the close it is the closing price); "Today" = the latest bar, "Yesterday close" = the previous bar',
+    '= 这一根刚穿过去 (前一根还在另一边)；': '= it just crossed on this bar (the previous bar was still on the other side); ', '= 用几根日线算，例如 EMA 20 日': '= how many daily bars are used, e.g. EMA 20 days', ': 比较': ': compare', ', 组合': ', combine', '; 变量': '; variables', '; 函数': '; functions',
+    '(突破昨天高点，而且放量)': '(breaks yesterday\'s high with heavy volume)',
+    '昨日收盘': 'Yesterday close', '今日开盘': 'Today open', '今日最高': 'Today high', '今日最低': 'Today low', '前 N 日最高': 'Highest of prior N days', '前 N 日最低': 'Lowest of prior N days', 'SAR 抛物线': 'Parabolic SAR', 'MACD 线': 'MACD line', 'T3 形态突破': 'T3 breakout', '固定数字': 'Fixed number',
+    '删除这条条件': 'Delete this rule', '比较': 'Compare', '加速': 'Acceleration', '最大': 'Max', 'SAR 抛物线 加速': 'Parabolic SAR acceleration', 'SAR 抛物线 最大': 'Parabolic SAR max', 'SMA 均线 用几日计算': 'SMA length (days)', 'EMA 均线 用几日计算': 'EMA length (days)',
+    '成交量 (百万股)': 'Volume (millions of shares)', '例如 close > sma(close,50) and rsi(close,14) < 70': 'e.g. close > sma(close,50) and rsi(close,14) < 70', '✎ 编辑条件': '✎ Edit rules', '回测这组条件 ›': 'Backtest these rules ›', '今天没有股票符合': 'No stocks match today', '没有符合的股票': 'No matching stocks',
+    '近 6 个月没有出现过': 'Not triggered in the last 6 months', '近 6 个月没有出现过这组条件': 'These rules did not trigger in the last 6 months',
+    '「当前设定」那页用后台固定账本；其他页用今天报告里的股票重算，只作对比。': 'The "Current setup" page uses the backend\'s frozen ledger; the other pages recompute with the stocks in today\'s report and are for comparison only.',
+    '自选的股票按你填的日子和价钱先买，碰到你的停损 / 目标就卖，其余照后台离场规则；空出来的仓位按新信号换进': 'Your own picks are bought first at your date / price and sold at your stop / target; everything else follows the backend exit rules; freed slots rotate into new signals',
+    '没有足够的逐日价格，只能看下面的已实现盈亏曲线。': 'Not enough daily prices — only the realized P/L curve below is available.', '已实现盈亏曲线 (只在结算日入账，不含持仓浮盈亏) · 每月期望值': 'Realized P/L curve (booked on settlement day only, excluding open P/L) · Monthly expectancy',
+    '已复制 strategy.json 内容': 'strategy.json content copied', '内容已复制': 'Content copied', '打开 GitHub 编辑 strategy.json ›': 'Open GitHub to edit strategy.json ›', '全部换成复制的内容 →': 'Replace everything with the copied content →', '再复制一次': 'Copy again', '设为后台信号说明': 'About setting as strategy',
+    'strategy.json 内容': 'strategy.json content', '复制不了，请长按内容全选复制': 'Copy failed — long-press the text, select all and copy',
+    // 我的持仓
+    '我的持仓 vs 信号': 'My holdings vs signals', '加入': 'Add', '我': 'Me', '我的持仓': 'My holdings', '收益率': 'Return', '买入': 'Buy', '自己找的': 'Self-picked', '持仓': 'Positions', '卖出日': 'Sell date', '卖出价': 'Sell price', '买入日': 'Buy date', '买入价': 'Buy price',
+    '股票代码或名称': 'Stock code or name', '没卖就空着': 'Leave empty if unsold', '年化，对基准回归的超额收益': 'Annualized excess return from regression on the benchmark', '对基准的敏感度': 'Sensitivity to the benchmark', '年化，无风险利率 0': 'Annualized, risk-free rate 0',
+    '，α / β / Sharpe 参考价值很低。α、Sharpe 年化；基准 = 报告内股票等权持有。': ', so α / β / Sharpe are of little value. α and Sharpe are annualized; benchmark = equal-weight of the stocks in the report.',
+    '已满 3 仓': 'Full (3 slots)', '开启': 'On', '关闭': 'Off'
+  });
+
   // ---------- 2. 带数字的句型 (按顺序全部套用) ----------
   var PATTERNS = [
+    [/(^|\s)转盈$/, '$1turned profit'], [/(^|\s)转亏$/, '$1turned loss'], [/(^|\s)转正$/, '$1turned positive'], [/(^|\s)转负$/, '$1turned negative'],
+
+    [/^成本：来回 ([\d.]+)% · 每笔 RM\s?([\d,]+)$/, 'Cost: round-trip $1% · RM $2 per trade'],
+    [/^仓位：最多同时 (\d+) 笔，满了新信号跳过 \((\d+) 个信号，满仓跳过 (\d+) 个\)；同一天先买相对量高的$/, 'Positions: max $1 at once, new signals skipped when full ($2 signals, $3 skipped); same-day ties buy higher relative volume first'],
+
+    [/^(QoQ|YoY|vs prior year) (转盈|转亏|转正|转负)$/, function (m, a, b) { return a + ' ' + ({ '转盈': 'turned profit', '转亏': 'turned loss', '转正': 'turned positive', '转负': 'turned negative' })[b]; }],
+    [/^(\d+\/\d+) 起 · 最多 (\d+) 笔$/, 'From $1 · up to $2 trades'],
+    [/^我的模板 · (.+?)( \(当前\))?$/, function (m, n, c) { return 'My template · ' + n + (c ? ' (current)' : ''); }],
+
     // --- 整句 / 句首 (先套用) ---
+    // --- 补充：整句 (放最前面，先于通用句型) ---
+    [/(\d\d\/\d\d) 以后出现的信号才会买进 \(最多同时 (\d+) 笔\)，现在还没有交易。/, 'Only signals after $1 are bought (max $2 concurrent); no trades yet.'],
+    [/最近 (\d+) 个交易日没有信号/, 'No signals in the last $1 sessions'], [/近 (\d+) 天没有新闻/, 'No news in the last $1 days'], [/近 (\d+) 个月没有出现过(这组条件)?/, 'Not triggered in the last $1 months'],
+    [/默认计划：目标 = 2 倍风险/, 'Default plan: target = 2× risk'], [/策略目标 \+?([\d.]+)% ÷ 到最近更高低点的风险 ([\d.]+)%/, 'Strategy target +$1% ÷ risk to the latest higher low $2%'], [/策略没有设目标/, 'No strategy target'],
+    [/历史参考 \(回测同类信号期间最大涨幅中位数 ([^)]*)\) = 1 : ([\d.]+)，不是计划/, 'Historical reference (median MFE of similar backtested signals $1) = 1 : $2 — not the plan'],
+    [/^默认计划：进场 ([\d.]+) · 止损 ([\d.]+) · 目标 ([\d.]+) · R\/R = \(目标 − 进场\) ÷ \(进场 − 止损\)/, 'Default plan: entry $1 · stop $2 · target $3 · R/R = (target − entry) ÷ (entry − stop)'],
+    [/^按你的计划：进场 ([\d.]+) · 止损 ([\d.]+) · 目标 ([\d.]+) · R\/R = \(目标 − 进场\) ÷ \(进场 − 止损\)/, 'Your plan: entry $1 · stop $2 · target $3 · R/R = (target − entry) ÷ (entry − stop)'],
+    [/历史 最大涨幅中位数 ([+\-\d.]+%)( · 1 : ([\d.]+))?/, 'History: median MFE $1$2'], [/(\d+) 天前存/g, 'saved $1d ago'], [/今天存/g, 'saved today'], [/(\d+) 小时前/g, '$1h ago'], [/(\d+) 分钟前/g, '$1 min ago'],
+    [/^(.+?)各期数值，详见下方表格$/, '$1 by period — see the table below'], [/报告期结束：/, 'Period ended: '], [/ · 单位 令吉/, ' · unit: MYR'], [/较上年/, 'vs prior year'], [/环比/g, 'QoQ'], [/同比/g, 'YoY'], [/(-?[\d.]+) 个百分点/g, '$1 pp'],
+    [/佣金 ([\d.,]+) · 结算费 ([\d.,]+) · 印花税 ([\d.,]+)/, 'Brokerage $1 · Clearing $2 · Stamp duty $3'], [/占买入金额 ([\d.]+)%/, '$1% of the buy amount'], [/买入价 \+([\d.]+)%/, 'Buy price +$1%'], [/每股 ([+\-−\d.]+) \((.+?)\)/, 'Per share $1 ($2)'],
+    [/扣费用后 1 : ([\d.]+)/, 'After fees 1 : $1'], [/按一手 (\d+) 股往下取整/, 'Rounded down to lots of $1 shares'],
+    [/已加入自选：(.+?) \(☰ → 自选\)/, 'Added to watchlist: $1 (☰ → Watchlist)'], [/从自选移除 (.+)/, 'Removed from watchlist: $1'],
+    [/^颜色 \(浅色背景\)$/, 'Color (light background)'], [/^颜色 \(深色背景\)$/, 'Color (dark background)'], [/选股条件：(.+)/, 'Screen rules: $1'], [/打开 (.+?) 的完整图表/, 'Open the full chart of $1'], [/删除第 (\d+) 条条件/, 'Delete rule $1'],
+    [/第 (\d+) 条条件的左边/, 'Left side of rule $1'], [/第 (\d+) 条条件的右边/, 'Right side of rule $1'], [/第 (\d+) 条条件的公式/, 'Formula of rule $1'], [/(\d+) 个条件 · (\d+) 个指标 · 使用中/, '$1 rules · $2 indicators · in use'], [/(\d+) 个条件 · (\d+) 个指标/, '$1 rules · $2 indicators'],
+    [/(\d+) 支没有K线 \((.+?)\)/, '$1 without candles ($2)'], [/这次运行没有生成完整图表数据/, 'full chart data was not generated this run'], [/我的模板 · (.+?) \(当前\)/, 'My template · $1 (current)'],
+    [/后台会扫描 (\d+) 套：(.+)/, 'The backend will scan $1 set(s): $2'], [/我的持仓从 (\d\d\/\d\d) 开始 · 到 (\d\d\/\d\d)/, 'My holdings since $1 · to $2'], [/信号 \((\d+) 仓\)/, 'Signals ($1 slots)'], [/样本只有 (\d+) 个交易日/, 'Only $1 trading days of data'],
+    [/进行中 · 现价 /, 'In progress · price '], [/离止损 /g, 'to stop '], [/离目标 /g, 'to target '],
     [/^全部 (\d+) 笔$/, 'All $1 trades'], [/^成本 ([\d.]+)% \(\+([\d.]+)\)$/, 'Cost $1% (+$2)'], [/^向前模拟 \((\S+) 起\)$/, 'Forward sim (from $1)'], [/^向前模拟$/, 'Forward sim'],
     [/本金 (RM\s?[\d,]+) \((\d+) 仓 × (RM\s?[\d,]+)\) · 来回成本 ([\d.]+)% · 收盘价进场/, 'capital $1 ($2 slots × $3) · round-trip cost $4% · enter at close'], [/最长没恢复 (\d+) 天(，还没恢复)?/, function (m, d, x) { return 'Longest underwater ' + d + 'd' + (x ? ' (not recovered)' : ''); }],
     [/(\d+) 笔 · (\d+) 笔/, '$1 closed · $2 open'], [/95% 区间/, '95% CI'], [/占本金/g, 'of capital'], [/(\d+) 天恢复|\((\d+) 天\)/g, function (m, a, b) { return '(' + (a || b) + 'd)'; }],
@@ -252,11 +327,21 @@
     ,'根K线': ' bars', 'K线': 'candles'
   };
 
+  Object.assign(EXACT, {
+    '转盈': 'turned profit', '转亏': 'turned loss', '转正': 'turned positive', '转负': 'turned negative', '需要资金': 'Capital needed',
+    '：比较': ': compare', '，组合': ', combine', '；变量': '; variables', '；函数': '; functions', '： 比较': ': compare', '， 组合': ', combine', '； 变量': '; variables', '； 函数': '; functions', '例子：': 'Example:', ': 比较': ': compare', ', 组合': ', combine', '; 变量': '; variables', '; 函数': '; functions', '例子:': 'Example:', '还没有条件': 'No rules yet', '条件都有错，暂时算不了': 'Some rules have errors; cannot compute yet', '(当前)': '(current)'
+  });
   Object.assign(PHRASES, {
     '市值': 'Mkt cap', '没有': 'no ', '标 = ': 'Target = ', '全部满足': 'all must hold', '进场：': 'Entry: ', '「SAR 转多」': '"SAR turns bullish"', 'K 线图': 'Candles', '空心K线图': 'Hollow candles', 'K线图': 'Candles', '均线金叉': 'MA golden cross', 'RSI 超卖回升': 'RSI oversold rebound', 'MACD 线上穿信号线': 'MACD line crosses above signal line',
     '内置策略': 'Built-in strategy', '后台信号': 'Strategy signal', '我的筛选器': 'My screener', '当前价格上穿': 'Price crosses above', '前 20 日最高': 'prior 20d high', '筛选器': 'Screener',
     '离场线': 'exit line', '不进': 'skip', '加起来': 'total', '回调后': 'after pullback', '收盘价进场': 'enter at close', '信号日': 'signal day', '信号当天': 'signal day',
     '自选的股票': 'your picks', '仓位': 'slots', '账户': 'account', '成交量': 'volume', '资金': 'capital'
+  });
+
+  Object.assign(PHRASES, {
+    '达标': 'Met', '现价': 'Last', '进行中': 'In progress', '自设': 'Custom', '每股': 'per share ', '扣费用后': 'After fees', '单位': 'unit', '令吉': 'MYR', '营业收入': 'Revenue', '净利润': 'Net income', '净利率': 'Net margin', '经营现金流': 'Operating cash flow',
+    '佣金': 'Brokerage', '结算费': 'Clearing fee', '印花税': 'Stamp duty', '买入价': 'Buy price', '卖出价': 'Sell price', '最低': 'Min ', '总成本': 'Total cost', '收益率': 'Return', '我的持仓': 'My holdings', '信号': 'Signals', '自己找的': 'self-picked',
+    '股票代码或名称': 'Stock code or name', '股票': 'stocks', '代码或名称': 'code or name'
   });
   // 词组按长度从长到短，避免「价格」先吃掉「当前价格」
   var PHRASE_KEYS = Object.keys(PHRASES).sort(function (a, b) { return b.length - a.length; });
@@ -269,11 +354,6 @@
     if (str.indexOf('\n') >= 0) return str.split('\n').map(translate).join('\n'); // 多行的提示：一行一行翻
     var m = /^(\s*)([\s\S]*?)(\s*)$/.exec(str), lead = m[1], core = m[2].replace(/[\u00a0\u202f]/g, ' '), tail = m[3];
     if (!core) return str;
-    if (core.indexOf('离场：') === 0) { // 「离场：A / B / C」：按顶层的斜线拆开，一条一条翻
-      var parts = core.slice(3).split(/ \/ (?![^(]*\))/), tr = parts.map(translate);
-      if (!tr.some(function (x, i) { return x === parts[i] && ZH.test(x); })) return lead + 'Exit: ' + tr.join('; ') + tail;
-      return str;
-    }
     if (Object.prototype.hasOwnProperty.call(EXACT, core)) return lead + EXACT[core] + tail;
     var out = core, i;
     for (i = 0; i < PATTERNS.length; i++) out = out.replace(PATTERNS[i][0], PATTERNS[i][1]);
@@ -305,7 +385,7 @@
     var v = n.nodeValue;
     if (!v || !ZH.test(v) || (written && written.get(n) === v)) return;
     var p = n.parentNode;
-    if (!p || /^(SCRIPT|STYLE|TEXTAREA)$/.test(p.tagName)) return;
+    if (!p || /^(SCRIPT|STYLE|TEXTAREA|PRE|CODE)$/.test(p.tagName) || (p.closest && p.closest('[data-keep]'))) return; // 语言按钮、strategy.json 的内容 (要贴进文件的) 不翻
     var out = null, i;
     for (i = 0; i < CTX.length && out === null; i++) if (p.matches && p.matches(CTX[i][0]) && CTX[i][1][v.trim()]) out = CTX[i][1][v.trim()];
     if (out === null) out = pairedEnglish(n) ? ' ' : translate(v);
@@ -313,7 +393,7 @@
   }
   function attrs(el) {
     for (var i = 0; i < ATTRS.length; i++) {
-      var v = el.getAttribute && el.getAttribute(ATTRS[i]);
+      var v = el.getAttribute && !el.hasAttribute('data-keep') && el.getAttribute(ATTRS[i]);
       if (v && ZH.test(v)) { var t = translate(v); if (t !== v) el.setAttribute(ATTRS[i], t); }
     }
   }
@@ -328,16 +408,59 @@
 
   function missing() {
     var out = [], w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), n;
-    while ((n = w.nextNode())) if (ZH.test(n.nodeValue) && !/^(SCRIPT|STYLE)$/.test(n.parentNode.tagName)) out.push(n.nodeValue.trim());
-    document.querySelectorAll('[title],[aria-label],[placeholder],[data-tip]').forEach(function (el) { ATTRS.forEach(function (a) { var v = el.getAttribute(a); if (v && ZH.test(v)) out.push(v); }); });
+    while ((n = w.nextNode())) if (ZH.test(n.nodeValue) && !/^(SCRIPT|STYLE|PRE|CODE)$/.test(n.parentNode.tagName) && !(n.parentNode.closest && n.parentNode.closest('[data-keep]'))) out.push(n.nodeValue.trim());
+    document.querySelectorAll('[title],[aria-label],[placeholder],[data-tip]').forEach(function (el) { if (el.hasAttribute('data-keep')) return; ATTRS.forEach(function (a) { var v = el.getAttribute(a); if (v && ZH.test(v)) out.push(v); }); });
     return out.filter(function (x, i) { return out.indexOf(x) === i; });
   }
 
+
+  // ---- 中文字体：英文 / 数字一直用等宽字，中文部分可选 (记在这台设备) ----
+  var FKEY = 'bursa_font_cjk', MONO = 'ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas';
+  var FONTS = [
+    ['song', '宋体', 'Songti SC', 'Serif', '"Songti SC", STSong, "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", SimSun, serif'],
+    ['hei', '黑体 (苹方)', 'PingFang', 'Sans', '"PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'],
+    ['round', '圆体', 'Rounded', 'Round', '"Yuanti SC", "Hiragino Maru Gothic ProN", "PingFang SC", "Noto Sans CJK SC", sans-serif'],
+    ['kai', '楷体', 'Kaiti', 'Kai', '"Kaiti SC", STKaiti, "Noto Serif CJK SC", KaiTi, serif'],
+    ['fang', '仿宋', 'Fangsong', 'Fang', '"STFangsong", "Songti SC", "Noto Serif CJK SC", FangSong, serif']
+  ];
+  function applyFont(id) {
+    var f = FONTS.filter(function (x) { return x[0] === id; })[0] || FONTS[0];
+    document.documentElement.style.setProperty('--font', MONO + ', ' + f[4] + ', monospace');
+    return f;
+  }
+  var fontId = 'song';
+  try { fontId = localStorage.getItem(FKEY) || 'song'; } catch (e) { /* 读不到就用默认 */ }
+  applyFont(fontId);
+  function fontButton(bar) {
+    if (document.getElementById('font-btn')) return;
+    var b = document.createElement('button');
+    b.type = 'button'; b.id = 'font-btn'; b.className = 'lang-btn'; b.setAttribute('data-keep', '1');
+    b.textContent = 'Aa'; b.setAttribute('aria-label', lang === 'en' ? 'Chinese font' : '中文字体');
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var old = document.getElementById('font-pop');
+      if (old) { old.remove(); return; }
+      var pop = document.createElement('div'); pop.id = 'font-pop'; pop.setAttribute('data-keep', '1');
+      pop.innerHTML = FONTS.map(function (f) {
+        return '<button type="button" data-f="' + f[0] + '" style="font-family:' + f[4].replace(/"/g, '&quot;') + '"' + (f[0] === fontId ? ' class="on"' : '') + '><b>' + (lang === 'en' ? f[3] : f[1]) + '</b> 稳健回测 0123 +12.5%</button>';
+      }).join('');
+      pop.addEventListener('click', function (ev) {
+        var t = ev.target.closest('[data-f]'); if (!t) return;
+        fontId = t.getAttribute('data-f'); applyFont(fontId);
+        try { localStorage.setItem(FKEY, fontId); } catch (er) { /* 存不了就只换这一次 */ }
+        pop.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === t); });
+        window.dispatchEvent(new Event('resize'));
+      });
+      document.body.appendChild(pop);
+      setTimeout(function () { document.addEventListener('click', function off() { pop.remove(); document.removeEventListener('click', off); }); }, 0);
+    });
+    bar.appendChild(b);
+  }
   function button() {
     var bar = document.querySelector('.topbar');
     if (!bar || document.getElementById('lang-btn')) return;
     var b = document.createElement('button');
-    b.type = 'button'; b.id = 'lang-btn'; b.className = 'lang-btn';
+    b.type = 'button'; b.id = 'lang-btn'; b.className = 'lang-btn'; b.setAttribute('data-keep', '1');
     b.textContent = lang === 'en' ? '中文' : 'EN';
     b.setAttribute('aria-label', lang === 'en' ? '切换到中文' : 'Switch to English');
     b.addEventListener('click', function () {
@@ -346,10 +469,14 @@
       location.replace(location.pathname + u + location.hash); // 重新载入：中文 = 原文，英文 = 重新翻译
     });
     bar.appendChild(b);
+    fontButton(bar);
   }
   var st = document.createElement('style');
-  st.textContent = '.lang-btn{margin-left:auto;flex:none;white-space:nowrap;font:inherit;font-size:var(--fs-sm);font-weight:600;padding:0.25rem 0.6rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-secondary);cursor:pointer}' +
+  st.textContent = '.lang-btn{flex:none;white-space:nowrap;font:inherit;font-size:var(--fs-sm);font-weight:600;padding:0.25rem 0.6rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-secondary);cursor:pointer}' +
     '.lang-btn:hover{color:var(--text-primary)}' +
+    '#lang-btn{margin-left:auto}#font-btn{margin-left:0.4rem}' +
+    '#font-pop{position:fixed;top:52px;right:12px;z-index:9999;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:12px;padding:6px;display:flex;flex-direction:column;gap:2px;box-shadow:0 8px 24px #0005;max-width:calc(100vw - 24px)}' +
+    '#font-pop button{all:unset;cursor:pointer;padding:9px 10px;border-radius:8px;font-size:var(--fs-md,14px);white-space:nowrap}#font-pop button b{display:inline-block;min-width:5.5em}#font-pop button.on{background:var(--border)}' +
     // 英文模式：中英并排的标签里，英文那一半原本是灰色小字，现在是主文字
     'html[data-lang="en"] :is(h4,h5,.cbt-x,.cbt-xh,.bt-head,.section,.subsection,.dash-h) > :is(i,small){font-style:normal;color:inherit;font-size:inherit;margin-left:0}' +
     'html[data-lang="en"] .cbt-x > span > i, html[data-lang="en"] .cbt-xh > i{font-style:normal;color:inherit;font-size:inherit;margin-left:0}';
