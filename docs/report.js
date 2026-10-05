@@ -5454,11 +5454,32 @@
       return null;
     }
     var MAXH = SLOTS_BACKEND || 3;
+    // 输入的可能是代码 (0457)、简称 (PENTECH) 或其中一段；找出报告里的股票
+    function findStocks(text) {
+      var q = text.trim().toUpperCase(); if (!q || !U) return [];
+      var all = U.items.map(function (z) { return z.stock; }), exact = all.filter(function (e) { return e.code === q || String(e.name).toUpperCase() === q; });
+      if (exact.length) return exact;
+      var starts = all.filter(function (e) { return e.code.indexOf(q) === 0 || String(e.name).toUpperCase().indexOf(q) === 0; });
+      var rest = all.filter(function (e) { return starts.indexOf(e) < 0 && String(e.name).toUpperCase().indexOf(q) >= 0; });
+      return starts.concat(rest);
+    }
+    function showSug() {
+      var inp = root.querySelector('.hold-code'), ul = root.querySelector('.hold-sug'); if (!inp || !ul) return;
+      var found = findStocks(inp.value).slice(0, 6);
+      if (!found.length || (found.length === 1 && (found[0].code === inp.value.trim() || String(found[0].name).toUpperCase() === inp.value.trim().toUpperCase()))) { ul.hidden = true; return; }
+      ul.innerHTML = found.map(function (e) { return '<li data-code="' + escapeHtml(e.code) + '"><b>' + escapeHtml(e.name) + '</b><small>' + escapeHtml(e.code) + '</small></li>'; }).join('');
+      ul.hidden = false;
+    }
+    root.addEventListener('input', function (e) { if (e.target.classList && e.target.classList.contains('hold-code')) showSug(); });
+    root.addEventListener('click', function (e) {
+      var li = e.target.closest('.hold-sug li'); if (!li) return;
+      var inp = root.querySelector('.hold-code'); inp.value = li.dataset.code; root.querySelector('.hold-sug').hidden = true;
+      var px = root.querySelector('[data-h="buy_px"]'); if (px) px.focus();
+    });
     function drawAdd() {
       var box = root.querySelector('.hold-add');
       if (list.length >= MAXH) { box.innerHTML = '<p class="hint">已满 ' + MAXH + ' 仓 (跟信号账户的仓位数一样)；要换股先删掉一笔。</p>'; return; }
-      box.innerHTML = '<div class="hold-form"><input class="cbt-num hold-code" list="hold-dl" data-h="code" placeholder="股票代码或名称" aria-label="股票">' +
-        '<datalist id="hold-dl">' + (U ? U.items : []).map(function (it) { return '<option value="' + escapeHtml(it.stock.code + ' ' + it.stock.name) + '">'; }).join('') + '</datalist>' +
+      box.innerHTML = '<div class="hold-form"><div class="hold-find"><input class="cbt-num hold-code" data-h="code" placeholder="股票名称或代码，例如 PENTECH / 0457" aria-label="股票" autocomplete="off" autocapitalize="characters" spellcheck="false"><ul class="hold-sug" hidden></ul></div>' +
         '<label><span>买入日</span><input class="cbt-num cbt-date" type="date" data-h="buy_date" value="' + today() + '"></label>' +
         '<label><span>买入价</span><input class="cbt-num" type="number" inputmode="decimal" step="any" min="0" data-h="buy_px" placeholder="收盘价"></label>' +
         '<label><span>股数</span><input class="cbt-num" type="number" inputmode="numeric" step="1" min="1" data-h="shares" placeholder="10000"></label>' +
@@ -5548,9 +5569,9 @@
       if (!b) return;
       if (b.dataset.act === 'hold-del') { list.splice(+b.dataset.k, 1); saveHold(list); drawList(); compute(); return; }
       if (b.dataset.act === 'hold-add') {
-        var q = function (k) { return root.querySelector('.hold-form [data-h="' + k + '"]'); }, code = q('code').value.trim().split(/\s+/)[0].toUpperCase();
+        var q = function (k) { return root.querySelector('.hold-form [data-h="' + k + '"]'); }, typed = q('code').value, hit = findStocks(typed)[0], code = hit ? hit.code : typed.trim().toUpperCase();
         var item = { code: code, buy_date: q('buy_date').value, buy_px: parseFloat(q('buy_px').value) || closeOn(code, q('buy_date').value), shares: parseFloat(q('shares').value) };
-        if (!U || !U.items.some(function (z) { return z.stock.code === code; })) { toast('报告里没有这支股票'); return; }
+        if (!hit) { toast(typed.trim() ? '报告里找不到「' + typed.trim() + '」，试试股票代码或简称' : '先填股票名称或代码'); return; }
         if (!item.buy_date || !(item.buy_px > 0) || !(item.shares > 0)) { toast('要填买入日、买入价 (不填用当天收盘)、股数'); return; }
         if (list.length >= MAXH) { toast('最多 ' + MAXH + ' 仓'); return; }
         list.push(item); saveHold(list); drawAdd(); drawList(); compute();
