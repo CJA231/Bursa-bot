@@ -417,8 +417,8 @@
   // ---- 中文字体：英文 / 数字一直用等宽字，中文部分可选 (记在这台设备) ----
   var FKEY = 'bursa_font_cjk', MONO = 'ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas';
   var FONTS = [
-    ['song', '宋体', 'Songti SC', 'Serif', '"Songti SC", STSong, "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", SimSun, serif'],
     ['hei', '黑体 (苹方)', 'PingFang', 'Sans', '"PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'],
+    ['song', '宋体', 'Songti SC', 'Serif', '"Songti SC", STSong, "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", SimSun, serif'],
     ['round', '圆体', 'Rounded', 'Round', '"Yuanti SC", "Hiragino Maru Gothic ProN", "PingFang SC", "Noto Sans CJK SC", sans-serif'],
     ['kai', '楷体', 'Kaiti', 'Kai', '"Kaiti SC", STKaiti, "Noto Serif CJK SC", KaiTi, serif'],
     ['fang', '仿宋', 'Fangsong', 'Fang', '"STFangsong", "Songti SC", "Noto Serif CJK SC", FangSong, serif']
@@ -428,11 +428,11 @@
     document.documentElement.style.setProperty('--font', MONO + ', ' + f[4] + ', monospace');
     return f;
   }
-  var fontId = 'song';
-  try { fontId = localStorage.getItem(FKEY) || 'song'; } catch (e) { /* 读不到就用默认 */ }
-  applyFont(fontId);
+  var fontId = 'hei';
+  try { fontId = localStorage.getItem(FKEY) || 'hei'; } catch (e) { /* 读不到就用默认 */ }
+  if (lang !== 'en') applyFont(fontId);
   function fontButton(bar) {
-    if (document.getElementById('font-btn')) return;
+    if (lang === 'en' || document.getElementById('font-btn')) return; // 英文版固定 Times New Roman + 等宽数字
     var b = document.createElement('button');
     b.type = 'button'; b.id = 'font-btn'; b.className = 'lang-btn'; b.setAttribute('data-keep', '1');
     b.textContent = 'Aa'; b.setAttribute('aria-label', lang === 'en' ? 'Chinese font' : '中文字体');
@@ -474,6 +474,8 @@
   var st = document.createElement('style');
   st.textContent = '.lang-btn{flex:none;white-space:nowrap;font:inherit;font-size:var(--fs-sm);font-weight:600;padding:0.25rem 0.6rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-secondary);cursor:pointer}' +
     '.lang-btn:hover{color:var(--text-primary)}' +
+    '@font-face{font-family:"Bursa Num";src:local("SF Mono"),local("Menlo"),local("Consolas"),local("DejaVu Sans Mono"),local("Courier New");unicode-range:U+0025,U+002B,U+0030-0039,U+003A}' +
+    'html[data-lang="en"]{--font:"Bursa Num","Times New Roman",Times,"Liberation Serif","Noto Serif",serif}' +
     '#lang-btn{margin-left:auto}#font-btn{margin-left:0.4rem}' +
     '#font-pop{position:fixed;top:52px;right:12px;z-index:9999;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:12px;padding:6px;display:flex;flex-direction:column;gap:2px;box-shadow:0 8px 24px #0005;max-width:calc(100vw - 24px)}' +
     '#font-pop button{all:unset;cursor:pointer;padding:9px 10px;border-radius:8px;font-size:var(--fs-md,14px);white-space:nowrap}#font-pop button b{display:inline-block;min-width:5.5em}#font-pop button.on{background:var(--border)}' +

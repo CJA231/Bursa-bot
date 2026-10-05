@@ -4561,7 +4561,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
     --ema: #4a3aa7;     /* 强调色 (选中的标签、按钮…) */
     --ema-line: #b59f5b; /* 图表上 EMA20 / 线形图的默认颜色：柔和的卡其色 */
     /* 字体：英文 / 数字用等宽无衬线 (列对得齐)，中文用宋体；等宽字体没有汉字，浏览器逐字回退到后面的宋体 */
-    --font: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, "Songti SC", STSong, "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", SimSun, monospace;
+    --font: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, "PingFang SC", "HarmonyOS Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif, monospace;
     /* 字号阶梯 (rem，1rem = 16px)：12 / 13 / 14 / 16 / 20 / 24 —— 12px 是宋体在手机上还看得清的下限，16px 是输入框的下限 (iOS 不会自动放大页面)；
        每一级约 ×1.15–1.25。用法：xs = 注脚 / 单位 / 说明，sm = 表格和标签，md = 正文和一行一行的内容，lg = 关键数字和输入，xl = 大数字 / 小标题，xxl = 页面标题 */
     --fs-xs: 0.75rem; --fs-sm: 0.8125rem; --fs-md: 0.875rem; --fs-lg: 1rem; --fs-xl: 1.25rem; --fs-xxl: 1.5rem;
