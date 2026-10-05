@@ -4437,7 +4437,7 @@
   }
 
   // 回测结果 (版面跟 main.py build_backtest_html 一样，术语中文 + 英文)
-  function namePair(code, name) { return MARKET.id === 'US' ? [code, name] : [name || code, code]; }
+  function namePair(code, name) { var m = META.stocks && META.stocks[code]; return MARKET.id === 'US' ? [code, name] : [(m && m.fn) || name || code, code]; } // 马股：公司全名 (没有就用短名) + 代码
   function md(s) { return s.slice(5).replace('-', '/'); }
   // 一个账户的买卖记录 (后台模拟账户 / 自定义的模拟轮仓 共用)：上面几个数字，下面按买进顺序列出每一笔 (起始股票标「起始」)
   function accountHtml(trades, stats, slots, pos) {
@@ -4967,7 +4967,7 @@
         '<tr><th>去掉最赚 1 笔</th>' + cell(tot(nets.slice(1), c0)) + '</tr>' +
         '<tr><th>去掉最赚 3 笔</th>' + cell(tot(nets.slice(3), c0)) + '</tr>' +
         [0.5, 1, 1.5].map(function (x) { return '<tr><th>成本 ' + fmtG(c0 + x) + '% (+' + x + ')</th>' + cell(tot(nets, c0 + x)) + '</tr>'; }).join('') + '</tbody></table></div>' +
-        '<p class="ds-note">最赚 3 笔占全部盈利的 ' + (function () { var g = sumOf(nets.filter(function (x) { return x.n > 0; }).map(function (x) { return x.n; })); return g > 0 ? Math.round(sumOf(nets.slice(0, 3).map(function (x) { return Math.max(0, x.n); })) / g * 100) + '%' : '—'; })() + '。低价股的实际滑点常比 0.5% 大，看成本那几行。</p>';
+        '<p class="ds-note" title="低价股的实际滑点常比 0.5% 大，看上面成本那几行">最赚 3 笔占盈利 ' + (function () { var g = sumOf(nets.filter(function (x) { return x.n > 0; }).map(function (x) { return x.n; })); return g > 0 ? Math.round(sumOf(nets.slice(0, 3).map(function (x) { return Math.max(0, x.n); })) / g * 100) + '%' : '—'; })() + '</p>';
     }
     return head + kpis + note + chart + robust +
       '<div class="cbt-chart-head"><h4>月度收益 <i>占本金 %</i>' + infoBtn('monthly', '月度表现') + '</h4></div><div class="ds-months"></div>' +
@@ -5362,8 +5362,7 @@
     }
     function simResultHtml(c) {
       var start = simStart(c), r = simulateAccount(c.u, c.all, c.ex, c.cost, c.slots, start, simPicks(c));
-      return '<p class="hint">' + md(start) + ' 收盘起按信号买：自选的股票照自己填的日子和价钱先买 (占着仓位)，碰到自己的停损 / 目标就卖，其余照后台离场规则；空出来的仓位按新信号换进 (最多同时 ' + (c.slots || '不限') + ' 笔' +
-        (r.skipped ? '，满仓跳过 ' + r.skipped + ' 个信号' : '') + ')。用今天报告里的股票算。</p>' + accountHtml(r.trades, r.stats, c.slots, c.pos);
+      return '<p class="hint" title="自选的股票按你填的日子和价钱先买，碰到你的停损 / 目标就卖，其余照后台离场规则；空出来的仓位按新信号换进">' + md(start) + ' 起 · 最多 ' + (c.slots || '不限') + ' 笔' + (r.skipped ? ' · 满仓跳过 ' + r.skipped : '') + '</p>' + accountHtml(r.trades, r.stats, c.slots, c.pos);
     }
     function pickHtml(c, pk, k, start, nameOf) {
       var day = pk.date || start, cl = closeOn(c, pk.code, day), px = pk.px > 0 ? pk.px : cl ? cl.close : null;
@@ -6723,7 +6722,7 @@
     return pl;
   }
   function byText(pl) { return String(pl.by || '').replace(/\s*\(.*\)/, ''); } // 「最近回调低点 (收盘价)」→「最近回调低点」
-  function rrText(v) { return isNum(v) ? 'R/R ' + v.toFixed(1) : '—'; } // 计划 R/R = 预期盈利 ÷ 承担风险
+  function rrText(v) { return isNum(v) ? 'R ' + v.toFixed(1) : '—'; } // 计划 R/R = 预期盈利 ÷ 承担风险
   function planLine(pl) {
     return '进 <b>' + fmtPrice(pl.entry) + '</b> · 损 <b>' + fmtPrice(pl.stop) + '</b>' + (pl.risk !== null ? ' <small>(' + pctShort(-pl.risk) + ')</small>' : '') +
       ' · 标 <b>' + fmtPrice(pl.target) + '</b> <small>(' + pctShort(pl.gain) + ')</small>' + (pl.rr !== null ? ' · <b class="nw">' + rrText(pl.rr) + '</b>' : '');
@@ -6810,27 +6809,26 @@
   function stockPlanHtml(code) {
     var n = focusNew(code), f = focusFollow(code), pl = planFor(code);
     if (!n && !f && !pl) return '';
-    var strat = FOCUS && FOCUS.strategies ? FOCUS.strategies.map(function (x) { return x.name; }).join('、') : '';
-    var why = n ? '策略「' + escapeHtml((n.strat || []).join('、') || strat) + '」· 触发 ' + md(n.date || FOCUS.date) + ' ' + (FOCUS.confirmed ? '收盘确认' : '<em class="fc-live">盘中，收盘前可能消失</em>') +
+    var why = n ? md(n.date || FOCUS.date) + ' · ' + (FOCUS.confirmed ? '收盘确认' : '<em class="fc-live">盘中</em>') +
         '<ul class="sp-tags">' + (n.why || []).map(function (x) { return '<li>' + escapeHtml(x) + '</li>'; }).join('') + (isNum(n.rv) ? '<li>量 ' + n.rv.toFixed(1) + '×</li>' : '') + '</ul>'
-      : f ? '策略「' + escapeHtml(strat) + '」· ' + md(f.sig) + ' 出现信号，进场 ' + fmtPrice(f.entry) + (FOCUS.strategies ? '<ul class="sp-tags">' + FOCUS.strategies.reduce(function (a, x) { return a.concat(x.labels); }, []).map(function (x) { return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>' : '')
-      : '没有后台信号 — 这是你自己设的计划';
-    var plan = pl ? '<p class="sp-plan">' + planLine(pl) + '</p><p class="sp-sub">' + (pl.mine ? '自设计划' + (pl.days === null ? '' : pl.days === 0 ? '，今天存的' : '，' + pl.days + ' 天前存的') : '默认：现价进场 · 损 = ' + escapeHtml(byText(pl)) + ' · 标 = 2 倍风险') + '</p>' +
-        '<div class="sp-acts">' + (pl.mine ? '' : '<button type="button" class="sp-btn primary" data-act="plan-save">保存计划</button>') +
-        (cardOf('chart-' + code) ? '<button type="button" class="sp-btn" data-act="plan-edit">调整</button>' : '') + (pl.mine ? '<button type="button" class="sp-btn" data-act="plan-clear">删除计划</button>' : '') + '</div>'
-      : f && f.status !== 'out' ? '<p class="sp-plan">进 <b>' + fmtPrice(f.entry) + '</b>' + (isNum(f.stop) ? ' · 现在的止损线 <b>' + fmtPrice(f.stop) + '</b>' : '') + '</p><p class="sp-sub">这笔是后台策略的进场价；止损线是最近的更高低点，会往上移。</p>'
-      : '<p class="hint">这支股票现在没有计划可以存。</p>';
+      : f ? md(f.sig) + ' 信号 · 进 ' + fmtPrice(f.entry)
+      : '自设';
+    var plan = pl ? '<p class="sp-plan">' + planLine(pl) + '</p>' + (pl.mine ? '<p class="sp-sub">自设' + (pl.days === null ? '' : pl.days === 0 ? ' · 今天' : ' · ' + pl.days + ' 天前') + '</p>' : '') +
+        '<div class="sp-acts">' + (pl.mine ? '' : '<button type="button" class="sp-btn primary" data-act="plan-save">保存</button>') +
+        (cardOf('chart-' + code) ? '<button type="button" class="sp-btn" data-act="plan-edit">调整</button>' : '') + (pl.mine ? '<button type="button" class="sp-btn" data-act="plan-clear">删除</button>' : '') + '</div>'
+      : f && f.status !== 'out' ? '<p class="sp-plan">进 <b>' + fmtPrice(f.entry) + '</b>' + (isNum(f.stop) ? ' · 损 <b>' + fmtPrice(f.stop) + '</b>' : '') + '</p>'
+      : '—';
     var out = [];
-    if (pl) out.push('收盘价跌破 <b>' + fmtPrice(pl.stop) + '</b> 计划就失效 (' + escapeHtml(byText(pl)) + ')');
-    if (f && f.status !== 'out' && isNum(f.stop)) out.push('策略止损线 <b>' + fmtPrice(f.stop) + '</b>：收盘跌破 + 趋势检查坏掉才离场');
-    var rules = FOCUS && FOCUS.exit ? '<details class="sp-more"><summary>后台离场规则</summary><ul>' + FOCUS.exit.map(function (x) { return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul></details>' : '';
-    var after = f ? followText(f) : pl && pl.mine ? planStateText(pl) : n ? '今天刚出现。明天回来这里会写：有没有碰到止损 / 目标、趋势有没有变坏。' : '';
+    if (pl) out.push('收盘 &lt; <b>' + fmtPrice(pl.stop) + '</b>');
+    if (f && f.status !== 'out' && isNum(f.stop)) out.push('止损线 <b>' + fmtPrice(f.stop) + '</b>');
+    var rules = FOCUS && FOCUS.exit ? '<details class="sp-more"><summary>规则</summary><ul>' + FOCUS.exit.map(function (x) { return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul></details>' : '';
+    var after = f ? followText(f) : pl && pl.mine ? planStateText(pl) : '';
     if (pl && pl.mine && f) after += '<br>' + planStateText(pl);
-    var hist = n && (isNum(n.mfe) || isNum(n.hist_rr)) ? '<p class="sp-hist">历史统计 (回测里同类信号，不是这份计划)：期间最大涨幅中位数 ' + (isNum(n.mfe) ? pctShort(n.mfe) : '—') + (isNum(n.hist_rr) ? ' · 对上现在的风险 = 1 : ' + n.hist_rr : '') + '</p>' : '';
+    var hist = n && (isNum(n.mfe) || isNum(n.hist_rr)) ? '<p class="sp-hist" title="回测里同类信号的历史统计，不是这份计划">历史 ' + (isNum(n.mfe) ? '最大涨幅中位数 ' + pctShort(n.mfe) : '') + (isNum(n.hist_rr) ? ' · 1 : ' + n.hist_rr : '') + '</p>' : '';
     return '<section class="sv-plan" aria-label="策略计划"><ol class="sp-flow">' +
-      '<li><h5>触发理由</h5><div>' + why + '</div></li><li><h5>入场计划</h5><div>' + plan + '</div></li>' +
-      '<li><h5>失效条件</h5><div>' + (out.length ? out.join('<br>') : '<span class="hint">—</span>') + rules + '</div></li>' +
-      '<li><h5>后续变化</h5><div>' + (after || '<span class="hint">—</span>') + '</div></li></ol>' + hist + '</section>';
+      '<li><h5>触发</h5><div>' + why + '</div></li><li><h5>计划</h5><div>' + plan + '</div></li>' +
+      '<li><h5>失效</h5><div>' + (out.length ? out.join('<br>') : '<span class="hint">—</span>') + rules + '</div></li>' +
+      '<li><h5>后续</h5><div>' + (after || '<span class="hint">—</span>') + '</div></li></ol>' + hist + '</section>';
   }
   function bindStockPlan(root, code) {
     var box = root.querySelector('.sv-plan');

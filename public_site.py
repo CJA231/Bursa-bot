@@ -29,7 +29,7 @@ def _plan(price, stop):
     return {"entry": _f(price), "stop": _f(stop), "target": _f(price + PLAN_R * (price - stop)), "risk": _f(risk, 1), "rr": PLAN_R}
 
 
-def build_stock_rows(stocks):
+def build_stock_rows(stocks, full_name=None):
     rows = []
     for s in stocks:
         d = s.get("data")
@@ -38,7 +38,7 @@ def build_stock_rows(stocks):
         code = s["symbol"].split(".")[0]
         close, prev = float(d["close"]), d.get("prev_close")
         chg = (close / float(prev) - 1) * 100 if prev else 0.0
-        row = {"c": code, "n": s["name"], "p": _f(close), "chg": _f(chg, 2), "v": int(d["volume"]), "t": int(d.get("turnover") or 0),
+        row = {"c": code, "n": (full_name(code, s["name"]) if full_name else s["name"]), "p": _f(close), "chg": _f(chg, 2), "v": int(d["volume"]), "t": int(d.get("turnover") or 0),
                "rv": _f(d.get("rel_volume"), 2), "sig": 1 if s["matched"] else 0, "d": d.get("last_date")}
         if s["matched"]:
             stop_ref = d.get("stop_ref")
@@ -84,9 +84,9 @@ def build_market(market, rows):
     return out
 
 
-def build(stocks, market, state, now_str, title, currency_symbol, vendor_src, out_dir=None):
+def build(stocks, market, state, now_str, title, currency_symbol, vendor_src, out_dir=None, full_name=None):
     out_dir = out_dir or PUBLIC_DIR
-    rows = build_stock_rows(stocks)
+    rows = build_stock_rows(stocks, full_name)
     if not rows:
         return None
     os.makedirs(out_dir, exist_ok=True)

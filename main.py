@@ -2091,10 +2091,30 @@ def fmt_compact(v):
     return f"{v:.0f}"
 
 
+_FULL_NAMES = {}
+
+
+def full_name(code, name):
+    """公司全名 (个股资料 stock/代码.json 里的 long_name，例如 "Northern Solar Berhad")；没有就用短名。美股不用 (名称本来就是全名)"""
+    if code not in _FULL_NAMES:
+        try:
+            with open(os.path.join(DETAIL_DIR, f"{code}.json"), encoding="utf-8") as f:
+                _FULL_NAMES[code] = (json.load(f).get("long_name") or "").strip() or None
+        except (OSError, ValueError):
+            _FULL_NAMES[code] = None
+    return _FULL_NAMES[code] or name
+
+
 def name_pair(code, name):
     """(主名称, 副标)。马股名称短，主名称 = 名称、副标 = 代号；美股公司全名很长 (Micron Technology, Inc.)，
     手机上会把代号挤掉 → 主名称 = 代号 (MU)、副标 = 公司名"""
-    return (code, name) if MARKET_ID == "US" else (name, code)
+    return (code, name) if MARKET_ID == "US" else (full_name(code, name), code)
+
+
+def chip_code(code, name):
+    """标签里名称后面的灰色代码；名称就是代码 (新股还没有名称) 时不重复"""
+    main, sub = name_pair(code, name)
+    return "" if main == sub else f'<small class="chip-code">{html.escape(sub)}</small>'
 
 
 def display_name(code, name):
@@ -4020,7 +4040,7 @@ def build_market_html(market, stocks):
     if listed:
         def chip(s, value, cls):
             code = s["symbol"].split(".")[0]
-            return (f'<button type="button" class="mk-chip" data-code="{html.escape(code)}" title="{html.escape(s["name"])}"><b>{html.escape(display_name(code, s["name"]))}</b><small class="chip-code">{html.escape(name_pair(code, s["name"])[1])}</small>'
+            return (f'<button type="button" class="mk-chip" data-code="{html.escape(code)}" title="{html.escape(s["name"])}"><b>{html.escape(display_name(code, s["name"]))}</b>{chip_code(code, s["name"])}'
                     f'<span class="{cls}">{value}</span></button>')
         liquid = [s for s in listed if (s["data"].get("turnover") or 0) >= MOVER_MIN_TURNOVER]
         gainers = sorted((s for s in liquid if change_pct_of(s["data"]) > 0), key=lambda s: -change_pct_of(s["data"]))[:3]
@@ -4252,7 +4272,7 @@ def build_board_html(board):
                   for c, label in ANN_CATS if counts.get(c)]
         items = "".join(
             f'<li class="ann-item" data-cat="{it["cat"]}"><time datetime="{it["date"]}">{it["date"][5:].replace("-", "/")}</time>'
-            f'<button type="button" class="ann-stock{" sig" if it["signal"] else ""}" data-code="{html.escape(it["code"])}" title="{html.escape(it["name"])}">{html.escape(display_name(it["code"], it["name"]))}</button><small class="chip-code">{html.escape(name_pair(it["code"], it["name"])[1])}</small>'
+            f'<button type="button" class="ann-stock{" sig" if it["signal"] else ""}" data-code="{html.escape(it["code"])}" title="{html.escape(it["name"])}">{html.escape(display_name(it["code"], it["name"]))}</button>{chip_code(it["code"], it["name"])}'
             f'<span class="ann-cat">{cat_label.get(it["cat"], "其他")}</span>'
             f'<a href="{html.escape(it["link"])}" target="_blank" rel="noopener noreferrer">{html.escape(it["title"])}</a></li>'
             for it in board)
@@ -4290,7 +4310,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
         turnover = data.get("turnover") or data["close"] * data["volume"]
         q = QUOTE_META.get(s["symbol"]) or {}
-        m = {"n": s["name"], "p": data["close"], "c": round(change_pct_of(data), 2), "t": round(turnover), "sig": 1 if s["matched"] else 0}
+        m = {"n": s["name"], **({"fn": full_name(code, s["name"])} if MARKET_ID != "US" and full_name(code, s["name"]) != s["name"] else {}), "p": data["close"], "c": round(change_pct_of(data), 2), "t": round(turnover), "sig": 1 if s["matched"] else 0}
         for key, v in (("a", data.get("turnover_avg20")), ("atr", data.get("atr_pct")), ("sar", data.get("sar")),
                        ("rsi", data.get("rsi")), ("l", data.get("listed_days")), ("mc", q.get("mcap")), ("pe", q.get("pe")),
                        ("dy", q.get("dy")), ("hi", q.get("hi52")), ("lo", q.get("lo52"))):
@@ -4325,6 +4345,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
                 spark_title = "近 30 日走势"
 
             name = html.escape(s["name"])
+            fname = html.escape(full_name(code, s["name"]))
             rel_vol = data.get("rel_volume")
             if rel_vol is None:
                 rel_vol_cell = '<td class="num col-relvol" data-label="相对量" data-value="-1">—</td>'
@@ -4347,7 +4368,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
             # 马股: 徽章 = 名称、灰字 = 代号；美股公司全名太长 (Micron Technology, Inc.)，手机上会把代号挤掉 → 徽章 = 代号、灰字 = 公司名
             main_label, sub_label = (html.escape(x) for x in name_pair(code, s["name"]))
-            table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()}" data-code="{code}" data-name="{name}" tabindex="0" {flags}>
+            table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()} {fname.lower()}" data-code="{code}" data-name="{fname}" tabindex="0" {flags}>
                 <td class="idx-cell"></td>
                 <td class="stock-cell" data-value="{main_label}"><span class="ticker">{main_label}</span><span class="stock-code">{sub_label}</span>{new_badge}</td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
@@ -4411,7 +4432,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
             ("ATR(14)", pct_text(data.get("atr_pct"), 1, plus=False), "atr", ""),
             ("风险", pct_text(-risk, 1) if risk else "—", "risk",
              f"最近的离场线：{stop_ref[1]} {fmt_price(stop_ref[0])}" if stop_ref else "现价下方没有离场线"),
-            ("计划 R/R", "2.0" if risk else "—", "rr",
+            ("R/R", "2.0" if risk else "—", "rr",
              (f"默认计划：目标 = 2 倍风险。历史参考 (回测同类信号期间最大涨幅中位数 {pct_text(mfe_median, 1)}) = 1 : {rr:.1f}，不是计划" if mfe_median and rr else "默认计划：目标 = 2 倍风险")),
         ]
         quote_grid = "".join(f'<div{tip_attrs(g, t) if g or t else ""}><dt>{k}</dt><dd>{v}</dd></div>' for k, v, g, t in quote_items)
@@ -4423,11 +4444,11 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
         live_badge = '<span class="live-badge" title="盘中信号：用的是还没收完的日线，收盘前可能消失">盘中</span>' if state == "live" else ""
 
         # 图表下方只放数据 (quote)，不放说明文字/图例/符号；AI 点评只保留在下载的 Excel/PDF 里
-        chips.append(f'''<button type="button" class="sym-chip" data-strats="{strat_idx}" aria-current="false"><b>{html.escape(display_name(code, s['name']))}</b><small class="chip-code">{html.escape(name_pair(code, s['name'])[1])}</small>'''
+        chips.append(f'''<button type="button" class="sym-chip" data-strats="{strat_idx}" aria-current="false"><b>{html.escape(display_name(code, s['name']))}</b>{chip_code(code, s['name'])}'''
                      f'''<span class="sym-price">{fmt_price(data['close'])}</span><span class="{change_class}">{sign}{change_pct:.2f}%</span></button>''')
         cards.append(f"""<section class="card" data-chart="{chart_id}" data-strats="{strat_idx}" aria-roledescription="卡片" aria-label="{html.escape(s['name'])} {code}">
             <div class="card-head">
-                <h2>{html.escape(s['name'])} <span class="code">{code}</span>{history_badge(data)}{live_badge}</h2>
+                <h2>{html.escape(display_name(code, s['name']))}{'' if display_name(code, s['name']) == code else f' <span class="code">{code}</span>'}{history_badge(data)}{live_badge}</h2>
                 <div class="card-price"><b>{fmt_price(data['close'])}</b> <span class="{change_class}">{sign}{fmt_price(change)} ({sign}{change_pct:.2f}%)</span></div>
             </div>
             <p class="card-tags">{tags_html}</p>
@@ -5087,7 +5108,7 @@ def main():
             import public_site
             now_dt = datetime.now(LOCAL_TZ)
             out_dir = public_site.build(stocks, market, market_state(now_dt), now_dt.strftime("%Y-%m-%d %H:%M") + f" ({MKT['tz_label']})",
-                                        MKT["title"], CURRENCY_SYMBOL, os.path.join(DOCS_ROOT, "vendor", "lightweight-charts.js"))
+                                        MKT["title"], CURRENCY_SYMBOL, os.path.join(DOCS_ROOT, "vendor", "lightweight-charts.js"), full_name=full_name)
             if out_dir:
                 print(f"🌐 公开展示站已生成: {out_dir}/")
         except Exception as e:

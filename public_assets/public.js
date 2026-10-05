@@ -17,7 +17,8 @@
     var up = vals[vals.length - 1] >= vals[0];
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-label="近一个月"><polyline fill="none" stroke="var(--' + (up ? 'up' : 'down') + ')" stroke-width="1.5" points="' + pts + '"/></svg>';
   }
-  function chip(code, value, c) { var r = BY[code]; return r ? '<button type="button" class="chip" data-code="' + esc(code) + '"><b>' + esc(r.n) + '</b><small>' + esc(code) + '</small><span class="' + (c || '') + '">' + value + '</span></button>' : ''; }
+  function nm(r) { return '<span class="nm"><b>' + esc(r.n) + '</b>' + (r.n === r.c ? '' : ' <small>' + esc(r.c) + '</small>') + '</span>'; } // 公司全名 + 代码 (名称就是代码时不重复)
+  function chip(code, value, c) { var r = BY[code]; return r ? '<button type="button" class="chip" data-code="' + esc(code) + '">' + nm(r) + '<span class="' + (c || '') + '">' + value + '</span></button>' : ''; }
   function marketHtml() {
     var m = D.market, tiles = (m.indices || []).map(function (ix) {
       return '<div class="card mk-idx"><small>' + esc(ix.label) + '</small><b>' + ix.last.toLocaleString('en', { minimumFractionDigits: 2 }) + '</b><span class="' + cls(ix.chg) + '">' + (ix.chg > 0 ? '+' : '') + ix.chg.toFixed(2) + ' (' + pct(ix.pct) + ')</span>' + spark(ix.spark) + '</div>';
@@ -40,14 +41,14 @@
     var line;
     if (mode === 'sig' && r.plan) {
       var p = r.plan;
-      line = '<span class="l">风险 <b class="down">−' + p.risk.toFixed(1) + '%</b> · 报酬风险比 <b>' + p.rr.toFixed(1) + '</b><br>进 ' + price(p.entry) + ' · 风险线 ' + price(p.stop) + ' · 目标 ' + price(p.target) + '</span>';
-    } else line = '<span class="l">量比 <b>' + (r.rv === null ? '—' : r.rv.toFixed(1) + '×') + '</b> · 成交额 <b>' + compact(r.t) + '</b></span>';
-    return '<li><button type="button" class="row" data-code="' + esc(r.c) + '"><span class="h"><b>' + esc(r.n) + '</b><small>' + esc(r.c) + '</small><span class="px">' + price(r.p) + ' <span class="' + cls(r.chg) + '">' + pct(r.chg) + '</span></span></span>' + line + '</button></li>';
+      line = '<span class="l">进 <b>' + price(p.entry) + '</b> · 损 <b>' + price(p.stop) + '</b> <b class="down">−' + p.risk.toFixed(1) + '%</b> · 标 <b>' + price(p.target) + '</b> · <b title="报酬风险比">R ' + p.rr.toFixed(1) + '</b></span>';
+    } else line = '<span class="l">量比 <b>' + (r.rv === null ? '—' : r.rv.toFixed(1) + '×') + '</b> · 额 <b>' + compact(r.t) + '</b></span>';
+    return '<li><button type="button" class="row" data-code="' + esc(r.c) + '"><span class="h">' + nm(r) + '<span class="px">' + price(r.p) + ' <span class="' + cls(r.chg) + '">' + pct(r.chg) + '</span></span></span>' + line + '</button></li>';
   }
   function listHtml(title, codes, mode, note) {
     var rows = codes.map(function (c) { return BY[c]; }).filter(Boolean);
-    return '<h2>' + title + '<span class="count">' + rows.length + '</span></h2>' + (note ? '<p class="hint">' + note + '</p>' : '') +
-      (rows.length ? '<ol class="list' + (mode === 'sig' ? ' sig-grid' : '') + '" data-list="' + mode + '">' + rows.map(function (r) { return rowHtml(r, mode); }).join('') + '</ol>' : '<p class="hint">今天没有。</p>');
+    return '<h2>' + title + '<span class="count">' + rows.length + (note ? ' · ' + note : '') + '</span></h2>' +
+      (rows.length ? '<ol class="list' + (mode === 'sig' ? ' sig-grid' : '') + '" data-list="' + mode + '">' + rows.map(function (r) { return rowHtml(r, mode); }).join('') + '</ol>' : '<p class="hint">—</p>');
   }
 
   // ---------- 其余股票 (可排序、搜索、筛选) ----------
@@ -74,7 +75,7 @@
       chips.map(function (c) { return '<button type="button" class="chip" data-f="' + c[0] + '" aria-pressed="' + !!T.f[c[0]] + '">' + c[1] + '</button>'; }).join('') + '</div>' +
       '<div class="table-wrap"><table><thead><tr>' + COLS.map(function (c) { return '<th class="' + (c[2] ? 'num' : '') + '" data-k="' + c[0] + '">' + c[1] + (T.sort === c[0] ? (T.dir > 0 ? ' ↑' : ' ↓') : '') + '</th>'; }).join('') + '</tr></thead><tbody>' +
       rows.slice(0, T.shown).map(function (r) {
-        return '<tr data-code="' + esc(r.c) + '"><td><b>' + esc(r.n) + '</b><small>' + esc(r.c) + '</small></td><td class="num">' + price(r.p) + '</td><td class="num ' + cls(r.chg) + '">' + pct(r.chg) + '</td><td class="num">' + compact(r.v) + '</td><td class="num">' + (r.rv === null ? '—' : r.rv.toFixed(1) + '×') + '</td><td class="num">' + compact(r.t) + '</td></tr>';
+        return '<tr data-code="' + esc(r.c) + '"><td>' + nm(r) + '</td><td class="num">' + price(r.p) + '</td><td class="num ' + cls(r.chg) + '">' + pct(r.chg) + '</td><td class="num">' + compact(r.v) + '</td><td class="num">' + (r.rv === null ? '—' : r.rv.toFixed(1) + '×') + '</td><td class="num">' + compact(r.t) + '</td></tr>';
       }).join('') + '</tbody></table></div>' + (rows.length > T.shown ? '<button type="button" class="more">再显示 ' + Math.min(50, rows.length - T.shown) + ' 支</button>' : '');
   }
   function drawTable() {
@@ -96,11 +97,10 @@
     var p = r.plan, label = list && list.length > 1;
     dlg = document.createElement('div');
     dlg.className = 'dlg'; dlg.setAttribute('role', 'dialog'); dlg.setAttribute('aria-label', r.n + ' ' + r.c);
-    dlg.innerHTML = '<div class="dlg-box"><div class="dlg-h"><h3>' + esc(r.n) + '</h3><span class="code">' + esc(r.c) + '</span><b>' + price(r.p) + '</b><span class="' + cls(r.chg) + '">' + pct(r.chg) + '</span><button type="button" class="dlg-x" aria-label="关闭">×</button></div>' +
+    dlg.innerHTML = '<div class="dlg-box"><div class="dlg-h"> <h3>' + esc(r.n) + '</h3>' + (r.n === r.c ? '' : '<span class="code">' + esc(r.c) + '</span>') + '<b>' + price(r.p) + '</b><span class="' + cls(r.chg) + '">' + pct(r.chg) + '</span><button type="button" class="dlg-x" aria-label="关闭">×</button></div>' +
       (label ? '<div class="nav"><button type="button" data-s="-1"' + (curI <= 0 ? ' disabled' : '') + ' aria-label="上一支">‹</button><span>' + (curI + 1) + ' / ' + curList.length + '</span><button type="button" data-s="1"' + (curI >= curList.length - 1 ? ' disabled' : '') + ' aria-label="下一支">›</button></div>' : '') +
-      '<dl class="kv"><div><dt>成交量</dt><dd>' + compact(r.v) + '</dd></div><div><dt>量比</dt><dd>' + (r.rv === null ? '—' : r.rv.toFixed(1) + '×') + '</dd></div><div><dt>成交额</dt><dd>' + D.cur + ' ' + compact(r.t) + '</dd></div><div><dt>数据日期</dt><dd>' + esc(r.d || '') + '</dd></div></dl>' +
-      (p ? '<div class="plan"><div class="r"><span>进场 <b>' + price(p.entry) + '</b></span><span>风险线 <b class="down">' + price(p.stop) + '</b> <small>(−' + p.risk.toFixed(1) + '%)</small></span><span>目标 <b class="up">' + price(p.target) + '</b></span><span>报酬风险比 <b>' + p.rr.toFixed(1) + '</b></span></div>' +
-        '<small>报酬风险比 = (目标 − 进场) ÷ (进场 − 风险线)。计划只是价位的算术，不是买卖建议。</small></div>' : '') +
+      '<dl class="kv"><div><dt>成交量</dt><dd>' + compact(r.v) + '</dd></div><div><dt>量比</dt><dd>' + (r.rv === null ? '—' : r.rv.toFixed(1) + '×') + '</dd></div><div><dt>成交额</dt><dd>' + D.cur + ' ' + compact(r.t) + '</dd></div><div><dt>日期</dt><dd>' + esc((r.d || '').slice(5)) + '</dd></div></dl>' +
+      (p ? '<div class="plan"><div class="r"><span title="进场">进 <b>' + price(p.entry) + '</b></span><span title="风险线">损 <b class="down">' + price(p.stop) + '</b> <small>−' + p.risk.toFixed(1) + '%</small></span><span title="目标">标 <b class="up">' + price(p.target) + '</b></span><span title="报酬风险比 = (目标 − 进场) ÷ (进场 − 风险线)">R <b>' + p.rr.toFixed(1) + '</b></span></div></div>' : '') +
       '<div id="chart"><p class="hint">图表载入中…</p></div></div>';
     document.body.appendChild(dlg);
     dlg.addEventListener('click', function (e) {
@@ -130,8 +130,8 @@
   function render() {
     var sig = D.stocks.filter(function (r) { return r.sig; }).map(function (r) { return r.c; });
     document.getElementById('updated').innerHTML = '更新时间 ' + esc(D.updated) + '<span class="badge' + (D.state === 'live' ? ' live' : '') + '">' + (D.state === 'live' ? '盘中' : D.state === 'pre' ? '开市前' : '已收盘') + '</span>';
-    app.innerHTML = marketHtml() + listHtml('强势股', D.strong, 'strong', '涨幅靠前、成交额够大、量比放大的股票') +
-      listHtml('今日机会', sig, 'sig', D.state === 'live' ? '盘中数据，收盘前可能变化。' : '') + '<div id="tbl"></div>';
+    app.innerHTML = marketHtml() + listHtml('强势股', D.strong, 'strong', '') +
+      listHtml('今日机会', sig, 'sig', D.state === 'live' ? '盘中' : '') + '<div id="tbl"></div>';
     drawTable();
     app.addEventListener('click', function (e) {
       var th = e.target.closest('th[data-k]'), f = e.target.closest('[data-f]'), more = e.target.closest('.more'), tr = e.target.closest('[data-code]');
