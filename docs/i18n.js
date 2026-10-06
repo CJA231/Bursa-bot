@@ -341,7 +341,7 @@
   });
   Object.assign(EXACT, {
     '信号筛选 ▾': 'Signal filter ▾', '信号筛选 ▴': 'Signal filter ▴', '出现在': 'Within', '今天': 'Today', '3 天内': '3 days', '5 天内': '5 days', '选了几个': 'Match', '全部满足': 'All', '任一满足': 'Any',
-    '多头信号': 'Bullish', '空头信号': 'Bearish', 'SAR 转多': 'SAR flips bullish', 'Supertrend 转多': 'Supertrend flips bullish', '突破布林上轨': 'Breaks above Bollinger upper', 'EMA5 上穿 EMA20': 'EMA5 crosses above EMA20',
+    '多头信号': 'Bullish', '空头信号': 'Bearish', '多头': 'Bull', '空头': 'Bear', '范围': 'Range', 'SAR 转多': 'SAR flips bullish', 'Supertrend 转多': 'Supertrend flips bullish', '突破布林上轨': 'Breaks above Bollinger upper', 'EMA5 上穿 EMA20': 'EMA5 crosses above EMA20',
     '站上 EMA50': 'Closes above EMA50', 'MACD 金叉': 'MACD golden cross', 'RSI 上穿 30': 'RSI crosses above 30', '创 20 日新高': '20-day high', 'SAR 转空': 'SAR flips bearish', 'Supertrend 转空': 'Supertrend flips bearish',
     '跌破布林下轨': 'Breaks below Bollinger lower', 'EMA5 下穿 EMA20': 'EMA5 crosses below EMA20', '跌破 EMA50': 'Closes below EMA50', 'MACD 死叉': 'MACD death cross', 'RSI 下穿 70': 'RSI crosses below 70', '创 20 日新低': '20-day low', '计算中…': 'Calculating…'
   });
