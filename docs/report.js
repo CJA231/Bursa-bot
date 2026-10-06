@@ -3935,12 +3935,11 @@
       function opt(group, v, label, cur) { return '<button type="button" class="tf-chip" data-sg="' + group + '" data-v="' + v + '" aria-pressed="' + (String(cur) === String(v)) + '">' + label + '</button>'; }
       drawSig = function () {
         function row(label, chips) { return '<div class="sig-grp"><span class="sig-l">' + label + '</span><div class="tf-chips">' + chips + '</div></div>'; }
-        sigPanel.innerHTML = row('出现在', opt('win', 1, '今天', sig.win) + opt('win', 3, '3 天内', sig.win) + opt('win', 5, '5 天内', sig.win)) +
-          row('选了几个', opt('mode', 'all', '全部满足', sig.mode) + opt('mode', 'any', '任一满足', sig.mode)) +
+        sigPanel.innerHTML = row('范围', opt('win', 1, '今天', sig.win) + opt('win', 3, '3 天内', sig.win) + opt('win', 5, '5 天内', sig.win) + opt('mode', 'all', '全部满足', sig.mode) + opt('mode', 'any', '任一满足', sig.mode)) +
           SIGNALS.map(function (g) {
-            return '<div class="sig-grp"><span class="sig-l">' + g[1] + '</span><div class="tf-chips">' + g[2].map(function (x) {
+            return row(g[1].replace('信号', ''), g[2].map(function (x) {
               return '<button type="button" class="tf-chip" data-sig="' + x[0] + '" aria-pressed="' + (sig.on.indexOf(x[0]) >= 0) + '">' + x[1] + '</button>';
-            }).join('') + '</div></div>';
+            }).join(''));
           }).join('') + (sigReady ? '' : '<p class="sig-note">计算中…</p>');
         tog.textContent = (sig.open ? '信号筛选 ▴' : '信号筛选 ▾') + (sig.on.length ? ' · ' + sig.on.length : '');
       };
