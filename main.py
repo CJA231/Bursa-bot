@@ -2503,10 +2503,12 @@ TABLE_CSS = """
     color: var(--text-secondary); background: var(--surface); border: 1px solid var(--border); white-space: nowrap;
   }
   .sig-panel { display: grid; gap: 0.5rem; margin: 0 0 0.6rem; padding: 0.6rem 0.7rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
-  .sig-panel[hidden] { display: none; } .sig-opts, .sig-grp { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; } .sig-l { font-size: var(--fs-xs); color: var(--text-secondary); margin-right: 0.15rem; }
-  .sig-panel .tf-chips { mask-image: none; -webkit-mask-image: none; } .sig-panel .tf-chip { flex: none; } .sig-panel .sig-grp { display: block; } .sig-panel .sig-grp .sig-l { display: block; margin-bottom: 0.3rem; }
-  .sig-panel { min-width: 0; max-width: 100%; box-sizing: border-box; } .sig-panel .tf-chips { flex-wrap: wrap; overflow: visible; flex-basis: 100%; }
-  .sig-grp .tf-chips { flex: 1 1 100%; } .sig-note { margin: 0; font-size: var(--fs-xs); color: var(--text-secondary); }
+  .sig-panel[hidden] { display: none; } .sig-opts { display: flex; align-items: center; gap: 0.35rem; } .sig-grp { display: block; } .sig-l { font-size: var(--fs-xs); color: var(--text-secondary); margin-right: 0.15rem; }
+  .sig-panel .tf-chips, .sig-panel .sig-opts { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; -webkit-overflow-scrolling: touch;
+    -webkit-mask-image: linear-gradient(90deg, #000 90%, transparent); mask-image: linear-gradient(90deg, #000 90%, transparent); }
+  .sig-panel .tf-chips::-webkit-scrollbar, .sig-panel .sig-opts::-webkit-scrollbar { display: none; } .sig-panel .tf-chip { flex: none; }
+  .sig-panel { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  .sig-grp .tf-chips { flex: none; } .sig-note { margin: 0; font-size: var(--fs-xs); color: var(--text-secondary); }
   .tf-chip:hover { color: var(--text-primary); border-color: color-mix(in srgb, var(--text-primary) 30%, transparent); }
   .tf-chip[aria-pressed="true"] { color: var(--surface); background: var(--text-primary); border-color: var(--text-primary); }
   .table-count { color: var(--muted); font-size: var(--fs-sm); margin-left: auto; }

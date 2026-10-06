@@ -3934,8 +3934,9 @@
       sigPanel = document.createElement('div'); sigPanel.id = 'sig-panel'; sigPanel.className = 'sig-panel'; sigPanel.hidden = true;
       function opt(group, v, label, cur) { return '<button type="button" class="tf-chip" data-sg="' + group + '" data-v="' + v + '" aria-pressed="' + (String(cur) === String(v)) + '">' + label + '</button>'; }
       drawSig = function () {
-        sigPanel.innerHTML = '<div class="sig-opts"><span class="sig-l">出现在</span>' + opt('win', 1, '今天', sig.win) + opt('win', 3, '3 天内', sig.win) + opt('win', 5, '5 天内', sig.win) +
-          '<span class="sig-l">选了几个</span>' + opt('mode', 'all', '全部满足', sig.mode) + opt('mode', 'any', '任一满足', sig.mode) + '</div>' +
+        function row(label, chips) { return '<div class="sig-grp"><span class="sig-l">' + label + '</span><div class="tf-chips">' + chips + '</div></div>'; }
+        sigPanel.innerHTML = row('出现在', opt('win', 1, '今天', sig.win) + opt('win', 3, '3 天内', sig.win) + opt('win', 5, '5 天内', sig.win)) +
+          row('选了几个', opt('mode', 'all', '全部满足', sig.mode) + opt('mode', 'any', '任一满足', sig.mode)) +
           SIGNALS.map(function (g) {
             return '<div class="sig-grp"><span class="sig-l">' + g[1] + '</span><div class="tf-chips">' + g[2].map(function (x) {
               return '<button type="button" class="tf-chip" data-sig="' + x[0] + '" aria-pressed="' + (sig.on.indexOf(x[0]) >= 0) + '">' + x[1] + '</button>';
