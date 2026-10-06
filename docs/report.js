@@ -3876,13 +3876,99 @@
       px: function (tr) { return parseFloat(tr.dataset.px) >= minPrice; },
       mc: function (tr) { var m = META.stocks && META.stocks[tr.dataset.code] && META.stocks[tr.dataset.code].mc; return !(MAX_MCAP > 0 && isNum(m) && m > MAX_MCAP); }
     };
+    // ---- 信号筛选：把「SAR 转多 / Supertrend 转多 / 布林上轨突破 / EMA 金叉 …」都当成可勾选的信号，在这张表里叠加筛选 ----
+    var BOLL = 'sma(close,20)+2*stdev(close,20)', BOLL_LO = 'sma(close,20)-2*stdev(close,20)', MACDL = 'ema(close,12)-ema(close,26)';
+    var SIGNALS = [
+      ['bull', '多头信号', [
+        ['sar_up', 'SAR 转多', 'crossup(close, psar())'],
+        ['st_up', 'Supertrend 转多', 'crossup(close, supertrend(3,1.4))'],
+        ['bb_up', '突破布林上轨', 'crossup(close, ' + BOLL + ')'],
+        ['ema_up', 'EMA5 上穿 EMA20', 'crossup(ema(close,5), ema(close,20))'],
+        ['ema50_up', '站上 EMA50', 'crossup(close, ema(close,50))'],
+        ['macd_up', 'MACD 金叉', 'crossup(' + MACDL + ', ema(' + MACDL + ',9))'],
+        ['rsi_up', 'RSI 上穿 30', 'crossup(rsi(close,14), 30)'],
+        ['hh20', '创 20 日新高', 'close > ref(highest(high,20),1)']]],
+      ['bear', '空头信号', [
+        ['sar_dn', 'SAR 转空', 'crossdown(close, psar())'],
+        ['st_dn', 'Supertrend 转空', 'crossdown(close, supertrend(3,1.4))'],
+        ['bb_dn', '跌破布林下轨', 'crossdown(close, ' + BOLL_LO + ')'],
+        ['ema_dn', 'EMA5 下穿 EMA20', 'crossdown(ema(close,5), ema(close,20))'],
+        ['ema50_dn', '跌破 EMA50', 'crossdown(close, ema(close,50))'],
+        ['macd_dn', 'MACD 死叉', 'crossdown(' + MACDL + ', ema(' + MACDL + ',9))'],
+        ['rsi_dn', 'RSI 下穿 70', 'crossdown(rsi(close,14), 70)'],
+        ['ll20', '创 20 日新低', 'close < ref(lowest(low,20),1)']]]
+    ];
+    var SIG_FORMULA = {}; SIGNALS.forEach(function (g) { g[2].forEach(function (x) { SIG_FORMULA[x[0]] = x[2]; }); });
+    var sigKey = 'bursa_sig_v1', sig = { on: [], win: 1, mode: 'all', open: false };
+    try { var sv = JSON.parse(localStorage.getItem(sigKey) || 'null'); if (sv) { sig.win = [1, 3, 5].indexOf(sv.win) >= 0 ? sv.win : 1; sig.mode = sv.mode === 'any' ? 'any' : 'all'; } } catch (e) { /* 读不到就用默认 */ }
+    var sigCache = {}, sigReady = false, sigLoading = false, universeItems = [];
+    function sigSet(id) {
+      var k = id + ':' + sig.win;
+      if (sigCache[k]) return sigCache[k];
+      var set = {}, f = sig.win > 1 ? 'within(' + SIG_FORMULA[id] + ', ' + sig.win + ')' : SIG_FORMULA[id];
+      universeItems.forEach(function (it) {
+        try {
+          if (!it.ctx) it.ctx = makeCtx(it.bars);
+          var arr = evalFormula(f, it.ctx);
+          if (truthOf(isArr(arr) ? arr[arr.length - 1] : arr) === true) set[it.stock.code] = 1;
+        } catch (e) { /* 算不出来 = 没有这个信号 */ }
+      });
+      return (sigCache[k] = set);
+    }
+    function sigPass(row) {
+      if (!sig.on.length || !sigReady) return true;
+      var code = row.dataset.code, hits = sig.on.map(function (id) { return !!sigSet(id)[code]; });
+      return sig.mode === 'any' ? hits.some(Boolean) : hits.every(Boolean);
+    }
+    function sigNeed() {
+      if (sigReady || sigLoading) return;
+      sigLoading = true;
+      loadUniverse().then(function (u) { universeItems = u.items; sigReady = true; sigLoading = false; drawSig(); applyTableFilters(); });
+    }
+    var sigPanel = null, drawSig = function () {};
+    function buildSigPanel() {
+      if (!chipBox || document.getElementById('sig-panel')) return;
+      var tog = document.createElement('button');
+      tog.type = 'button'; tog.className = 'tf-chip tf-sig-toggle'; tog.setAttribute('aria-expanded', 'false'); tog.textContent = '信号筛选 ▾';
+      chipBox.insertBefore(tog, chipBox.firstChild);
+      sigPanel = document.createElement('div'); sigPanel.id = 'sig-panel'; sigPanel.className = 'sig-panel'; sigPanel.hidden = true;
+      function opt(group, v, label, cur) { return '<button type="button" class="tf-chip" data-sg="' + group + '" data-v="' + v + '" aria-pressed="' + (String(cur) === String(v)) + '">' + label + '</button>'; }
+      drawSig = function () {
+        sigPanel.innerHTML = '<div class="sig-opts"><span class="sig-l">出现在</span>' + opt('win', 1, '今天', sig.win) + opt('win', 3, '3 天内', sig.win) + opt('win', 5, '5 天内', sig.win) +
+          '<span class="sig-l">选了几个</span>' + opt('mode', 'all', '全部满足', sig.mode) + opt('mode', 'any', '任一满足', sig.mode) + '</div>' +
+          SIGNALS.map(function (g) {
+            return '<div class="sig-grp"><span class="sig-l">' + g[1] + '</span><div class="tf-chips">' + g[2].map(function (x) {
+              return '<button type="button" class="tf-chip" data-sig="' + x[0] + '" aria-pressed="' + (sig.on.indexOf(x[0]) >= 0) + '">' + x[1] + '</button>';
+            }).join('') + '</div></div>';
+          }).join('') + (sigReady ? '' : '<p class="sig-note">计算中…</p>');
+        tog.textContent = (sig.open ? '信号筛选 ▴' : '信号筛选 ▾') + (sig.on.length ? ' · ' + sig.on.length : '');
+      };
+      drawSig();
+      chipBox.parentNode.insertAdjacentElement('afterend', sigPanel);
+      tog.addEventListener('click', function () {
+        sig.open = !sig.open; sigPanel.hidden = !sig.open; tog.setAttribute('aria-expanded', String(sig.open));
+        drawSig();
+        if (sig.open) sigNeed();
+      });
+      sigPanel.addEventListener('click', function (e) {
+        var b = e.target.closest('button'); if (!b) return;
+        if (b.dataset.sig) {
+          var i = sig.on.indexOf(b.dataset.sig); if (i >= 0) sig.on.splice(i, 1); else sig.on.push(b.dataset.sig);
+          sigNeed();
+        } else if (b.dataset.sg) {
+          if (b.dataset.sg === 'win') sig.win = +b.dataset.v; else sig.mode = b.dataset.v;
+          try { localStorage.setItem(sigKey, JSON.stringify({ win: sig.win, mode: sig.mode })); } catch (er) { /* 存不了就只这一次 */ }
+        } else return;
+        drawSig(); applyTableFilters();
+      });
+    }
     var activeFilters = [];
     function applyTableFilters() {
       var q = filterInput ? filterInput.value.trim().toLowerCase() : '';
       var shown = 0;
       allRows.forEach(function (row) {
         var hit = (!q || (row.dataset.search || '').indexOf(q) !== -1) &&
-          activeFilters.every(function (f) { return TABLE_FILTERS[f](row); });
+          activeFilters.every(function (f) { return TABLE_FILTERS[f](row); }) && sigPass(row);
         row.hidden = !hit;
         if (hit) shown++;
       });
@@ -3907,6 +3993,7 @@
     watchListeners.push(function () { markWatchedRows(); if (activeFilters.indexOf('watch') !== -1) applyTableFilters(); });
     applyTableFilters();
     if (filterInput) filterInput.addEventListener('input', applyTableFilters);
+    buildSigPanel();
     if (chipBox) {
       chipBox.addEventListener('click', function (e) {
         var b = e.target.closest('.tf-chip[data-f]');
