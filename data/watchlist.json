@@ -12,10 +12,6 @@
     "name": "UCREST"
   },
   {
-    "symbol": "0006.KL",
-    "name": "PINEAPP"
-  },
-  {
     "symbol": "0007.KL",
     "name": "PUC"
   },
@@ -125,7 +121,7 @@
   },
   {
     "symbol": "0050.KL",
-    "name": "SYSTECH"
+    "name": "WTS"
   },
   {
     "symbol": "0051.KL",
@@ -284,6 +280,10 @@
     "name": "WAJA"
   },
   {
+    "symbol": "0103.KL",
+    "name": "MNC"
+  },
+  {
     "symbol": "0104.KL",
     "name": "GENETEC"
   },
@@ -324,10 +324,6 @@
     "name": "FOCUS"
   },
   {
-    "symbol": "0116PA.KL",
-    "name": "FOCUS-PA"
-  },
-  {
     "symbol": "0117.KL",
     "name": "SMRT"
   },
@@ -342,6 +338,10 @@
   {
     "symbol": "0120.KL",
     "name": "VIS"
+  },
+  {
+    "symbol": "0122.KL",
+    "name": "AIM"
   },
   {
     "symbol": "0123.KL",
@@ -972,12 +972,16 @@
     "name": "ZANTAT"
   },
   {
+    "symbol": "03011.KL",
+    "name": "AMLEX"
+  },
+  {
     "symbol": "0302.KL",
     "name": "TOPMIX"
   },
   {
-    "symbol": "03021.KL",
-    "name": "ETH"
+    "symbol": "03027.KL",
+    "name": "MMIS"
   },
   {
     "symbol": "0303.KL",
@@ -1000,20 +1004,20 @@
     "name": "SMART"
   },
   {
-    "symbol": "03061.KL",
-    "name": "TPTEC"
-  },
-  {
-    "symbol": "03065.KL",
-    "name": "LPCGRP"
-  },
-  {
     "symbol": "0307.KL",
     "name": "KENERGY"
   },
   {
+    "symbol": "03070.KL",
+    "name": "WHITMAN"
+  },
+  {
     "symbol": "0308.KL",
     "name": "KTI"
+  },
+  {
+    "symbol": "0309.KL",
+    "name": "AGRICOR"
   },
   {
     "symbol": "0310.KL",
@@ -1405,7 +1409,7 @@
   },
   {
     "symbol": "0468.KL",
-    "name": "0468.KL"
+    "name": "UNIPAC"
   },
   {
     "symbol": "0469.KL",
@@ -1413,11 +1417,23 @@
   },
   {
     "symbol": "0470.KL",
-    "name": "0470.KL"
+    "name": "BFIELD"
   },
   {
     "symbol": "0471.KL",
-    "name": "0471.KL"
+    "name": "PIONEER"
+  },
+  {
+    "symbol": "0473.KL",
+    "name": "EVOCOM"
+  },
+  {
+    "symbol": "0475.KL",
+    "name": "GBBOND"
+  },
+  {
+    "symbol": "0476.KL",
+    "name": "SLGC Berhad"
   },
   {
     "symbol": "0800EA.KL",
@@ -1618,6 +1634,10 @@
   {
     "symbol": "2291.KL",
     "name": "GENP"
+  },
+  {
+    "symbol": "2305.KL",
+    "name": "AYER"
   },
   {
     "symbol": "2429.KL",
@@ -1996,6 +2016,10 @@
     "name": "HARISON"
   },
   {
+    "symbol": "5009.KL",
+    "name": "WTHORSE"
+  },
+  {
     "symbol": "5010.KL",
     "name": "TONGHER"
   },
@@ -2022,6 +2046,10 @@
   {
     "symbol": "5021.KL",
     "name": "AYS"
+  },
+  {
+    "symbol": "5022.KL",
+    "name": "PAOS"
   },
   {
     "symbol": "5024.KL",
@@ -2392,12 +2420,12 @@
     "name": "SEB"
   },
   {
-    "symbol": "5165.KL",
-    "name": "DFCITY"
-  },
-  {
     "symbol": "5166.KL",
     "name": "CYBERE"
+  },
+  {
+    "symbol": "5167.KL",
+    "name": "TURBO"
   },
   {
     "symbol": "5168.KL",
@@ -2960,6 +2988,10 @@
     "name": "SHANG"
   },
   {
+    "symbol": "5533.KL",
+    "name": "OCB"
+  },
+  {
     "symbol": "5555.KL",
     "name": "SUNMED"
   },
@@ -3016,6 +3048,10 @@
     "name": "LBS"
   },
   {
+    "symbol": "5789PA.KL",
+    "name": "LBS-PA"
+  },
+  {
     "symbol": "5797.KL",
     "name": "CHOOBEE"
   },
@@ -3068,10 +3104,6 @@
     "name": "PETGAS"
   },
   {
-    "symbol": "6041.KL",
-    "name": "FARLIM"
-  },
-  {
     "symbol": "6068.KL",
     "name": "PCCS"
   },
@@ -3118,10 +3150,6 @@
   {
     "symbol": "6262.KL",
     "name": "INNO"
-  },
-  {
-    "symbol": "6297.KL",
-    "name": "BOXPAK"
   },
   {
     "symbol": "6351.KL",
@@ -3204,6 +3232,10 @@
     "name": "AXIATA"
   },
   {
+    "symbol": "6904.KL",
+    "name": "SUBUR"
+  },
+  {
     "symbol": "6912.KL",
     "name": "PASDEC"
   },
@@ -3242,6 +3274,10 @@
   {
     "symbol": "7006.KL",
     "name": "RKI"
+  },
+  {
+    "symbol": "7007.KL",
+    "name": "ARK"
   },
   {
     "symbol": "7010.KL",
@@ -3312,10 +3348,6 @@
     "name": "FBG"
   },
   {
-    "symbol": "7048.KL",
-    "name": "ATLAN"
-  },
-  {
     "symbol": "7050.KL",
     "name": "WONG"
   },
@@ -3336,12 +3368,12 @@
     "name": "NHFATT"
   },
   {
-    "symbol": "7062.KL",
-    "name": "KHIND"
-  },
-  {
     "symbol": "7066.KL",
     "name": "YONGTAI"
+  },
+  {
+    "symbol": "7066PA.KL",
+    "name": "YONGTAI-PA"
   },
   {
     "symbol": "7070.KL",
@@ -3456,6 +3488,10 @@
     "name": "PERDANA"
   },
   {
+    "symbol": "7108PA.KL",
+    "name": "PERDANA-PA"
+  },
+  {
     "symbol": "7113.KL",
     "name": "TOPGLOV"
   },
@@ -3494,6 +3530,10 @@
   {
     "symbol": "7131.KL",
     "name": "LAND33"
+  },
+  {
+    "symbol": "7132.KL",
+    "name": "SMISCOR"
   },
   {
     "symbol": "7133.KL",
@@ -3732,8 +3772,8 @@
     "name": "AIZO"
   },
   {
-    "symbol": "7219PA.KL",
-    "name": "AIZO-PA"
+    "symbol": "7221.KL",
+    "name": "BSLCORP"
   },
   {
     "symbol": "7222.KL",
@@ -3796,6 +3836,10 @@
     "name": "SCNWOLF"
   },
   {
+    "symbol": "7240.KL",
+    "name": "IHB"
+  },
+  {
     "symbol": "7241.KL",
     "name": "NGGB"
   },
@@ -3856,6 +3900,14 @@
     "name": "TIENWAH"
   },
   {
+    "symbol": "7382.KL",
+    "name": "GLBHD"
+  },
+  {
+    "symbol": "7412.KL",
+    "name": "SHH"
+  },
+  {
     "symbol": "7439.KL",
     "name": "TECGUAN"
   },
@@ -3870,6 +3922,10 @@
   {
     "symbol": "7501.KL",
     "name": "HARNLEN"
+  },
+  {
+    "symbol": "7528.KL",
+    "name": "DKLS"
   },
   {
     "symbol": "7544.KL",
@@ -3888,6 +3944,10 @@
     "name": "AJIYA"
   },
   {
+    "symbol": "7617.KL",
+    "name": "MAGNA"
+  },
+  {
     "symbol": "7668.KL",
     "name": "BESHOM"
   },
@@ -3898,10 +3958,6 @@
   {
     "symbol": "7692.KL",
     "name": "MYTECH"
-  },
-  {
-    "symbol": "7722.KL",
-    "name": "ASIABRN"
   },
   {
     "symbol": "7757.KL",
@@ -3966,6 +4022,10 @@
   {
     "symbol": "8176.KL",
     "name": "WAVEFRNT"
+  },
+  {
+    "symbol": "8192.KL",
+    "name": "MERCURY"
   },
   {
     "symbol": "8206.KL",
@@ -4060,6 +4120,10 @@
     "name": "SPSETIA"
   },
   {
+    "symbol": "8664PA.KL",
+    "name": "SPSETIA-PA"
+  },
+  {
     "symbol": "8672.KL",
     "name": "KAMDAR"
   },
@@ -4130,6 +4194,10 @@
   {
     "symbol": "9113.KL",
     "name": "ICONIC"
+  },
+  {
+    "symbol": "9121.KL",
+    "name": "KPSCB"
   },
   {
     "symbol": "9148.KL",
@@ -4278,5 +4346,9 @@
   {
     "symbol": "9962.KL",
     "name": "GMUTUAL"
+  },
+  {
+    "symbol": "9997.KL",
+    "name": "PENSONI"
   }
 ]
