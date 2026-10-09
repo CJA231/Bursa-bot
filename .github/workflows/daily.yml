@@ -57,6 +57,14 @@ jobs:
         if: steps.deps-cache.outputs.cache-hit != 'true'
         run: pip install -r requirements.txt
 
+      # 股票名单每天更新一次 (当天第一次跑的时候)：新上市的股票当天就进报告，改名 / 下市也跟着改。
+      # Yahoo 出错就保留旧名单 (脚本自己判断)，这一步失败也不挡报告
+      - name: Refresh stock list (once a day)
+        if: ${{ github.event.inputs.market != 'US' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: python scripts/fetch_watchlist.py --if-stale
+
       - name: Run Stock Analysis
         env:
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
@@ -74,7 +82,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           # 整个 docs 目录一起提交 (-A 连删掉的文件也算)：报告、下载文件 (超过 7 天的旧文件夹会被删掉)、
           # charts = 表格股票的K线、stock = 个股财报 + 长期K线、news = 个股新闻；美股的同名目录都在 docs/us/ 下面
-          git add -A docs
+          git add -A docs data
           if [ "$MARKET" = "US" ]; then msg="Update daily report (US)"; else msg="Update daily report"; fi
           git diff --staged --quiet || git commit -m "$msg"
           # 排队等上一个 run (例如另一个市场) 的时候，main 可能已经多了它推上去的报告 → 先接上再推。

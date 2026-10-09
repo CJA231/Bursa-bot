@@ -66,6 +66,9 @@ MARKETS = {
         ],
         "min_volume": 500_000,        # 其余价格 (> 0.50) 的门槛
         "min_turnover": None,         # 马股按成交量 (股数) 分级，不看成交额
+        # 「其余股票」股票池：成交量 ≥ 1M 的全部放进来 (10/09 用户要求，自己用筛选按钮挑)。
+        # 上面的分级门槛照旧只管后台信号 / 回测：低于分级门槛、但 ≥ 1M 的股票只进股票池，不出信号、不进回测账本
+        "pool_min_volume": 1_000_000,
         "screener": {"region": "my"},
         "trading_ref": "1155.KL",     # 马银行，流动性最好，用它判断今天有没有开市
         "news": {"hl": "en-MY", "gl": "MY", "ceid": "MY:en", "fallback": "Bursa"},
@@ -110,6 +113,7 @@ MARKETS = {
         "volume_tiers": [],
         "min_volume": 1_000_000,      # 只有价格异常 (≤ 0) 时才用得到
         "min_turnover": 20_000_000,   # 日成交额至少 2000 万美元
+        "pool_min_volume": None,      # 美股股票池 = 达到成交额门槛的全部
         # 只要纽交所 / 纳斯达克挂牌的普通股 (不要场外 OTC)，市值 ≥ 100 亿美元 (约 700 支)
         "screener": {"region": "us", "exchanges": ["NYQ", "NMS", "NGM", "NCM", "ASE"], "min_market_cap": 10_000_000_000},
         "trading_ref": "SPY",
@@ -176,6 +180,7 @@ CHART_HISTORY_DAYS = 90  # 图表显示最近约 90 个交易日
 VOLUME_TIERS = MKT["volume_tiers"]
 MIN_DAILY_VOLUME = MKT["min_volume"]
 MIN_TURNOVER = MKT["min_turnover"]
+POOL_MIN_VOLUME = MKT.get("pool_min_volume")
 
 
 def min_volume_for(price):
@@ -1134,12 +1139,14 @@ def get_stock_data(symbol, retries=1, check_volume=True):
 
             # 成交量门槛放在算指标之前：实测 1070 支里约 3/4 会因为成交量不足被丢掉，
             # 以前是先把 RSI/SMA/EMA/PSAR/T3 全算完才丢，白白占 CPU (这部分多线程也帮不上忙)
+            pool_only = False  # True = 只进「其余股票」股票池 (成交量 ≥ 1M 但没到信号的分级门槛)
             if check_volume:
                 # 先四舍五入到 3 位 (Bursa 最小跳动 0.005)，避免 0.0999999 这类浮点误差把 0.10 的股票分错档
                 last_close = round(float(df["Close"].iloc[-1]), 3)
                 last_volume = int(df["Volume"].iloc[-1])
                 threshold = min_volume_for(last_close)
-                if last_volume < threshold:
+                pool_only = bool(POOL_MIN_VOLUME) and threshold > last_volume >= POOL_MIN_VOLUME
+                if last_volume < threshold and not pool_only:
                     return {"symbol": symbol, "low_volume": True, "close": round(last_close, 3),
                             "volume": last_volume, "threshold": threshold}
 
@@ -1263,12 +1270,14 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 "turnover_avg20": round(float(turnover_avg20), 2) if turnover_avg20 is not None and pd.notna(turnover_avg20) else None,
                 "atr_pct": round(atr / close * 100, 2) if atr and close else None,
                 "sar": psar_now,
-                "strategy_hit": bool(hit_idx),
-                "strategy_hits": [STRATEGY["strategies"][k]["name"] for k in hit_idx],
-                "rule_tags": [(STRATEGY["strategies"][k]["name"], rule_tags(ctx, STRATEGY["strategies"][k])) for k in hit_idx] or None,
+                "pool_only": pool_only,
+                "strategy_hit": bool(hit_idx) and not pool_only,
+                "strategy_hits": [] if pool_only else [STRATEGY["strategies"][k]["name"] for k in hit_idx],
+                "rule_tags": None if pool_only else [(STRATEGY["strategies"][k]["name"], rule_tags(ctx, STRATEGY["strategies"][k])) for k in hit_idx] or None,
                 "stop_ref": (round(stop_ref[0], 4), stop_ref[1]) if stop_ref else None,
                 "last_date": bar_dates[-1] if bar_dates else None,
-                "backtest": backtest_stock(bars, bar_dates, entry, ex, STRATEGY["cost"], series, every_signal=True, rmask=rmask),
+                # 只进股票池的不进回测 (信号 / 账本的范围跟以前一样)
+                "backtest": None if pool_only else backtest_stock(bars, bar_dates, entry, ex, STRATEGY["cost"], series, every_signal=True, rmask=rmask),
                 "daily_bars": compact_bars(df, intraday=False),  # 点开看完整图表 + 网页上的选股条件用 (只有表格股票会写进 table.json)
                 "candles": candles,
                 "ema20": ema20,
@@ -2113,20 +2122,11 @@ def short_company_name(code, name):
     return name  # 显示 Bursa 的股票简称 (VITROX / RAMSSOL / CBHB)，不用公司全名
 
 
-TABLE_MIN_VOLUME = 800_000  # 「其余股票」表格：马股成交量要大于 80 万股
-
-
 def table_ok(symbol, data):
-    """「其余股票」只放：成交量 > 80 万股 (马股)、价格和市值照后台设定 (min_price / max_mcap)、现价 > EMA20"""
-    close, ema = data.get("close"), data.get("ema20_latest")
-    if close is None or ema is None or not close > ema:
-        return False
-    if MARKET_ID == "MY" and not (data.get("volume") or 0) > TABLE_MIN_VOLUME:
-        return False
-    if close < STRATEGY["min_price"]:
-        return False
-    mcap = (QUOTE_META.get(symbol) or {}).get("mcap")
-    return not (STRATEGY["max_mcap"] and mcap and mcap > STRATEGY["max_mcap"])
+    """「其余股票」股票池：马股 = 成交量 ≥ 1M 的全部 (其余交给页面上的筛选按钮)；美股 = 进报告的全部"""
+    if POOL_MIN_VOLUME:
+        return (data.get("volume") or 0) >= POOL_MIN_VOLUME
+    return True
 
 
 def name_pair(code, name):
@@ -3034,6 +3034,7 @@ MARKET_CSS = """
   .mk-group { min-width: 0; }
   .mk-group h4 { margin: 0 0 0.35rem; font-size: var(--fs-xs); font-weight: 500; color: var(--text-secondary); }
   .mk-group > div { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .mk-changes { margin-top: 0.4rem; } .mk-chip-off { cursor: default; opacity: 0.75; }
   .mk-chip {
     font: inherit; display: inline-flex; align-items: baseline; gap: 0.4rem; padding: 0.32rem 0.6rem; border-radius: 8px; cursor: pointer;
     border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); font-size: var(--fs-sm); white-space: nowrap;
@@ -4070,6 +4071,42 @@ def change_pct_of(data):
 MOVER_MIN_TURNOVER = 1_000_000 if MARKET_ID == "MY" else 100_000_000  # 涨跌榜只看成交额够大的，免得被仙股跳一格占满
 
 
+WATCHLIST_CHANGES_PATH = os.path.join("data", "watchlist_changes.json")
+CHANGES_SHOW_DAYS = 14
+
+
+def watchlist_changes_html(in_report):
+    """「今日市场」下面：最近 14 天股票名单的变动 (新上市 / 改名 / 下市)，来自 scripts/fetch_watchlist.py 每天的比较结果。
+    在这次报告里的股票可以点开看图"""
+    if MARKET_ID != "MY":
+        return ""
+    try:
+        with open(WATCHLIST_CHANGES_PATH, encoding="utf-8") as f:
+            events = json.load(f).get("events") or []
+    except (OSError, ValueError):
+        return ""
+    since = (datetime.now(LOCAL_TZ) - timedelta(days=CHANGES_SHOW_DAYS)).strftime("%Y-%m-%d")
+    events = [e for e in events if e.get("date", "") >= since]
+    if not events:
+        return ""
+    groups = []
+    for kind, title in (("new", "新上市"), ("renamed", "改名"), ("removed", "下市")):
+        rows = [e for e in events if e.get("type") == kind][:12]
+        if not rows:
+            continue
+        items = []
+        for e in rows:
+            code = e["symbol"].split(".")[0]
+            label = (f'{html.escape(e["old"])} → ' if e.get("old") else "") + html.escape(e["name"])
+            when = e["date"][5:].replace("-", "/")
+            if code in in_report:
+                items.append(f'<button type="button" class="mk-chip" data-code="{html.escape(code)}"><b>{label}</b><small class="chip-code">{code}</small><span class="mk-val">{when}</span></button>')
+            else:
+                items.append(f'<span class="mk-chip mk-chip-off"><b>{label}</b><small class="chip-code">{code}</small><span class="mk-val">{when}</span></span>')
+        groups.append(f'<div class="mk-group"><h4>{title}</h4><div>{"".join(items)}</div></div>')
+    return f'<div class="mk-movers mk-changes" aria-label="股票名单变动 (近 {CHANGES_SHOW_DAYS} 天)">{"".join(groups)}</div>'
+
+
 def build_market_html(market, stocks):
     """页面顶部"今日市场"：大盘指数、全市场涨跌家数 / 52 周新高新低、报告里的涨跌榜和成交额榜"""
     market = market or {}
@@ -4122,6 +4159,9 @@ def build_market_html(market, stocks):
         if groups:
             parts.append('<div class="mk-movers">' + "".join(f'<div class="mk-group"><h4>{t}</h4><div>{c}</div></div>' for t, c in groups)
                          + "</div>")
+    changes = watchlist_changes_html({s["symbol"].split(".")[0] for s in listed})
+    if changes:
+        parts.append(changes)
     if not parts:
         return ""
     return (f'<section class="market" id="sec-market" aria-labelledby="sec-market-h">'
