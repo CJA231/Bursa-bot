@@ -1,7 +1,25 @@
 {
-  "updated": "2026-10-09",
-  "count": 1088,
+  "updated": "2026-10-10",
+  "count": 1087,
   "events": [
+    {
+      "date": "2026-10-10",
+      "type": "new",
+      "symbol": "6041.KL",
+      "name": "FARLIM"
+    },
+    {
+      "date": "2026-10-10",
+      "type": "removed",
+      "symbol": "0155.KL",
+      "name": "MGRC"
+    },
+    {
+      "date": "2026-10-10",
+      "type": "removed",
+      "symbol": "7053.KL",
+      "name": "SEEHUP"
+    },
     {
       "date": "2026-10-09",
       "type": "new",

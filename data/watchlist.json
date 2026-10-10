@@ -436,10 +436,6 @@
     "name": "EAH"
   },
   {
-    "symbol": "0155.KL",
-    "name": "MGRC"
-  },
-  {
     "symbol": "0156.KL",
     "name": "MPAY"
   },
@@ -3104,6 +3100,10 @@
     "name": "PETGAS"
   },
   {
+    "symbol": "6041.KL",
+    "name": "FARLIM"
+  },
+  {
     "symbol": "6068.KL",
     "name": "PCCS"
   },
@@ -3354,10 +3354,6 @@
   {
     "symbol": "7052.KL",
     "name": "PADINI"
-  },
-  {
-    "symbol": "7053.KL",
-    "name": "SEEHUP"
   },
   {
     "symbol": "7054.KL",
