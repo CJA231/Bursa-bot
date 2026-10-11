@@ -1,7 +1,31 @@
 {
-  "updated": "2026-10-10",
-  "count": 1087,
+  "updated": "2026-10-11",
+  "count": 1083,
   "events": [
+    {
+      "date": "2026-10-11",
+      "type": "removed",
+      "symbol": "0153.KL",
+      "name": "OVERSEA"
+    },
+    {
+      "date": "2026-10-11",
+      "type": "removed",
+      "symbol": "5035.KL",
+      "name": "KNUSFOR"
+    },
+    {
+      "date": "2026-10-11",
+      "type": "removed",
+      "symbol": "5167.KL",
+      "name": "TURBO"
+    },
+    {
+      "date": "2026-10-11",
+      "type": "removed",
+      "symbol": "7149.KL",
+      "name": "ENGKAH"
+    },
     {
       "date": "2026-10-10",
       "type": "new",
