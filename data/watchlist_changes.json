@@ -1,7 +1,21 @@
 {
-  "updated": "2026-10-11",
+  "updated": "2026-10-12",
   "count": 1083,
   "events": [
+    {
+      "date": "2026-10-12",
+      "type": "renamed",
+      "symbol": "0476.KL",
+      "name": "SLG",
+      "old": "SLGC Berhad"
+    },
+    {
+      "date": "2026-10-12",
+      "type": "renamed",
+      "symbol": "5216.KL",
+      "name": "DATASONIC",
+      "old": "NEXG"
+    },
     {
       "date": "2026-10-11",
       "type": "removed",
