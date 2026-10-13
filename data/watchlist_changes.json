@@ -1,7 +1,49 @@
 {
-  "updated": "2026-10-12",
-  "count": 1083,
+  "updated": "2026-10-13",
+  "count": 1088,
   "events": [
+    {
+      "date": "2026-10-13",
+      "type": "new",
+      "symbol": "0155.KL",
+      "name": "MGRC"
+    },
+    {
+      "date": "2026-10-13",
+      "type": "new",
+      "symbol": "03071.KL",
+      "name": "NOESIS"
+    },
+    {
+      "date": "2026-10-13",
+      "type": "new",
+      "symbol": "5165.KL",
+      "name": "DFCITY"
+    },
+    {
+      "date": "2026-10-13",
+      "type": "new",
+      "symbol": "7048.KL",
+      "name": "ATLAN"
+    },
+    {
+      "date": "2026-10-13",
+      "type": "new",
+      "symbol": "7149.KL",
+      "name": "ENGKAH"
+    },
+    {
+      "date": "2026-10-13",
+      "type": "new",
+      "symbol": "8664PC.KL",
+      "name": "SPSETIA-PC"
+    },
+    {
+      "date": "2026-10-13",
+      "type": "removed",
+      "symbol": "7145PA.KL",
+      "name": "TXCD-PA"
+    },
     {
       "date": "2026-10-12",
       "type": "renamed",

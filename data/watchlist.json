@@ -432,6 +432,10 @@
     "name": "EAH"
   },
   {
+    "symbol": "0155.KL",
+    "name": "MGRC"
+  },
+  {
     "symbol": "0156.KL",
     "name": "MPAY"
   },
@@ -1002,6 +1006,10 @@
   {
     "symbol": "03070.KL",
     "name": "WHITMAN"
+  },
+  {
+    "symbol": "03071.KL",
+    "name": "NOESIS"
   },
   {
     "symbol": "0308.KL",
@@ -2408,6 +2416,10 @@
     "name": "SEB"
   },
   {
+    "symbol": "5165.KL",
+    "name": "DFCITY"
+  },
+  {
     "symbol": "5166.KL",
     "name": "CYBERE"
   },
@@ -3336,6 +3348,10 @@
     "name": "FBG"
   },
   {
+    "symbol": "7048.KL",
+    "name": "ATLAN"
+  },
+  {
     "symbol": "7050.KL",
     "name": "WONG"
   },
@@ -3544,16 +3560,16 @@
     "name": "TXCD"
   },
   {
-    "symbol": "7145PA.KL",
-    "name": "TXCD-PA"
-  },
-  {
     "symbol": "7146.KL",
     "name": "AEM"
   },
   {
     "symbol": "7148.KL",
     "name": "DPHARMA"
+  },
+  {
+    "symbol": "7149.KL",
+    "name": "ENGKAH"
   },
   {
     "symbol": "7152.KL",
@@ -4102,6 +4118,10 @@
   {
     "symbol": "8664PA.KL",
     "name": "SPSETIA-PA"
+  },
+  {
+    "symbol": "8664PC.KL",
+    "name": "SPSETIA-PC"
   },
   {
     "symbol": "8672.KL",
