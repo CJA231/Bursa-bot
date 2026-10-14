@@ -976,10 +976,6 @@
     "name": "TOPMIX"
   },
   {
-    "symbol": "03027.KL",
-    "name": "MMIS"
-  },
-  {
     "symbol": "0303.KL",
     "name": "ALPHA"
   },
@@ -3152,6 +3148,10 @@
     "name": "INNO"
   },
   {
+    "symbol": "6297.KL",
+    "name": "BOXPAK"
+  },
+  {
     "symbol": "6351.KL",
     "name": "AMWAY"
   },
@@ -3370,10 +3370,6 @@
   {
     "symbol": "7066.KL",
     "name": "YONGTAI"
-  },
-  {
-    "symbol": "7066PA.KL",
-    "name": "YONGTAI-PA"
   },
   {
     "symbol": "7070.KL",

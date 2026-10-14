@@ -1,7 +1,25 @@
 {
-  "updated": "2026-10-13",
-  "count": 1088,
+  "updated": "2026-10-14",
+  "count": 1087,
   "events": [
+    {
+      "date": "2026-10-14",
+      "type": "new",
+      "symbol": "6297.KL",
+      "name": "BOXPAK"
+    },
+    {
+      "date": "2026-10-14",
+      "type": "removed",
+      "symbol": "03027.KL",
+      "name": "MMIS"
+    },
+    {
+      "date": "2026-10-14",
+      "type": "removed",
+      "symbol": "7066PA.KL",
+      "name": "YONGTAI-PA"
+    },
     {
       "date": "2026-10-13",
       "type": "new",
