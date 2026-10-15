@@ -1,7 +1,49 @@
 {
-  "updated": "2026-10-14",
-  "count": 1087,
+  "updated": "2026-10-15",
+  "count": 1086,
   "events": [
+    {
+      "date": "2026-10-15",
+      "type": "new",
+      "symbol": "0477.KL",
+      "name": "ECOSYS"
+    },
+    {
+      "date": "2026-10-15",
+      "type": "new",
+      "symbol": "5035.KL",
+      "name": "KNUSFOR"
+    },
+    {
+      "date": "2026-10-15",
+      "type": "new",
+      "symbol": "7062.KL",
+      "name": "KHIND"
+    },
+    {
+      "date": "2026-10-15",
+      "type": "removed",
+      "symbol": "0150PA.KL",
+      "name": "FINTEC-PA"
+    },
+    {
+      "date": "2026-10-15",
+      "type": "removed",
+      "symbol": "03011.KL",
+      "name": "AMLEX"
+    },
+    {
+      "date": "2026-10-15",
+      "type": "removed",
+      "symbol": "6904.KL",
+      "name": "SUBUR"
+    },
+    {
+      "date": "2026-10-15",
+      "type": "removed",
+      "symbol": "7218.KL",
+      "name": "ARKA"
+    },
     {
       "date": "2026-10-14",
       "type": "new",

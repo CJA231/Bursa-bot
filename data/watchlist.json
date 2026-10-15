@@ -416,10 +416,6 @@
     "name": "FINTEC"
   },
   {
-    "symbol": "0150PA.KL",
-    "name": "FINTEC-PA"
-  },
-  {
     "symbol": "0151.KL",
     "name": "KGB"
   },
@@ -968,10 +964,6 @@
     "name": "ZANTAT"
   },
   {
-    "symbol": "03011.KL",
-    "name": "AMLEX"
-  },
-  {
     "symbol": "0302.KL",
     "name": "TOPMIX"
   },
@@ -1430,6 +1422,10 @@
   {
     "symbol": "0476.KL",
     "name": "SLG"
+  },
+  {
+    "symbol": "0477.KL",
+    "name": "ECOSYS"
   },
   {
     "symbol": "0800EA.KL",
@@ -2078,6 +2074,10 @@
   {
     "symbol": "5032.KL",
     "name": "BIPORT"
+  },
+  {
+    "symbol": "5035.KL",
+    "name": "KNUSFOR"
   },
   {
     "symbol": "5036.KL",
@@ -3232,10 +3232,6 @@
     "name": "AXIATA"
   },
   {
-    "symbol": "6904.KL",
-    "name": "SUBUR"
-  },
-  {
     "symbol": "6912.KL",
     "name": "PASDEC"
   },
@@ -3366,6 +3362,10 @@
   {
     "symbol": "7060.KL",
     "name": "NHFATT"
+  },
+  {
+    "symbol": "7062.KL",
+    "name": "KHIND"
   },
   {
     "symbol": "7066.KL",
@@ -3754,10 +3754,6 @@
   {
     "symbol": "7217.KL",
     "name": "EMETALL"
-  },
-  {
-    "symbol": "7218.KL",
-    "name": "ARKA"
   },
   {
     "symbol": "7219.KL",
