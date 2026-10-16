@@ -1,7 +1,73 @@
 {
-  "updated": "2026-10-15",
-  "count": 1086,
+  "updated": "2026-10-16",
+  "count": 1081,
   "events": [
+    {
+      "date": "2026-10-16",
+      "type": "new",
+      "symbol": "5167.KL",
+      "name": "TURBO"
+    },
+    {
+      "date": "2026-10-16",
+      "type": "new",
+      "symbol": "6904.KL",
+      "name": "SUBUR"
+    },
+    {
+      "date": "2026-10-16",
+      "type": "new",
+      "symbol": "7145PA.KL",
+      "name": "TXCD-PA"
+    },
+    {
+      "date": "2026-10-16",
+      "type": "removed",
+      "symbol": "0228.KL",
+      "name": "HPPHB"
+    },
+    {
+      "date": "2026-10-16",
+      "type": "removed",
+      "symbol": "2135.KL",
+      "name": "GOPENG"
+    },
+    {
+      "date": "2026-10-16",
+      "type": "removed",
+      "symbol": "6017.KL",
+      "name": "SHL"
+    },
+    {
+      "date": "2026-10-16",
+      "type": "removed",
+      "symbol": "7003.KL",
+      "name": "Y&G"
+    },
+    {
+      "date": "2026-10-16",
+      "type": "removed",
+      "symbol": "7544.KL",
+      "name": "QUALITY"
+    },
+    {
+      "date": "2026-10-16",
+      "type": "removed",
+      "symbol": "8141.KL",
+      "name": "MJPERAK"
+    },
+    {
+      "date": "2026-10-16",
+      "type": "removed",
+      "symbol": "8486.KL",
+      "name": "LIONPSIM"
+    },
+    {
+      "date": "2026-10-16",
+      "type": "removed",
+      "symbol": "8672.KL",
+      "name": "KAMDAR"
+    },
     {
       "date": "2026-10-15",
       "type": "new",

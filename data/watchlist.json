@@ -692,10 +692,6 @@
     "name": "EFRAME"
   },
   {
-    "symbol": "0228.KL",
-    "name": "HPPHB"
-  },
-  {
     "symbol": "0229.KL",
     "name": "MOBILIA"
   },
@@ -1604,10 +1600,6 @@
     "name": "COMFORT"
   },
   {
-    "symbol": "2135.KL",
-    "name": "GOPENG"
-  },
-  {
     "symbol": "2143.KL",
     "name": "ECM"
   },
@@ -2420,6 +2412,10 @@
     "name": "CYBERE"
   },
   {
+    "symbol": "5167.KL",
+    "name": "TURBO"
+  },
+  {
     "symbol": "5168.KL",
     "name": "HARTA"
   },
@@ -3088,10 +3084,6 @@
     "name": "MAXIS"
   },
   {
-    "symbol": "6017.KL",
-    "name": "SHL"
-  },
-  {
     "symbol": "6033.KL",
     "name": "PETGAS"
   },
@@ -3232,6 +3224,10 @@
     "name": "AXIATA"
   },
   {
+    "symbol": "6904.KL",
+    "name": "SUBUR"
+  },
+  {
     "symbol": "6912.KL",
     "name": "PASDEC"
   },
@@ -3254,10 +3250,6 @@
   {
     "symbol": "6998.KL",
     "name": "BINTAI"
-  },
-  {
-    "symbol": "7003.KL",
-    "name": "Y&G"
   },
   {
     "symbol": "7004.KL",
@@ -3554,6 +3546,10 @@
   {
     "symbol": "7145.KL",
     "name": "TXCD"
+  },
+  {
+    "symbol": "7145PA.KL",
+    "name": "TXCD-PA"
   },
   {
     "symbol": "7146.KL",
@@ -3916,10 +3912,6 @@
     "name": "DKLS"
   },
   {
-    "symbol": "7544.KL",
-    "name": "QUALITY"
-  },
-  {
     "symbol": "7579.KL",
     "name": "AWC"
   },
@@ -4004,10 +3996,6 @@
     "name": "PGF"
   },
   {
-    "symbol": "8141.KL",
-    "name": "MJPERAK"
-  },
-  {
     "symbol": "8176.KL",
     "name": "WAVEFRNT"
   },
@@ -4064,10 +4052,6 @@
     "name": "HWATAI"
   },
   {
-    "symbol": "8486.KL",
-    "name": "LIONPSIM"
-  },
-  {
     "symbol": "8494.KL",
     "name": "LBICAP"
   },
@@ -4114,10 +4098,6 @@
   {
     "symbol": "8664PC.KL",
     "name": "SPSETIA-PC"
-  },
-  {
-    "symbol": "8672.KL",
-    "name": "KAMDAR"
   },
   {
     "symbol": "8702.KL",
