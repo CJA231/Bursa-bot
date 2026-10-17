@@ -692,6 +692,10 @@
     "name": "EFRAME"
   },
   {
+    "symbol": "0228.KL",
+    "name": "HPPHB"
+  },
+  {
     "symbol": "0229.KL",
     "name": "MOBILIA"
   },
@@ -976,20 +980,12 @@
     "name": "SINKUNG"
   },
   {
-    "symbol": "03050.KL",
-    "name": "SUNMOW"
-  },
-  {
     "symbol": "0306.KL",
     "name": "SMART"
   },
   {
     "symbol": "0307.KL",
     "name": "KENERGY"
-  },
-  {
-    "symbol": "03070.KL",
-    "name": "WHITMAN"
   },
   {
     "symbol": "03071.KL",
@@ -1408,6 +1404,10 @@
     "name": "PIONEER"
   },
   {
+    "symbol": "0472.KL",
+    "name": "EGH International Berhad"
+  },
+  {
     "symbol": "0473.KL",
     "name": "EVOCOM"
   },
@@ -1600,6 +1600,10 @@
     "name": "COMFORT"
   },
   {
+    "symbol": "2135.KL",
+    "name": "GOPENG"
+  },
+  {
     "symbol": "2143.KL",
     "name": "ECM"
   },
@@ -1638,10 +1642,6 @@
   {
     "symbol": "2488.KL",
     "name": "ABMB"
-  },
-  {
-    "symbol": "2542.KL",
-    "name": "RVIEW"
   },
   {
     "symbol": "2569.KL",
@@ -2132,10 +2132,6 @@
     "name": "LUSTER"
   },
   {
-    "symbol": "5069.KL",
-    "name": "BLDPLNT"
-  },
-  {
     "symbol": "5070.KL",
     "name": "PRTASCO"
   },
@@ -2418,10 +2414,6 @@
   {
     "symbol": "5168.KL",
     "name": "HARTA"
-  },
-  {
-    "symbol": "5169.KL",
-    "name": "HOHUP"
   },
   {
     "symbol": "5171.KL",
@@ -3084,6 +3076,10 @@
     "name": "MAXIS"
   },
   {
+    "symbol": "6017.KL",
+    "name": "SHL"
+  },
+  {
     "symbol": "6033.KL",
     "name": "PETGAS"
   },
@@ -3432,10 +3428,6 @@
     "name": "UNIMECH"
   },
   {
-    "symbol": "7094.KL",
-    "name": "EUROSP"
-  },
-  {
     "symbol": "7095.KL",
     "name": "PIE"
   },
@@ -3704,10 +3696,6 @@
     "name": "HEXRTL"
   },
   {
-    "symbol": "7203.KL",
-    "name": "WANGZNG"
-  },
-  {
     "symbol": "7204.KL",
     "name": "D&O"
   },
@@ -3750,6 +3738,10 @@
   {
     "symbol": "7217.KL",
     "name": "EMETALL"
+  },
+  {
+    "symbol": "7218.KL",
+    "name": "ARKA"
   },
   {
     "symbol": "7219.KL",
@@ -3996,6 +3988,10 @@
     "name": "PGF"
   },
   {
+    "symbol": "8141.KL",
+    "name": "MJPERAK"
+  },
+  {
     "symbol": "8176.KL",
     "name": "WAVEFRNT"
   },
@@ -4230,10 +4226,6 @@
   {
     "symbol": "9407.KL",
     "name": "PARAGON"
-  },
-  {
-    "symbol": "9423.KL",
-    "name": "CWG"
   },
   {
     "symbol": "9431.KL",

@@ -1,7 +1,91 @@
 {
-  "updated": "2026-10-16",
-  "count": 1081,
+  "updated": "2026-10-17",
+  "count": 1079,
   "events": [
+    {
+      "date": "2026-10-17",
+      "type": "new",
+      "symbol": "0228.KL",
+      "name": "HPPHB"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "new",
+      "symbol": "0472.KL",
+      "name": "EGH International Berhad"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "new",
+      "symbol": "2135.KL",
+      "name": "GOPENG"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "new",
+      "symbol": "6017.KL",
+      "name": "SHL"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "new",
+      "symbol": "7218.KL",
+      "name": "ARKA"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "new",
+      "symbol": "8141.KL",
+      "name": "MJPERAK"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "removed",
+      "symbol": "03050.KL",
+      "name": "SUNMOW"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "removed",
+      "symbol": "03070.KL",
+      "name": "WHITMAN"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "removed",
+      "symbol": "2542.KL",
+      "name": "RVIEW"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "removed",
+      "symbol": "5069.KL",
+      "name": "BLDPLNT"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "removed",
+      "symbol": "5169.KL",
+      "name": "HOHUP"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "removed",
+      "symbol": "7094.KL",
+      "name": "EUROSP"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "removed",
+      "symbol": "7203.KL",
+      "name": "WANGZNG"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "removed",
+      "symbol": "9423.KL",
+      "name": "CWG"
+    },
     {
       "date": "2026-10-16",
       "type": "new",
