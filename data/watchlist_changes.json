@@ -1,7 +1,13 @@
 {
-  "updated": "2026-10-17",
-  "count": 1079,
+  "updated": "2026-10-18",
+  "count": 1078,
   "events": [
+    {
+      "date": "2026-10-18",
+      "type": "removed",
+      "symbol": "5371.KL",
+      "name": "KIMHIN"
+    },
     {
       "date": "2026-10-17",
       "type": "new",
