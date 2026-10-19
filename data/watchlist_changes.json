@@ -1,7 +1,14 @@
 {
-  "updated": "2026-10-18",
+  "updated": "2026-10-19",
   "count": 1078,
   "events": [
+    {
+      "date": "2026-10-19",
+      "type": "renamed",
+      "symbol": "0472.KL",
+      "name": "ECOGRP",
+      "old": "EGH International Berhad"
+    },
     {
       "date": "2026-10-18",
       "type": "removed",
