@@ -1,7 +1,55 @@
 {
-  "updated": "2026-10-19",
-  "count": 1078,
+  "updated": "2026-10-20",
+  "count": 1086,
   "events": [
+    {
+      "date": "2026-10-20",
+      "type": "new",
+      "symbol": "0116PA.KL",
+      "name": "FOCUS-PA"
+    },
+    {
+      "date": "2026-10-20",
+      "type": "new",
+      "symbol": "0153.KL",
+      "name": "OVERSEA"
+    },
+    {
+      "date": "2026-10-20",
+      "type": "new",
+      "symbol": "2542.KL",
+      "name": "RVIEW"
+    },
+    {
+      "date": "2026-10-20",
+      "type": "new",
+      "symbol": "5169.KL",
+      "name": "HOHUP"
+    },
+    {
+      "date": "2026-10-20",
+      "type": "new",
+      "symbol": "5325R1.KL",
+      "name": "5325R1.KL"
+    },
+    {
+      "date": "2026-10-20",
+      "type": "new",
+      "symbol": "5371.KL",
+      "name": "KIMHIN"
+    },
+    {
+      "date": "2026-10-20",
+      "type": "new",
+      "symbol": "7025.KL",
+      "name": "WOODLAN"
+    },
+    {
+      "date": "2026-10-20",
+      "type": "new",
+      "symbol": "7080PA.KL",
+      "name": "PERMAJU-PA"
+    },
     {
       "date": "2026-10-19",
       "type": "renamed",

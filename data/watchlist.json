@@ -324,6 +324,10 @@
     "name": "FOCUS"
   },
   {
+    "symbol": "0116PA.KL",
+    "name": "FOCUS-PA"
+  },
+  {
     "symbol": "0117.KL",
     "name": "SMRT"
   },
@@ -422,6 +426,10 @@
   {
     "symbol": "0152.KL",
     "name": "DGB"
+  },
+  {
+    "symbol": "0153.KL",
+    "name": "OVERSEA"
   },
   {
     "symbol": "0154.KL",
@@ -1644,6 +1652,10 @@
     "name": "ABMB"
   },
   {
+    "symbol": "2542.KL",
+    "name": "RVIEW"
+  },
+  {
     "symbol": "2569.KL",
     "name": "SBAGAN"
   },
@@ -2416,6 +2428,10 @@
     "name": "HARTA"
   },
   {
+    "symbol": "5169.KL",
+    "name": "HOHUP"
+  },
+  {
     "symbol": "5171.KL",
     "name": "KIMLUN"
   },
@@ -2860,6 +2876,10 @@
     "name": "WELLCHIP"
   },
   {
+    "symbol": "5325R1.KL",
+    "name": "5325R1.KL"
+  },
+  {
     "symbol": "5326.KL",
     "name": "99SMART"
   },
@@ -2946,6 +2966,10 @@
   {
     "symbol": "5357.KL",
     "name": "SKYECHIP"
+  },
+  {
+    "symbol": "5371.KL",
+    "name": "KIMHIN"
   },
   {
     "symbol": "5398.KL",
@@ -3292,6 +3316,10 @@
     "name": "GTRONIC"
   },
   {
+    "symbol": "7025.KL",
+    "name": "WOODLAN"
+  },
+  {
     "symbol": "7028.KL",
     "name": "ZECON"
   },
@@ -3382,6 +3410,10 @@
   {
     "symbol": "7080.KL",
     "name": "PERMAJU"
+  },
+  {
+    "symbol": "7080PA.KL",
+    "name": "PERMAJU-PA"
   },
   {
     "symbol": "7081.KL",
