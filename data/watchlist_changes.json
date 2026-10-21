@@ -1,7 +1,55 @@
 {
-  "updated": "2026-10-20",
-  "count": 1086,
+  "updated": "2026-10-21",
+  "count": 1082,
   "events": [
+    {
+      "date": "2026-10-21",
+      "type": "new",
+      "symbol": "5069.KL",
+      "name": "BLDPLNT"
+    },
+    {
+      "date": "2026-10-21",
+      "type": "new",
+      "symbol": "7053.KL",
+      "name": "SEEHUP"
+    },
+    {
+      "date": "2026-10-21",
+      "type": "removed",
+      "symbol": "03071.KL",
+      "name": "NOESIS"
+    },
+    {
+      "date": "2026-10-21",
+      "type": "removed",
+      "symbol": "2682.KL",
+      "name": "PARKWD"
+    },
+    {
+      "date": "2026-10-21",
+      "type": "removed",
+      "symbol": "7248.KL",
+      "name": "SLP"
+    },
+    {
+      "date": "2026-10-21",
+      "type": "removed",
+      "symbol": "7528.KL",
+      "name": "DKLS"
+    },
+    {
+      "date": "2026-10-21",
+      "type": "removed",
+      "symbol": "9148.KL",
+      "name": "GBAY"
+    },
+    {
+      "date": "2026-10-21",
+      "type": "removed",
+      "symbol": "9717.KL",
+      "name": "SYCAL"
+    },
     {
       "date": "2026-10-20",
       "type": "new",

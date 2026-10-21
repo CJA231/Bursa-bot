@@ -996,10 +996,6 @@
     "name": "KENERGY"
   },
   {
-    "symbol": "03071.KL",
-    "name": "NOESIS"
-  },
-  {
     "symbol": "0308.KL",
     "name": "KTI"
   },
@@ -1676,10 +1672,6 @@
     "name": "ALCOM"
   },
   {
-    "symbol": "2682.KL",
-    "name": "PARKWD"
-  },
-  {
     "symbol": "2739.KL",
     "name": "TECHNAX"
   },
@@ -2142,6 +2134,10 @@
   {
     "symbol": "5068.KL",
     "name": "LUSTER"
+  },
+  {
+    "symbol": "5069.KL",
+    "name": "BLDPLNT"
   },
   {
     "symbol": "5070.KL",
@@ -3368,6 +3364,10 @@
     "name": "PADINI"
   },
   {
+    "symbol": "7053.KL",
+    "name": "SEEHUP"
+  },
+  {
     "symbol": "7054.KL",
     "name": "AASIA"
   },
@@ -3864,10 +3864,6 @@
     "name": "SCGM"
   },
   {
-    "symbol": "7248.KL",
-    "name": "SLP"
-  },
-  {
     "symbol": "7249.KL",
     "name": "SKYGATE"
   },
@@ -3926,10 +3922,6 @@
   {
     "symbol": "7501.KL",
     "name": "HARNLEN"
-  },
-  {
-    "symbol": "7528.KL",
-    "name": "DKLS"
   },
   {
     "symbol": "7579.KL",
@@ -4196,10 +4188,6 @@
     "name": "KPSCB"
   },
   {
-    "symbol": "9148.KL",
-    "name": "GBAY"
-  },
-  {
     "symbol": "9172.KL",
     "name": "FPI"
   },
@@ -4290,10 +4278,6 @@
   {
     "symbol": "9695.KL",
     "name": "PLS"
-  },
-  {
-    "symbol": "9717.KL",
-    "name": "SYCAL"
   },
   {
     "symbol": "9741.KL",
