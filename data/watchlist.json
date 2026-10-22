@@ -404,10 +404,6 @@
     "name": "JFTECH"
   },
   {
-    "symbol": "0147.KL",
-    "name": "INNITY"
-  },
-  {
     "symbol": "0148.KL",
     "name": "SUNZEN"
   },
@@ -1426,6 +1422,10 @@
   {
     "symbol": "0477.KL",
     "name": "ECOSYS"
+  },
+  {
+    "symbol": "0478.KL",
+    "name": "NWE Resources Group Berhad"
   },
   {
     "symbol": "0800EA.KL",
@@ -3540,10 +3540,6 @@
     "name": "LAND33"
   },
   {
-    "symbol": "7132.KL",
-    "name": "SMISCOR"
-  },
-  {
     "symbol": "7133.KL",
     "name": "ULICORP"
   },
@@ -3792,10 +3788,6 @@
     "name": "PA"
   },
   {
-    "symbol": "7226.KL",
-    "name": "WATTA"
-  },
-  {
     "symbol": "7227.KL",
     "name": "UMSNGB"
   },
@@ -3922,6 +3914,10 @@
   {
     "symbol": "7501.KL",
     "name": "HARNLEN"
+  },
+  {
+    "symbol": "7528.KL",
+    "name": "DKLS"
   },
   {
     "symbol": "7579.KL",
@@ -4242,6 +4238,10 @@
   {
     "symbol": "9407.KL",
     "name": "PARAGON"
+  },
+  {
+    "symbol": "9423.KL",
+    "name": "CWG"
   },
   {
     "symbol": "9431.KL",

@@ -1,7 +1,43 @@
 {
-  "updated": "2026-10-21",
+  "updated": "2026-10-22",
   "count": 1082,
   "events": [
+    {
+      "date": "2026-10-22",
+      "type": "new",
+      "symbol": "0478.KL",
+      "name": "NWE Resources Group Berhad"
+    },
+    {
+      "date": "2026-10-22",
+      "type": "new",
+      "symbol": "7528.KL",
+      "name": "DKLS"
+    },
+    {
+      "date": "2026-10-22",
+      "type": "new",
+      "symbol": "9423.KL",
+      "name": "CWG"
+    },
+    {
+      "date": "2026-10-22",
+      "type": "removed",
+      "symbol": "0147.KL",
+      "name": "INNITY"
+    },
+    {
+      "date": "2026-10-22",
+      "type": "removed",
+      "symbol": "7132.KL",
+      "name": "SMISCOR"
+    },
+    {
+      "date": "2026-10-22",
+      "type": "removed",
+      "symbol": "7226.KL",
+      "name": "WATTA"
+    },
     {
       "date": "2026-10-21",
       "type": "new",
