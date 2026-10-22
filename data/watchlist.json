@@ -504,6 +504,10 @@
     "name": "EVD"
   },
   {
+    "symbol": "0174PA.KL",
+    "name": "EVD-PA"
+  },
+  {
     "symbol": "0175.KL",
     "name": "HHRG"
   },
@@ -1428,6 +1432,10 @@
     "name": "NWE Resources Group Berhad"
   },
   {
+    "symbol": "0479.KL",
+    "name": "0479.KL"
+  },
+  {
     "symbol": "0800EA.KL",
     "name": "ABFMY1"
   },
@@ -2070,10 +2078,6 @@
   {
     "symbol": "5032.KL",
     "name": "BIPORT"
-  },
-  {
-    "symbol": "5035.KL",
-    "name": "KNUSFOR"
   },
   {
     "symbol": "5036.KL",
@@ -3372,6 +3376,10 @@
     "name": "AASIA"
   },
   {
+    "symbol": "7055.KL",
+    "name": "PLB"
+  },
+  {
     "symbol": "7060.KL",
     "name": "NHFATT"
   },
@@ -3884,10 +3892,6 @@
     "name": "AHB"
   },
   {
-    "symbol": "7323.KL",
-    "name": "KEN"
-  },
-  {
     "symbol": "7374.KL",
     "name": "TIENWAH"
   },
@@ -3918,6 +3922,10 @@
   {
     "symbol": "7528.KL",
     "name": "DKLS"
+  },
+  {
+    "symbol": "7544.KL",
+    "name": "QUALITY"
   },
   {
     "symbol": "7579.KL",
@@ -4062,6 +4070,10 @@
   {
     "symbol": "8478.KL",
     "name": "HWATAI"
+  },
+  {
+    "symbol": "8486.KL",
+    "name": "LIONPSIM"
   },
   {
     "symbol": "8494.KL",

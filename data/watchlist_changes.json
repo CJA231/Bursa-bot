@@ -1,7 +1,49 @@
 {
-  "updated": "2026-10-22",
-  "count": 1082,
+  "updated": "2026-10-23",
+  "count": 1085,
   "events": [
+    {
+      "date": "2026-10-23",
+      "type": "new",
+      "symbol": "0174PA.KL",
+      "name": "EVD-PA"
+    },
+    {
+      "date": "2026-10-23",
+      "type": "new",
+      "symbol": "0479.KL",
+      "name": "0479.KL"
+    },
+    {
+      "date": "2026-10-23",
+      "type": "new",
+      "symbol": "7055.KL",
+      "name": "PLB"
+    },
+    {
+      "date": "2026-10-23",
+      "type": "new",
+      "symbol": "7544.KL",
+      "name": "QUALITY"
+    },
+    {
+      "date": "2026-10-23",
+      "type": "new",
+      "symbol": "8486.KL",
+      "name": "LIONPSIM"
+    },
+    {
+      "date": "2026-10-23",
+      "type": "removed",
+      "symbol": "5035.KL",
+      "name": "KNUSFOR"
+    },
+    {
+      "date": "2026-10-23",
+      "type": "removed",
+      "symbol": "7323.KL",
+      "name": "KEN"
+    },
     {
       "date": "2026-10-22",
       "type": "new",
