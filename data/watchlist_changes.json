@@ -1,7 +1,78 @@
 {
-  "updated": "2026-10-23",
-  "count": 1085,
+  "updated": "2026-10-24",
+  "count": 1081,
   "events": [
+    {
+      "date": "2026-10-24",
+      "type": "new",
+      "symbol": "7226.KL",
+      "name": "WATTA"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "removed",
+      "symbol": "0232.KL",
+      "name": "VOLCANO"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "removed",
+      "symbol": "0288.KL",
+      "name": "MINOX"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "removed",
+      "symbol": "6114.KL",
+      "name": "MKH"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "removed",
+      "symbol": "7137.KL",
+      "name": "UMS"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "removed",
+      "symbol": "8192.KL",
+      "name": "MERCURY"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "renamed",
+      "symbol": "0478.KL",
+      "name": "NWEBHD",
+      "old": "NWE Resources Group Berhad"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "renamed",
+      "symbol": "0479.KL",
+      "name": "RPLANET",
+      "old": "0479.KL"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "renamed",
+      "symbol": "0823EA.KL",
+      "name": "EQ8C50",
+      "old": "PAM-C50"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "renamed",
+      "symbol": "5325R1.KL",
+      "name": "WELLCHIP-R1",
+      "old": "5325R1.KL"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "renamed",
+      "symbol": "9008.KL",
+      "name": "TEGRA",
+      "old": "OMESTI"
+    },
     {
       "date": "2026-10-23",
       "type": "new",

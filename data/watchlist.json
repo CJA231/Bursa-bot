@@ -716,10 +716,6 @@
     "name": "FLEXI"
   },
   {
-    "symbol": "0232.KL",
-    "name": "VOLCANO"
-  },
-  {
     "symbol": "0233.KL",
     "name": "PEKAT"
   },
@@ -918,10 +914,6 @@
   {
     "symbol": "0287.KL",
     "name": "SSF"
-  },
-  {
-    "symbol": "0288.KL",
-    "name": "MINOX"
   },
   {
     "symbol": "0289.KL",
@@ -1429,11 +1421,11 @@
   },
   {
     "symbol": "0478.KL",
-    "name": "NWE Resources Group Berhad"
+    "name": "NWEBHD"
   },
   {
     "symbol": "0479.KL",
-    "name": "0479.KL"
+    "name": "RPLANET"
   },
   {
     "symbol": "0800EA.KL",
@@ -1449,7 +1441,7 @@
   },
   {
     "symbol": "0823EA.KL",
-    "name": "PAM-C50"
+    "name": "EQ8C50"
   },
   {
     "symbol": "0824EA.KL",
@@ -2877,7 +2869,7 @@
   },
   {
     "symbol": "5325R1.KL",
-    "name": "5325R1.KL"
+    "name": "WELLCHIP-R1"
   },
   {
     "symbol": "5326.KL",
@@ -3118,10 +3110,6 @@
   {
     "symbol": "6084.KL",
     "name": "STAR"
-  },
-  {
-    "symbol": "6114.KL",
-    "name": "MKH"
   },
   {
     "symbol": "6139.KL",
@@ -3556,10 +3544,6 @@
     "name": "PWF"
   },
   {
-    "symbol": "7137.KL",
-    "name": "UMS"
-  },
-  {
     "symbol": "7139.KL",
     "name": "NICE"
   },
@@ -3796,6 +3780,10 @@
     "name": "PA"
   },
   {
+    "symbol": "7226.KL",
+    "name": "WATTA"
+  },
+  {
     "symbol": "7227.KL",
     "name": "UMSNGB"
   },
@@ -4020,10 +4008,6 @@
     "name": "WAVEFRNT"
   },
   {
-    "symbol": "8192.KL",
-    "name": "MERCURY"
-  },
-  {
     "symbol": "8206.KL",
     "name": "ECOWLD"
   },
@@ -4165,7 +4149,7 @@
   },
   {
     "symbol": "9008.KL",
-    "name": "OMESTI"
+    "name": "TEGRA"
   },
   {
     "symbol": "9016.KL",
