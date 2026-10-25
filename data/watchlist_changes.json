@@ -1,7 +1,19 @@
 {
-  "updated": "2026-10-24",
-  "count": 1081,
+  "updated": "2026-10-25",
+  "count": 1079,
   "events": [
+    {
+      "date": "2026-10-25",
+      "type": "removed",
+      "symbol": "0211.KL",
+      "name": "TASHIN"
+    },
+    {
+      "date": "2026-10-25",
+      "type": "removed",
+      "symbol": "5167.KL",
+      "name": "TURBO"
+    },
     {
       "date": "2026-10-24",
       "type": "new",
