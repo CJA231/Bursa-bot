@@ -1,7 +1,55 @@
 {
-  "updated": "2026-10-26",
-  "count": 1079,
+  "updated": "2026-10-27",
+  "count": 1083,
   "events": [
+    {
+      "date": "2026-10-27",
+      "type": "new",
+      "symbol": "0211.KL",
+      "name": "TASHIN"
+    },
+    {
+      "date": "2026-10-27",
+      "type": "new",
+      "symbol": "03072.KL",
+      "name": "MILOLO"
+    },
+    {
+      "date": "2026-10-27",
+      "type": "new",
+      "symbol": "2682.KL",
+      "name": "PARKWD"
+    },
+    {
+      "date": "2026-10-27",
+      "type": "new",
+      "symbol": "7003.KL",
+      "name": "Y&G"
+    },
+    {
+      "date": "2026-10-27",
+      "type": "new",
+      "symbol": "7123R1.KL",
+      "name": "7123R1.KL"
+    },
+    {
+      "date": "2026-10-27",
+      "type": "new",
+      "symbol": "8192.KL",
+      "name": "MERCURY"
+    },
+    {
+      "date": "2026-10-27",
+      "type": "removed",
+      "symbol": "0355.KL",
+      "name": "FIBRO"
+    },
+    {
+      "date": "2026-10-27",
+      "type": "removed",
+      "symbol": "7131.KL",
+      "name": "LAND33"
+    },
     {
       "date": "2026-10-25",
       "type": "removed",

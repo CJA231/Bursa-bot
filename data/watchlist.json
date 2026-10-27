@@ -640,6 +640,10 @@
     "name": "ARVEX"
   },
   {
+    "symbol": "0211.KL",
+    "name": "TASHIN"
+  },
+  {
     "symbol": "0212.KL",
     "name": "SDS"
   },
@@ -984,6 +988,10 @@
     "name": "KENERGY"
   },
   {
+    "symbol": "03072.KL",
+    "name": "MILOLO"
+  },
+  {
     "symbol": "0308.KL",
     "name": "KTI"
   },
@@ -1150,10 +1158,6 @@
   {
     "symbol": "0353.KL",
     "name": "WESTRVR"
-  },
-  {
-    "symbol": "0355.KL",
-    "name": "FIBRO"
   },
   {
     "symbol": "0356.KL",
@@ -1666,6 +1670,10 @@
   {
     "symbol": "2674.KL",
     "name": "ALCOM"
+  },
+  {
+    "symbol": "2682.KL",
+    "name": "PARKWD"
   },
   {
     "symbol": "2739.KL",
@@ -3248,6 +3256,10 @@
     "name": "BINTAI"
   },
   {
+    "symbol": "7003.KL",
+    "name": "Y&G"
+  },
+  {
     "symbol": "7004.KL",
     "name": "MCEHLDG"
   },
@@ -3516,16 +3528,16 @@
     "name": "MAXLAND"
   },
   {
+    "symbol": "7123R1.KL",
+    "name": "7123R1.KL"
+  },
+  {
     "symbol": "7128.KL",
     "name": "CAMRES"
   },
   {
     "symbol": "7129.KL",
     "name": "ASIAFLE"
-  },
-  {
-    "symbol": "7131.KL",
-    "name": "LAND33"
   },
   {
     "symbol": "7133.KL",
@@ -3998,6 +4010,10 @@
   {
     "symbol": "8176.KL",
     "name": "WAVEFRNT"
+  },
+  {
+    "symbol": "8192.KL",
+    "name": "MERCURY"
   },
   {
     "symbol": "8206.KL",
