@@ -324,10 +324,6 @@
     "name": "FOCUS"
   },
   {
-    "symbol": "0116PA.KL",
-    "name": "FOCUS-PA"
-  },
-  {
     "symbol": "0117.KL",
     "name": "SMRT"
   },
@@ -416,6 +412,10 @@
     "name": "FINTEC"
   },
   {
+    "symbol": "0150PA.KL",
+    "name": "FINTEC-PA"
+  },
+  {
     "symbol": "0151.KL",
     "name": "KGB"
   },
@@ -478,10 +478,6 @@
   {
     "symbol": "0168.KL",
     "name": "BMGREEN"
-  },
-  {
-    "symbol": "0169.KL",
-    "name": "SMTRACK"
   },
   {
     "symbol": "0170.KL",
@@ -914,6 +910,10 @@
   {
     "symbol": "0287.KL",
     "name": "SSF"
+  },
+  {
+    "symbol": "0288.KL",
+    "name": "MINOX"
   },
   {
     "symbol": "0289.KL",
@@ -3272,10 +3272,6 @@
     "name": "RKI"
   },
   {
-    "symbol": "7007.KL",
-    "name": "ARK"
-  },
-  {
     "symbol": "7010.KL",
     "name": "PTT"
   },
@@ -3348,10 +3344,6 @@
     "name": "FBG"
   },
   {
-    "symbol": "7048.KL",
-    "name": "ATLAN"
-  },
-  {
     "symbol": "7050.KL",
     "name": "WONG"
   },
@@ -3410,10 +3402,6 @@
   {
     "symbol": "7080.KL",
     "name": "PERMAJU"
-  },
-  {
-    "symbol": "7080PA.KL",
-    "name": "PERMAJU-PA"
   },
   {
     "symbol": "7081.KL",
@@ -3848,6 +3836,10 @@
     "name": "CITAGLB"
   },
   {
+    "symbol": "7245PA.KL",
+    "name": "CITAGLB-PA"
+  },
+  {
     "symbol": "7246.KL",
     "name": "SIGN"
   },
@@ -3890,10 +3882,6 @@
   {
     "symbol": "7382.KL",
     "name": "GLBHD"
-  },
-  {
-    "symbol": "7412.KL",
-    "name": "SHH"
   },
   {
     "symbol": "7439.KL",
@@ -3946,6 +3934,10 @@
   {
     "symbol": "7692.KL",
     "name": "MYTECH"
+  },
+  {
+    "symbol": "7722.KL",
+    "name": "ASIABRN"
   },
   {
     "symbol": "7757.KL",
@@ -4086,10 +4078,6 @@
   {
     "symbol": "8591.KL",
     "name": "CRESBLD"
-  },
-  {
-    "symbol": "8605.KL",
-    "name": "FIHB"
   },
   {
     "symbol": "8613.KL",
@@ -4282,6 +4270,10 @@
   {
     "symbol": "9695.KL",
     "name": "PLS"
+  },
+  {
+    "symbol": "9717.KL",
+    "name": "SYCAL"
   },
   {
     "symbol": "9741.KL",

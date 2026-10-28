@@ -1,7 +1,79 @@
 {
-  "updated": "2026-10-27",
-  "count": 1083,
+  "updated": "2026-10-28",
+  "count": 1081,
   "events": [
+    {
+      "date": "2026-10-28",
+      "type": "new",
+      "symbol": "0150PA.KL",
+      "name": "FINTEC-PA"
+    },
+    {
+      "date": "2026-10-28",
+      "type": "new",
+      "symbol": "0288.KL",
+      "name": "MINOX"
+    },
+    {
+      "date": "2026-10-28",
+      "type": "new",
+      "symbol": "7245PA.KL",
+      "name": "CITAGLB-PA"
+    },
+    {
+      "date": "2026-10-28",
+      "type": "new",
+      "symbol": "7722.KL",
+      "name": "ASIABRN"
+    },
+    {
+      "date": "2026-10-28",
+      "type": "new",
+      "symbol": "9717.KL",
+      "name": "SYCAL"
+    },
+    {
+      "date": "2026-10-28",
+      "type": "removed",
+      "symbol": "0116PA.KL",
+      "name": "FOCUS-PA"
+    },
+    {
+      "date": "2026-10-28",
+      "type": "removed",
+      "symbol": "0169.KL",
+      "name": "SMTRACK"
+    },
+    {
+      "date": "2026-10-28",
+      "type": "removed",
+      "symbol": "7007.KL",
+      "name": "ARK"
+    },
+    {
+      "date": "2026-10-28",
+      "type": "removed",
+      "symbol": "7048.KL",
+      "name": "ATLAN"
+    },
+    {
+      "date": "2026-10-28",
+      "type": "removed",
+      "symbol": "7080PA.KL",
+      "name": "PERMAJU-PA"
+    },
+    {
+      "date": "2026-10-28",
+      "type": "removed",
+      "symbol": "7412.KL",
+      "name": "SHH"
+    },
+    {
+      "date": "2026-10-28",
+      "type": "removed",
+      "symbol": "8605.KL",
+      "name": "FIHB"
+    },
     {
       "date": "2026-10-27",
       "type": "new",
