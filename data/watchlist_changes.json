@@ -1,7 +1,92 @@
 {
-  "updated": "2026-10-28",
-  "count": 1081,
+  "updated": "2026-10-29",
+  "count": 1082,
   "events": [
+    {
+      "date": "2026-10-29",
+      "type": "new",
+      "symbol": "0006.KL",
+      "name": "PINEAPP"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "new",
+      "symbol": "0169.KL",
+      "name": "SMTRACK"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "new",
+      "symbol": "0232.KL",
+      "name": "VOLCANO"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "new",
+      "symbol": "03052.KL",
+      "name": "RGS"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "new",
+      "symbol": "5035.KL",
+      "name": "KNUSFOR"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "new",
+      "symbol": "7066PA.KL",
+      "name": "YONGTAI-PA"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "new",
+      "symbol": "7248.KL",
+      "name": "SLP"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "removed",
+      "symbol": "0094.KL",
+      "name": "ZENTECH"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "removed",
+      "symbol": "5042.KL",
+      "name": "TSRCAP"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "removed",
+      "symbol": "5065.KL",
+      "name": "ORNA"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "removed",
+      "symbol": "5163.KL",
+      "name": "SEB"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "removed",
+      "symbol": "7028.KL",
+      "name": "ZECON"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "removed",
+      "symbol": "9938.KL",
+      "name": "BRIGHT"
+    },
+    {
+      "date": "2026-10-29",
+      "type": "renamed",
+      "symbol": "7123R1.KL",
+      "name": "MAXLAND-R1",
+      "old": "7123R1.KL"
+    },
     {
       "date": "2026-10-28",
       "type": "new",

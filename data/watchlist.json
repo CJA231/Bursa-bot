@@ -12,6 +12,10 @@
     "name": "UCREST"
   },
   {
+    "symbol": "0006.KL",
+    "name": "PINEAPP"
+  },
+  {
     "symbol": "0007.KL",
     "name": "PUC"
   },
@@ -242,10 +246,6 @@
   {
     "symbol": "0093.KL",
     "name": "SOLUTN"
-  },
-  {
-    "symbol": "0094.KL",
-    "name": "ZENTECH"
   },
   {
     "symbol": "0095.KL",
@@ -480,6 +480,10 @@
     "name": "BMGREEN"
   },
   {
+    "symbol": "0169.KL",
+    "name": "SMTRACK"
+  },
+  {
     "symbol": "0170.KL",
     "name": "KANGER"
   },
@@ -710,6 +714,10 @@
   {
     "symbol": "0231.KL",
     "name": "FLEXI"
+  },
+  {
+    "symbol": "0232.KL",
+    "name": "VOLCANO"
   },
   {
     "symbol": "0233.KL",
@@ -978,6 +986,10 @@
   {
     "symbol": "0305.KL",
     "name": "SINKUNG"
+  },
+  {
+    "symbol": "03052.KL",
+    "name": "RGS"
   },
   {
     "symbol": "0306.KL",
@@ -2076,6 +2088,10 @@
     "name": "BIPORT"
   },
   {
+    "symbol": "5035.KL",
+    "name": "KNUSFOR"
+  },
+  {
     "symbol": "5036.KL",
     "name": "EDARAN"
   },
@@ -2094,10 +2110,6 @@
   {
     "symbol": "5041.KL",
     "name": "PBA"
-  },
-  {
-    "symbol": "5042.KL",
-    "name": "TSRCAP"
   },
   {
     "symbol": "5048.KL",
@@ -2122,10 +2134,6 @@
   {
     "symbol": "5062.KL",
     "name": "HUAYANG"
-  },
-  {
-    "symbol": "5065.KL",
-    "name": "ORNA"
   },
   {
     "symbol": "5066.KL",
@@ -2402,10 +2410,6 @@
   {
     "symbol": "5162.KL",
     "name": "VSTECS"
-  },
-  {
-    "symbol": "5163.KL",
-    "name": "SEB"
   },
   {
     "symbol": "5165.KL",
@@ -3308,10 +3312,6 @@
     "name": "WOODLAN"
   },
   {
-    "symbol": "7028.KL",
-    "name": "ZECON"
-  },
-  {
     "symbol": "7029.KL",
     "name": "MASTER"
   },
@@ -3374,6 +3374,10 @@
   {
     "symbol": "7066.KL",
     "name": "YONGTAI"
+  },
+  {
+    "symbol": "7066PA.KL",
+    "name": "YONGTAI-PA"
   },
   {
     "symbol": "7070.KL",
@@ -3517,7 +3521,7 @@
   },
   {
     "symbol": "7123R1.KL",
-    "name": "7123R1.KL"
+    "name": "MAXLAND-R1"
   },
   {
     "symbol": "7128.KL",
@@ -3846,6 +3850,10 @@
   {
     "symbol": "7247.KL",
     "name": "SCGM"
+  },
+  {
+    "symbol": "7248.KL",
+    "name": "SLP"
   },
   {
     "symbol": "7249.KL",
@@ -4302,10 +4310,6 @@
   {
     "symbol": "9881.KL",
     "name": "LSTEEL"
-  },
-  {
-    "symbol": "9938.KL",
-    "name": "BRIGHT"
   },
   {
     "symbol": "9946.KL",
