@@ -1,7 +1,55 @@
 {
-  "updated": "2026-10-29",
-  "count": 1082,
+  "updated": "2026-10-30",
+  "count": 1084,
   "events": [
+    {
+      "date": "2026-10-30",
+      "type": "new",
+      "symbol": "0147.KL",
+      "name": "INNITY"
+    },
+    {
+      "date": "2026-10-30",
+      "type": "new",
+      "symbol": "03023.KL",
+      "name": "SMILE"
+    },
+    {
+      "date": "2026-10-30",
+      "type": "new",
+      "symbol": "5042.KL",
+      "name": "TSRCAP"
+    },
+    {
+      "date": "2026-10-30",
+      "type": "new",
+      "symbol": "7131.KL",
+      "name": "LAND33"
+    },
+    {
+      "date": "2026-10-30",
+      "type": "new",
+      "symbol": "9938.KL",
+      "name": "BRIGHT"
+    },
+    {
+      "date": "2026-10-30",
+      "type": "removed",
+      "symbol": "0153.KL",
+      "name": "OVERSEA"
+    },
+    {
+      "date": "2026-10-30",
+      "type": "removed",
+      "symbol": "5081.KL",
+      "name": "EIG"
+    },
+    {
+      "date": "2026-10-30",
+      "type": "removed",
+      "symbol": "7528.KL",
+      "name": "DKLS"
+    },
     {
       "date": "2026-10-29",
       "type": "new",

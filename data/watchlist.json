@@ -400,6 +400,10 @@
     "name": "JFTECH"
   },
   {
+    "symbol": "0147.KL",
+    "name": "INNITY"
+  },
+  {
     "symbol": "0148.KL",
     "name": "SUNZEN"
   },
@@ -422,10 +426,6 @@
   {
     "symbol": "0152.KL",
     "name": "DGB"
-  },
-  {
-    "symbol": "0153.KL",
-    "name": "OVERSEA"
   },
   {
     "symbol": "0154.KL",
@@ -974,6 +974,10 @@
   {
     "symbol": "0302.KL",
     "name": "TOPMIX"
+  },
+  {
+    "symbol": "03023.KL",
+    "name": "SMILE"
   },
   {
     "symbol": "0303.KL",
@@ -2112,6 +2116,10 @@
     "name": "PBA"
   },
   {
+    "symbol": "5042.KL",
+    "name": "TSRCAP"
+  },
+  {
     "symbol": "5048.KL",
     "name": "YB"
   },
@@ -2182,10 +2190,6 @@
   {
     "symbol": "5080.KL",
     "name": "POHKONG"
-  },
-  {
-    "symbol": "5081.KL",
-    "name": "EIG"
   },
   {
     "symbol": "5084.KL",
@@ -3532,6 +3536,10 @@
     "name": "ASIAFLE"
   },
   {
+    "symbol": "7131.KL",
+    "name": "LAND33"
+  },
+  {
     "symbol": "7133.KL",
     "name": "ULICORP"
   },
@@ -3906,10 +3914,6 @@
   {
     "symbol": "7501.KL",
     "name": "HARNLEN"
-  },
-  {
-    "symbol": "7528.KL",
-    "name": "DKLS"
   },
   {
     "symbol": "7544.KL",
@@ -4310,6 +4314,10 @@
   {
     "symbol": "9881.KL",
     "name": "LSTEEL"
+  },
+  {
+    "symbol": "9938.KL",
+    "name": "BRIGHT"
   },
   {
     "symbol": "9946.KL",
