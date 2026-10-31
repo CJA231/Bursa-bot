@@ -1,7 +1,103 @@
 {
-  "updated": "2026-10-30",
-  "count": 1084,
+  "updated": "2026-10-31",
+  "count": 1078,
   "events": [
+    {
+      "date": "2026-10-31",
+      "type": "new",
+      "symbol": "0153.KL",
+      "name": "OVERSEA"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "new",
+      "symbol": "0355.KL",
+      "name": "FIBRO"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "new",
+      "symbol": "5065.KL",
+      "name": "ORNA"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "new",
+      "symbol": "7028.KL",
+      "name": "ZECON"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "new",
+      "symbol": "8605.KL",
+      "name": "FIHB"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "removed",
+      "symbol": "0058.KL",
+      "name": "JCBNEXT"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "removed",
+      "symbol": "0136.KL",
+      "name": "GREENYB"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "removed",
+      "symbol": "0174PA.KL",
+      "name": "EVD-PA"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "removed",
+      "symbol": "4464.KL",
+      "name": "PHB"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "removed",
+      "symbol": "6297.KL",
+      "name": "BOXPAK"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "removed",
+      "symbol": "7025.KL",
+      "name": "WOODLAN"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "removed",
+      "symbol": "7055.KL",
+      "name": "PLB"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "removed",
+      "symbol": "7209.KL",
+      "name": "CHEETAH"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "removed",
+      "symbol": "7246.KL",
+      "name": "SIGN"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "removed",
+      "symbol": "7935.KL",
+      "name": "MILUX"
+    },
+    {
+      "date": "2026-10-31",
+      "type": "removed",
+      "symbol": "9121.KL",
+      "name": "KPSCB"
+    },
     {
       "date": "2026-10-30",
       "type": "new",

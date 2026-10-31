@@ -148,10 +148,6 @@
     "name": "NCT"
   },
   {
-    "symbol": "0058.KL",
-    "name": "JCBNEXT"
-  },
-  {
     "symbol": "0059.KL",
     "name": "ECOHLDS"
   },
@@ -376,10 +372,6 @@
     "name": "SANICHI"
   },
   {
-    "symbol": "0136.KL",
-    "name": "GREENYB"
-  },
-  {
     "symbol": "0138.KL",
     "name": "ZETRIX"
   },
@@ -426,6 +418,10 @@
   {
     "symbol": "0152.KL",
     "name": "DGB"
+  },
+  {
+    "symbol": "0153.KL",
+    "name": "OVERSEA"
   },
   {
     "symbol": "0154.KL",
@@ -502,10 +498,6 @@
   {
     "symbol": "0174.KL",
     "name": "EVD"
-  },
-  {
-    "symbol": "0174PA.KL",
-    "name": "EVD-PA"
   },
   {
     "symbol": "0175.KL",
@@ -1174,6 +1166,10 @@
   {
     "symbol": "0353.KL",
     "name": "WESTRVR"
+  },
+  {
+    "symbol": "0355.KL",
+    "name": "FIBRO"
   },
   {
     "symbol": "0356.KL",
@@ -1948,10 +1944,6 @@
     "name": "DNEX"
   },
   {
-    "symbol": "4464.KL",
-    "name": "PHB"
-  },
-  {
     "symbol": "4502.KL",
     "name": "MEDIA"
   },
@@ -2142,6 +2134,10 @@
   {
     "symbol": "5062.KL",
     "name": "HUAYANG"
+  },
+  {
+    "symbol": "5065.KL",
+    "name": "ORNA"
   },
   {
     "symbol": "5066.KL",
@@ -3152,10 +3148,6 @@
     "name": "INNO"
   },
   {
-    "symbol": "6297.KL",
-    "name": "BOXPAK"
-  },
-  {
     "symbol": "6351.KL",
     "name": "AMWAY"
   },
@@ -3312,8 +3304,8 @@
     "name": "GTRONIC"
   },
   {
-    "symbol": "7025.KL",
-    "name": "WOODLAN"
+    "symbol": "7028.KL",
+    "name": "ZECON"
   },
   {
     "symbol": "7029.KL",
@@ -3362,10 +3354,6 @@
   {
     "symbol": "7054.KL",
     "name": "AASIA"
-  },
-  {
-    "symbol": "7055.KL",
-    "name": "PLB"
   },
   {
     "symbol": "7060.KL",
@@ -3728,10 +3716,6 @@
     "name": "EURO"
   },
   {
-    "symbol": "7209.KL",
-    "name": "CHEETAH"
-  },
-  {
     "symbol": "7210.KL",
     "name": "FM"
   },
@@ -3850,10 +3834,6 @@
   {
     "symbol": "7245PA.KL",
     "name": "CITAGLB-PA"
-  },
-  {
-    "symbol": "7246.KL",
-    "name": "SIGN"
   },
   {
     "symbol": "7247.KL",
@@ -3980,10 +3960,6 @@
     "name": "THRIVEN"
   },
   {
-    "symbol": "7935.KL",
-    "name": "MILUX"
-  },
-  {
     "symbol": "7943.KL",
     "name": "GREENTEC"
   },
@@ -4092,6 +4068,10 @@
     "name": "CRESBLD"
   },
   {
+    "symbol": "8605.KL",
+    "name": "FIHB"
+  },
+  {
     "symbol": "8613.KL",
     "name": "ENRA"
   },
@@ -4182,10 +4162,6 @@
   {
     "symbol": "9113.KL",
     "name": "ICONIC"
-  },
-  {
-    "symbol": "9121.KL",
-    "name": "KPSCB"
   },
   {
     "symbol": "9172.KL",
