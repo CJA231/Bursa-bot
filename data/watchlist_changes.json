@@ -1,7 +1,31 @@
 {
-  "updated": "2026-10-31",
-  "count": 1078,
+  "updated": "2026-11-01",
+  "count": 1074,
   "events": [
+    {
+      "date": "2026-11-01",
+      "type": "removed",
+      "symbol": "0202.KL",
+      "name": "RGTECH"
+    },
+    {
+      "date": "2026-11-01",
+      "type": "removed",
+      "symbol": "5325R1.KL",
+      "name": "WELLCHIP-R1"
+    },
+    {
+      "date": "2026-11-01",
+      "type": "removed",
+      "symbol": "7060.KL",
+      "name": "NHFATT"
+    },
+    {
+      "date": "2026-11-01",
+      "type": "removed",
+      "symbol": "8443.KL",
+      "name": "HIL"
+    },
     {
       "date": "2026-10-31",
       "type": "new",

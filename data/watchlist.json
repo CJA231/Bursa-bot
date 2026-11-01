@@ -600,10 +600,6 @@
     "name": "NOVA"
   },
   {
-    "symbol": "0202.KL",
-    "name": "RGTECH"
-  },
-  {
     "symbol": "0203.KL",
     "name": "SMETRIC"
   },
@@ -2872,10 +2868,6 @@
     "name": "WELLCHIP"
   },
   {
-    "symbol": "5325R1.KL",
-    "name": "WELLCHIP-R1"
-  },
-  {
     "symbol": "5326.KL",
     "name": "99SMART"
   },
@@ -3354,10 +3346,6 @@
   {
     "symbol": "7054.KL",
     "name": "AASIA"
-  },
-  {
-    "symbol": "7060.KL",
-    "name": "NHFATT"
   },
   {
     "symbol": "7062.KL",
@@ -4034,10 +4022,6 @@
   {
     "symbol": "8435.KL",
     "name": "CEPCO"
-  },
-  {
-    "symbol": "8443.KL",
-    "name": "HIL"
   },
   {
     "symbol": "8478.KL",
