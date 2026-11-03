@@ -600,6 +600,10 @@
     "name": "NOVA"
   },
   {
+    "symbol": "0202.KL",
+    "name": "RGTECH"
+  },
+  {
     "symbol": "0203.KL",
     "name": "SMETRIC"
   },
@@ -992,8 +996,8 @@
     "name": "KENERGY"
   },
   {
-    "symbol": "03072.KL",
-    "name": "MILOLO"
+    "symbol": "03071.KL",
+    "name": "NOESIS"
   },
   {
     "symbol": "0308.KL",
@@ -2408,6 +2412,10 @@
     "name": "VSTECS"
   },
   {
+    "symbol": "5163.KL",
+    "name": "SEB"
+  },
+  {
     "symbol": "5165.KL",
     "name": "DFCITY"
   },
@@ -3140,6 +3148,10 @@
     "name": "INNO"
   },
   {
+    "symbol": "6297.KL",
+    "name": "BOXPAK"
+  },
+  {
     "symbol": "6351.KL",
     "name": "AMWAY"
   },
@@ -3264,6 +3276,10 @@
     "name": "RKI"
   },
   {
+    "symbol": "7007.KL",
+    "name": "ARK"
+  },
+  {
     "symbol": "7010.KL",
     "name": "PTT"
   },
@@ -3294,6 +3310,10 @@
   {
     "symbol": "7022.KL",
     "name": "GTRONIC"
+  },
+  {
+    "symbol": "7025.KL",
+    "name": "WOODLAN"
   },
   {
     "symbol": "7028.KL",
@@ -3330,6 +3350,10 @@
   {
     "symbol": "7047.KL",
     "name": "FBG"
+  },
+  {
+    "symbol": "7048.KL",
+    "name": "ATLAN"
   },
   {
     "symbol": "7050.KL",
@@ -3428,6 +3452,10 @@
     "name": "UNIMECH"
   },
   {
+    "symbol": "7094.KL",
+    "name": "EUROSP"
+  },
+  {
     "symbol": "7095.KL",
     "name": "PIE"
   },
@@ -3522,6 +3550,10 @@
   {
     "symbol": "7134.KL",
     "name": "PWF"
+  },
+  {
+    "symbol": "7137.KL",
+    "name": "UMS"
   },
   {
     "symbol": "7139.KL",
@@ -3860,12 +3892,20 @@
     "name": "AHB"
   },
   {
+    "symbol": "7323.KL",
+    "name": "KEN"
+  },
+  {
     "symbol": "7374.KL",
     "name": "TIENWAH"
   },
   {
     "symbol": "7382.KL",
     "name": "GLBHD"
+  },
+  {
+    "symbol": "7412.KL",
+    "name": "SHH"
   },
   {
     "symbol": "7439.KL",
@@ -4076,8 +4116,8 @@
     "name": "SPSETIA-PA"
   },
   {
-    "symbol": "8664PC.KL",
-    "name": "SPSETIA-PC"
+    "symbol": "8672.KL",
+    "name": "KAMDAR"
   },
   {
     "symbol": "8702.KL",

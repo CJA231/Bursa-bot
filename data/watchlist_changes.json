@@ -1,7 +1,91 @@
 {
-  "updated": "2026-11-02",
-  "count": 1074,
+  "updated": "2026-11-03",
+  "count": 1084,
   "events": [
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "0202.KL",
+      "name": "RGTECH"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "03071.KL",
+      "name": "NOESIS"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "5163.KL",
+      "name": "SEB"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "6297.KL",
+      "name": "BOXPAK"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "7007.KL",
+      "name": "ARK"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "7025.KL",
+      "name": "WOODLAN"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "7048.KL",
+      "name": "ATLAN"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "7094.KL",
+      "name": "EUROSP"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "7137.KL",
+      "name": "UMS"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "7323.KL",
+      "name": "KEN"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "7412.KL",
+      "name": "SHH"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "new",
+      "symbol": "8672.KL",
+      "name": "KAMDAR"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "removed",
+      "symbol": "03072.KL",
+      "name": "MILOLO"
+    },
+    {
+      "date": "2026-11-03",
+      "type": "removed",
+      "symbol": "8664PC.KL",
+      "name": "SPSETIA-PC"
+    },
     {
       "date": "2026-11-01",
       "type": "removed",
