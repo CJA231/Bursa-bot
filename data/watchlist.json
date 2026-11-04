@@ -184,10 +184,6 @@
     "name": "AP"
   },
   {
-    "symbol": "0075.KL",
-    "name": "LYC"
-  },
-  {
     "symbol": "0078.KL",
     "name": "GDEX"
   },
@@ -242,6 +238,10 @@
   {
     "symbol": "0093.KL",
     "name": "SOLUTN"
+  },
+  {
+    "symbol": "0094.KL",
+    "name": "ZENTECH"
   },
   {
     "symbol": "0095.KL",
@@ -632,10 +632,6 @@
     "name": "ARVEX"
   },
   {
-    "symbol": "0211.KL",
-    "name": "TASHIN"
-  },
-  {
     "symbol": "0212.KL",
     "name": "SDS"
   },
@@ -982,6 +978,10 @@
   {
     "symbol": "0305.KL",
     "name": "SINKUNG"
+  },
+  {
+    "symbol": "03050.KL",
+    "name": "SUNMOW"
   },
   {
     "symbol": "03052.KL",
@@ -1480,10 +1480,6 @@
     "name": "CHINA100-MYR"
   },
   {
-    "symbol": "0839EA.KL",
-    "name": "EQ8WAQF"
-  },
-  {
     "symbol": "1015.KL",
     "name": "AMBANK"
   },
@@ -1678,10 +1674,6 @@
   {
     "symbol": "2658.KL",
     "name": "AJI"
-  },
-  {
-    "symbol": "2674.KL",
-    "name": "ALCOM"
   },
   {
     "symbol": "2682.KL",
@@ -2328,10 +2320,6 @@
     "name": "PENERGY"
   },
   {
-    "symbol": "5134.KL",
-    "name": "SAB"
-  },
-  {
     "symbol": "5135.KL",
     "name": "SWKPLNT"
   },
@@ -2774,10 +2762,6 @@
   {
     "symbol": "5296.KL",
     "name": "MRDIY"
-  },
-  {
-    "symbol": "5297.KL",
-    "name": "TJSETIA"
   },
   {
     "symbol": "5298.KL",
@@ -3364,12 +3348,12 @@
     "name": "PADINI"
   },
   {
-    "symbol": "7053.KL",
-    "name": "SEEHUP"
-  },
-  {
     "symbol": "7054.KL",
     "name": "AASIA"
+  },
+  {
+    "symbol": "7060.KL",
+    "name": "NHFATT"
   },
   {
     "symbol": "7062.KL",
@@ -3568,10 +3552,6 @@
     "name": "TXCD"
   },
   {
-    "symbol": "7145PA.KL",
-    "name": "TXCD-PA"
-  },
-  {
     "symbol": "7146.KL",
     "name": "AEM"
   },
@@ -3684,10 +3664,6 @@
     "name": "CHGP"
   },
   {
-    "symbol": "7188.KL",
-    "name": "BTM"
-  },
-  {
     "symbol": "7191.KL",
     "name": "ADVENTA"
   },
@@ -3746,10 +3722,6 @@
   {
     "symbol": "7212.KL",
     "name": "DESTINI"
-  },
-  {
-    "symbol": "7214.KL",
-    "name": "ARANK"
   },
   {
     "symbol": "7215.KL",
@@ -3856,6 +3828,10 @@
     "name": "CITAGLB-PA"
   },
   {
+    "symbol": "7246.KL",
+    "name": "SIGN"
+  },
+  {
     "symbol": "7247.KL",
     "name": "SCGM"
   },
@@ -3954,10 +3930,6 @@
   {
     "symbol": "7692.KL",
     "name": "MYTECH"
-  },
-  {
-    "symbol": "7722.KL",
-    "name": "ASIABRN"
   },
   {
     "symbol": "7757.KL",
@@ -4064,6 +4036,10 @@
     "name": "CEPCO"
   },
   {
+    "symbol": "8443.KL",
+    "name": "HIL"
+  },
+  {
     "symbol": "8478.KL",
     "name": "HWATAI"
   },
@@ -4114,6 +4090,10 @@
   {
     "symbol": "8664PA.KL",
     "name": "SPSETIA-PA"
+  },
+  {
+    "symbol": "8664PC.KL",
+    "name": "SPSETIA-PC"
   },
   {
     "symbol": "8672.KL",
@@ -4188,6 +4168,10 @@
     "name": "ICONIC"
   },
   {
+    "symbol": "9121.KL",
+    "name": "KPSCB"
+  },
+  {
     "symbol": "9172.KL",
     "name": "FPI"
   },
@@ -4254,10 +4238,6 @@
   {
     "symbol": "9466.KL",
     "name": "KKB"
-  },
-  {
-    "symbol": "9539.KL",
-    "name": "MUH"
   },
   {
     "symbol": "9571.KL",

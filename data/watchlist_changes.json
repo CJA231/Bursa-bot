@@ -1,7 +1,121 @@
 {
-  "updated": "2026-11-03",
-  "count": 1084,
+  "updated": "2026-11-04",
+  "count": 1079,
   "events": [
+    {
+      "date": "2026-11-04",
+      "type": "new",
+      "symbol": "0094.KL",
+      "name": "ZENTECH"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "new",
+      "symbol": "03050.KL",
+      "name": "SUNMOW"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "new",
+      "symbol": "7060.KL",
+      "name": "NHFATT"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "new",
+      "symbol": "7246.KL",
+      "name": "SIGN"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "new",
+      "symbol": "8443.KL",
+      "name": "HIL"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "new",
+      "symbol": "8664PC.KL",
+      "name": "SPSETIA-PC"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "new",
+      "symbol": "9121.KL",
+      "name": "KPSCB"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "0075.KL",
+      "name": "LYC"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "0211.KL",
+      "name": "TASHIN"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "0839EA.KL",
+      "name": "EQ8WAQF"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "2674.KL",
+      "name": "ALCOM"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "5134.KL",
+      "name": "SAB"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "5297.KL",
+      "name": "TJSETIA"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "7053.KL",
+      "name": "SEEHUP"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "7145PA.KL",
+      "name": "TXCD-PA"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "7188.KL",
+      "name": "BTM"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "7214.KL",
+      "name": "ARANK"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "7722.KL",
+      "name": "ASIABRN"
+    },
+    {
+      "date": "2026-11-04",
+      "type": "removed",
+      "symbol": "9539.KL",
+      "name": "MUH"
+    },
     {
       "date": "2026-11-03",
       "type": "new",
