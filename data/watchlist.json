@@ -148,6 +148,10 @@
     "name": "NCT"
   },
   {
+    "symbol": "0058.KL",
+    "name": "JCBNEXT"
+  },
+  {
     "symbol": "0059.KL",
     "name": "ECOHLDS"
   },
@@ -484,10 +488,6 @@
     "name": "KANGER"
   },
   {
-    "symbol": "0171.KL",
-    "name": "PLABS"
-  },
-  {
     "symbol": "0172.KL",
     "name": "OCK"
   },
@@ -630,6 +630,10 @@
   {
     "symbol": "0210.KL",
     "name": "ARVEX"
+  },
+  {
+    "symbol": "0211.KL",
+    "name": "TASHIN"
   },
   {
     "symbol": "0212.KL",
@@ -1676,10 +1680,6 @@
     "name": "AJI"
   },
   {
-    "symbol": "2682.KL",
-    "name": "PARKWD"
-  },
-  {
     "symbol": "2739.KL",
     "name": "TECHNAX"
   },
@@ -2708,10 +2708,6 @@
     "name": "FPGROUP"
   },
   {
-    "symbol": "5278.KL",
-    "name": "RHONEMA"
-  },
-  {
     "symbol": "5280.KL",
     "name": "KIPREIT"
   },
@@ -2762,6 +2758,10 @@
   {
     "symbol": "5296.KL",
     "name": "MRDIY"
+  },
+  {
+    "symbol": "5297.KL",
+    "name": "TJSETIA"
   },
   {
     "symbol": "5298.KL",
@@ -3764,10 +3764,6 @@
     "name": "WATTA"
   },
   {
-    "symbol": "7227.KL",
-    "name": "UMSNGB"
-  },
-  {
     "symbol": "7228.KL",
     "name": "T7GLOBAL"
   },
@@ -3804,10 +3800,6 @@
     "name": "PWROOT"
   },
   {
-    "symbol": "7239.KL",
-    "name": "SCNWOLF"
-  },
-  {
     "symbol": "7240.KL",
     "name": "IHB"
   },
@@ -3822,10 +3814,6 @@
   {
     "symbol": "7245.KL",
     "name": "CITAGLB"
-  },
-  {
-    "symbol": "7245PA.KL",
-    "name": "CITAGLB-PA"
   },
   {
     "symbol": "7246.KL",
@@ -3900,6 +3888,10 @@
     "name": "HARNLEN"
   },
   {
+    "symbol": "7528.KL",
+    "name": "DKLS"
+  },
+  {
     "symbol": "7544.KL",
     "name": "QUALITY"
   },
@@ -3946,10 +3938,6 @@
   {
     "symbol": "7803.KL",
     "name": "HEXCARE"
-  },
-  {
-    "symbol": "7811.KL",
-    "name": "SAPIND"
   },
   {
     "symbol": "7854.KL",
@@ -4018,10 +4006,6 @@
   {
     "symbol": "8346.KL",
     "name": "PRKCORP"
-  },
-  {
-    "symbol": "8362.KL",
-    "name": "KYM"
   },
   {
     "symbol": "8397.KL",

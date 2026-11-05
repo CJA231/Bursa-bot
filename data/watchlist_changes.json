@@ -1,7 +1,79 @@
 {
-  "updated": "2026-11-04",
-  "count": 1079,
+  "updated": "2026-11-05",
+  "count": 1075,
   "events": [
+    {
+      "date": "2026-11-05",
+      "type": "new",
+      "symbol": "0058.KL",
+      "name": "JCBNEXT"
+    },
+    {
+      "date": "2026-11-05",
+      "type": "new",
+      "symbol": "0211.KL",
+      "name": "TASHIN"
+    },
+    {
+      "date": "2026-11-05",
+      "type": "new",
+      "symbol": "5297.KL",
+      "name": "TJSETIA"
+    },
+    {
+      "date": "2026-11-05",
+      "type": "new",
+      "symbol": "7528.KL",
+      "name": "DKLS"
+    },
+    {
+      "date": "2026-11-05",
+      "type": "removed",
+      "symbol": "0171.KL",
+      "name": "PLABS"
+    },
+    {
+      "date": "2026-11-05",
+      "type": "removed",
+      "symbol": "2682.KL",
+      "name": "PARKWD"
+    },
+    {
+      "date": "2026-11-05",
+      "type": "removed",
+      "symbol": "5278.KL",
+      "name": "RHONEMA"
+    },
+    {
+      "date": "2026-11-05",
+      "type": "removed",
+      "symbol": "7227.KL",
+      "name": "UMSNGB"
+    },
+    {
+      "date": "2026-11-05",
+      "type": "removed",
+      "symbol": "7239.KL",
+      "name": "SCNWOLF"
+    },
+    {
+      "date": "2026-11-05",
+      "type": "removed",
+      "symbol": "7245PA.KL",
+      "name": "CITAGLB-PA"
+    },
+    {
+      "date": "2026-11-05",
+      "type": "removed",
+      "symbol": "7811.KL",
+      "name": "SAPIND"
+    },
+    {
+      "date": "2026-11-05",
+      "type": "removed",
+      "symbol": "8362.KL",
+      "name": "KYM"
+    },
     {
       "date": "2026-11-04",
       "type": "new",
