@@ -1,7 +1,73 @@
 {
-  "updated": "2026-11-05",
-  "count": 1075,
+  "updated": "2026-11-06",
+  "count": 1072,
   "events": [
+    {
+      "date": "2026-11-06",
+      "type": "new",
+      "symbol": "7214.KL",
+      "name": "ARANK"
+    },
+    {
+      "date": "2026-11-06",
+      "type": "new",
+      "symbol": "7811.KL",
+      "name": "SAPIND"
+    },
+    {
+      "date": "2026-11-06",
+      "type": "new",
+      "symbol": "7935.KL",
+      "name": "MILUX"
+    },
+    {
+      "date": "2026-11-06",
+      "type": "new",
+      "symbol": "8362.KL",
+      "name": "KYM"
+    },
+    {
+      "date": "2026-11-06",
+      "type": "removed",
+      "symbol": "0006.KL",
+      "name": "PINEAPP"
+    },
+    {
+      "date": "2026-11-06",
+      "type": "removed",
+      "symbol": "0255.KL",
+      "name": "EIB"
+    },
+    {
+      "date": "2026-11-06",
+      "type": "removed",
+      "symbol": "5035.KL",
+      "name": "KNUSFOR"
+    },
+    {
+      "date": "2026-11-06",
+      "type": "removed",
+      "symbol": "5036.KL",
+      "name": "EDARAN"
+    },
+    {
+      "date": "2026-11-06",
+      "type": "removed",
+      "symbol": "5165.KL",
+      "name": "DFCITY"
+    },
+    {
+      "date": "2026-11-06",
+      "type": "removed",
+      "symbol": "5298.KL",
+      "name": "OMH"
+    },
+    {
+      "date": "2026-11-06",
+      "type": "removed",
+      "symbol": "7123R1.KL",
+      "name": "MAXLAND-R1"
+    },
     {
       "date": "2026-11-05",
       "type": "new",
