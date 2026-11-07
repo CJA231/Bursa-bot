@@ -408,10 +408,6 @@
     "name": "FINTEC"
   },
   {
-    "symbol": "0150PA.KL",
-    "name": "FINTEC-PA"
-  },
-  {
     "symbol": "0151.KL",
     "name": "KGB"
   },
@@ -442,10 +438,6 @@
   {
     "symbol": "0158.KL",
     "name": "SCC"
-  },
-  {
-    "symbol": "0160.KL",
-    "name": "HHHCORP"
   },
   {
     "symbol": "0161.KL",
@@ -482,6 +474,10 @@
   {
     "symbol": "0170.KL",
     "name": "KANGER"
+  },
+  {
+    "symbol": "0171.KL",
+    "name": "PLABS"
   },
   {
     "symbol": "0172.KL",
@@ -782,6 +778,10 @@
   {
     "symbol": "0253.KL",
     "name": "INFOTEC"
+  },
+  {
+    "symbol": "0255.KL",
+    "name": "EIB"
   },
   {
     "symbol": "0256.KL",
@@ -2076,10 +2076,6 @@
     "name": "KSL"
   },
   {
-    "symbol": "5040.KL",
-    "name": "MERIDIAN"
-  },
-  {
     "symbol": "5041.KL",
     "name": "PBA"
   },
@@ -2162,6 +2158,10 @@
   {
     "symbol": "5080.KL",
     "name": "POHKONG"
+  },
+  {
+    "symbol": "5081.KL",
+    "name": "EIG"
   },
   {
     "symbol": "5084.KL",
@@ -2302,6 +2302,10 @@
   {
     "symbol": "5133.KL",
     "name": "PENERGY"
+  },
+  {
+    "symbol": "5134.KL",
+    "name": "SAB"
   },
   {
     "symbol": "5135.KL",
@@ -2474,6 +2478,10 @@
   {
     "symbol": "5197.KL",
     "name": "FLBHD"
+  },
+  {
+    "symbol": "5198.KL",
+    "name": "AFUJIYA"
   },
   {
     "symbol": "5199.KL",
@@ -3900,6 +3908,10 @@
     "name": "MYTECH"
   },
   {
+    "symbol": "7722.KL",
+    "name": "ASIABRN"
+  },
+  {
     "symbol": "7757.KL",
     "name": "UPA"
   },
@@ -4212,6 +4224,10 @@
     "name": "KKB"
   },
   {
+    "symbol": "9539.KL",
+    "name": "MUH"
+  },
+  {
     "symbol": "9571.KL",
     "name": "MITRA"
   },
@@ -4278,10 +4294,6 @@
   {
     "symbol": "9954.KL",
     "name": "RGTBHD"
-  },
-  {
-    "symbol": "9962.KL",
-    "name": "GMUTUAL"
   },
   {
     "symbol": "9997.KL",

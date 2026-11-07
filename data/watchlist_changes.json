@@ -1,7 +1,73 @@
 {
-  "updated": "2026-11-06",
-  "count": 1072,
+  "updated": "2026-11-07",
+  "count": 1075,
   "events": [
+    {
+      "date": "2026-11-07",
+      "type": "new",
+      "symbol": "0171.KL",
+      "name": "PLABS"
+    },
+    {
+      "date": "2026-11-07",
+      "type": "new",
+      "symbol": "0255.KL",
+      "name": "EIB"
+    },
+    {
+      "date": "2026-11-07",
+      "type": "new",
+      "symbol": "5081.KL",
+      "name": "EIG"
+    },
+    {
+      "date": "2026-11-07",
+      "type": "new",
+      "symbol": "5134.KL",
+      "name": "SAB"
+    },
+    {
+      "date": "2026-11-07",
+      "type": "new",
+      "symbol": "5198.KL",
+      "name": "AFUJIYA"
+    },
+    {
+      "date": "2026-11-07",
+      "type": "new",
+      "symbol": "7722.KL",
+      "name": "ASIABRN"
+    },
+    {
+      "date": "2026-11-07",
+      "type": "new",
+      "symbol": "9539.KL",
+      "name": "MUH"
+    },
+    {
+      "date": "2026-11-07",
+      "type": "removed",
+      "symbol": "0150PA.KL",
+      "name": "FINTEC-PA"
+    },
+    {
+      "date": "2026-11-07",
+      "type": "removed",
+      "symbol": "0160.KL",
+      "name": "HHHCORP"
+    },
+    {
+      "date": "2026-11-07",
+      "type": "removed",
+      "symbol": "5040.KL",
+      "name": "MERIDIAN"
+    },
+    {
+      "date": "2026-11-07",
+      "type": "removed",
+      "symbol": "9962.KL",
+      "name": "GMUTUAL"
+    },
     {
       "date": "2026-11-06",
       "type": "new",
