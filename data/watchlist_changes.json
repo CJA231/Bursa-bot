@@ -1,7 +1,19 @@
 {
-  "updated": "2026-11-07",
-  "count": 1075,
+  "updated": "2026-11-08",
+  "count": 1073,
   "events": [
+    {
+      "date": "2026-11-08",
+      "type": "removed",
+      "symbol": "03023.KL",
+      "name": "SMILE"
+    },
+    {
+      "date": "2026-11-08",
+      "type": "removed",
+      "symbol": "5022.KL",
+      "name": "PAOS"
+    },
     {
       "date": "2026-11-07",
       "type": "new",
