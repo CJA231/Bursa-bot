@@ -28,7 +28,7 @@ DEFAULT_TZ_LABEL = "MYT"
 DEFAULT_FILE_PREFIX = "bursa-report"
 
 COLUMNS = ["类型", "代码", "名称", "价格", "涨跌%", "成交量", "成交额", "相对量", "RSI", "SAR", "EMA20", "50日均线",
-           "新进股票池", "首次进池", "连续在池天数", "信号", "AI点评"]
+           "新进股票池", "首次进池", "连续在池天数", "信号", "消息面摘要"]
 DATE_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -81,7 +81,7 @@ def build_rows(stocks, pool=None):
             "首次进池": p.get("first") or "",
             "连续在池天数": p.get("streak"),
             "信号": s.get("reason") or "",
-            "AI点评": s.get("ai_comment") or "",
+            "消息面摘要": s.get("ai_comment") or "",
         }
         (signals if s["matched"] else others).append(row)
     others.sort(key=lambda r: r["成交量"], reverse=True)
@@ -145,11 +145,11 @@ def _fill_sheet(ws, rows):
         if r["类型"] == "信号":
             for c in range(1, len(COLUMNS) + 1):
                 ws.cell(row=row_idx, column=c).fill = signal_fill
-        ws.cell(row=row_idx, column=COLUMNS.index("AI点评") + 1).alignment = Alignment(wrap_text=True, vertical="top")
+        ws.cell(row=row_idx, column=COLUMNS.index("消息面摘要") + 1).alignment = Alignment(wrap_text=True, vertical="top")
 
     widths = {"类型": 7, "代码": 8, "名称": 16, "价格": 9, "涨跌%": 9, "成交量": 14, "成交额": 14, "相对量": 8,
               "新进股票池": 9, "首次进池": 11, "连续在池天数": 10,
-              "RSI": 7, "SAR": 7, "EMA20": 9, "50日均线": 10, "信号": 30, "AI点评": 50}
+              "RSI": 7, "SAR": 7, "EMA20": 9, "50日均线": 10, "信号": 30, "消息面摘要": 50}
     for i, c in enumerate(COLUMNS, start=1):
         ws.column_dimensions[get_column_letter(i)].width = widths.get(c, 10)
     ws.freeze_panes = "A2"  # 往下滚时表头固定
@@ -218,8 +218,8 @@ def write_pdf(path, date, rows, generated_at, title=DEFAULT_TITLE, tz_label=DEFA
         story.append(Paragraph(
             f"<b>{escape(r['名称'])}</b> {r['代码']}　现价 {_fmt(r['价格'], '{:.3f}')}　"
             f"RSI(14) {_fmt(r['RSI'], '{:.2f}')}　50日均线 {_fmt(r['50日均线'], '{:.3f}')}　{escape(_plain(r['信号']))}", body_style))
-        if r["AI点评"]:
-            story.append(Paragraph(f"AI 点评: {escape(_plain(r['AI点评']))}", sub_style))
+        if r.get("消息面摘要"):
+            story.append(Paragraph(f"消息面: {escape(_plain(r['消息面摘要']))}", sub_style))
         story.append(Spacer(1, 2 * mm))
 
     fresh = [r for r in others if r.get("新进股票池")]

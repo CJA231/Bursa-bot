@@ -1822,7 +1822,7 @@ BURSA_CAT_RULES = [
     ("results", r"quarterly r(?:e)?p(?:or)?t|financial result|financial statement|interim report|audited account"),
     ("dividend", r"entitlement|dividend|distribution"),
     ("buyback", r"buy[\s-]?back"),
-    ("holding", r"substantial shareholder|change in sub|changes? in director|director'?s interest|shareholding|"
+    ("holding", r"substantial shareholder|change in sub|changes? in director|director'?s interest|shareholding|dealings? in listed securities|"
                 r"notice of (?:interest|person ceasing)|interest in securities"),
     ("people", r"change in (?:boardroom|principal officer|audit committee|company secretary|chief)"),
     ("meeting", r"annual report|general meeting|\bAGM\b|\bEGM\b"),
@@ -2267,15 +2267,79 @@ def check_strategy(data):
 # 每支股票变化的部分全部放进 user message。DeepSeek 的 prompt cache 是按"从头开始逐字节比对的
 # 最长公共前缀"计费打折的，一次运行里命中的股票经常不止一支，只要 system prompt 前缀完全一致，
 # 从第二支股票开始这一段就能命中缓存、按缓存价计费，比混在一起写省钱也通常更快。
-DEEPSEEK_SYSTEM_PROMPT = f"""你是专业的{MKT['analyst']}分析师，同时是严谨的金融助手。
+DEEPSEEK_SYSTEM_PROMPT = f"""你是{MKT['analyst']}的消息面整理助手。
 
-任务: 根据用户给出的某支股票的技术信号和基本数据，用简短的中文 (50字以内) 从技术面评价这个信号的可靠性，
-例如 RSI 是否偏高或超买、现价相对 50 日均线的位置。
+任务: 用户会给出一支股票最近 30 天的新闻标题和交易所公告标题 (附日期)。请判断有没有会影响股价的重大事件
+(业绩、派息、合同 / 订单、并购 / 出售资产、配售 / 附加股、大股东或董事增减持、停牌 / 交易所质询、诉讼)，
+用一句话概括最重要的一两件，写明日期。没有重大事件就说「近 30 天没有重大消息」。
 
-严格要求: 只做客观的技术面描述，不要给出任何操作或投资建议，
-不要出现买入、卖出、观望、持有、加仓、减仓、止损、止盈、目标价之类的字眼。
+输出 JSON: {{"zh": "中文一句话，40 字以内", "en": "the same in English, under 25 words"}}
 
-接下来用户消息里会给出这支股票的具体数据，请只根据这些数据作答，不要虚构未提供的信息。"""
+严格要求: 只根据给出的标题，不要猜测标题以外的内容；不要给任何操作或投资建议，
+不要出现买入、卖出、观望、持有、加仓、减仓、止损、止盈、目标价之类的字眼。"""
+DIGEST_DAYS = 30
+
+
+def recent_headlines(code, now):
+    """这支股票最近 DIGEST_DAYS 天的新闻 + 公告标题 [(日期, 来源, 标题)]，新的在前"""
+    since = (now.date() - pd.Timedelta(days=DIGEST_DAYS)).strftime("%Y-%m-%d")
+    out = []
+    try:
+        with open(os.path.join(NEWS_DIR, f"{code}.json"), encoding="utf-8") as f:
+            for it in json.load(f).get("items") or []:
+                day = datetime.fromtimestamp(it["time"], LOCAL_TZ).strftime("%Y-%m-%d") if it.get("time") else None
+                if day and day >= since:
+                    out.append((day, "新闻", it["title"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    for it in (read_ann(code) or {}).get("items", []):
+        if it.get("date", "") >= since:
+            out.append((it["date"], "公告", it["title"]))
+    out.sort(reverse=True)
+    return out[:12]
+
+
+def ask_deepseek(code, name, headlines):
+    """消息面摘要 → (中文, English)；出错返回 (None, None)"""
+    lines = "\n".join(f"- {d} [{src}] {t}" for d, src, t in headlines)
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "system", "content": DEEPSEEK_SYSTEM_PROMPT},
+                      {"role": "user", "content": f"股票: {name} ({code})\n最近 {DIGEST_DAYS} 天的标题:\n{lines}"}],
+            temperature=0.1, max_tokens=300, response_format={"type": "json_object"})
+        usage = getattr(response, "usage", None)
+        if usage and getattr(usage, "prompt_cache_hit_tokens", None) is not None:
+            print(f"   💰 DeepSeek prompt cache: 命中 {usage.prompt_cache_hit_tokens} tokens / 未命中 {usage.prompt_cache_miss_tokens} tokens")
+        out = json.loads(response.choices[0].message.content or "{}")
+        return (out.get("zh") or "").strip() or None, (out.get("en") or "").strip() or None
+    except Exception as e:
+        print(f"⚠️ DeepSeek 消息面摘要失败 {code} ({type(e).__name__}: {e})")
+        return None, None
+
+
+EN_ADVICE_RE = re.compile(r"\b(buy|sell|hold|accumulate|stop[- ]?loss|take[- ]?profit|target price)\b", re.I)
+
+
+def add_news_digests(stocks, now):
+    """信号股：把最近 30 天的新闻 + 公告标题交给 DeepSeek 写一句消息面摘要 (中英文)，放在信号卡片和下载文件里。
+    没有新闻 / 公告就不调用 (直接写「近 30 天没有新闻或公告」)。返回调用了几次"""
+    calls = 0
+    for s in stocks:
+        if not s["matched"]:
+            continue
+        code = s["symbol"].split(".")[0]
+        heads = recent_headlines(code, now)
+        if not heads:
+            s["ai_comment"], s["ai_comment_en"] = f"近 {DIGEST_DAYS} 天没有新闻或公告", f"No news or announcements in the last {DIGEST_DAYS} days"
+            continue
+        if calls:
+            time.sleep(1)  # DeepSeek 限频
+        zh, en = ask_deepseek(code, s["name"], heads)
+        calls += 1
+        s["ai_comment"] = strip_trade_advice(zh) if zh else None
+        s["ai_comment_en"] = en if en and not EN_ADVICE_RE.search(en) else None
+    return calls
 
 # 就算模型没听话，也把带操作建议的分句删掉再放进报告 (图表下方、Excel、PDF 都用这个结果)
 TRADE_ADVICE_RE = re.compile(
@@ -2296,36 +2360,6 @@ def strip_trade_advice(text):
     result = "".join(kept).strip().rstrip("，,；;：:")
     return result + "。" if result and result[-1] not in "。！？!?" else result
 
-
-def ask_deepseek(data, reason):
-    # 这部分每支股票都不一样，所以放在 user message 里，不会污染上面固定的 system prompt 前缀
-    stock_info = f"""股票代码: {data['symbol']}
-触发信号: {reason}
-
-基本数据:
-- 现价: {CURRENCY_SYMBOL} {data['close']}
-- RSI (14): {data['rsi']}
-- 50日均线: {f"{CURRENCY_SYMBOL} {data['sma50']}" if data['sma50'] is not None else "数据不足 (新上市，不到 50 个交易日)"}"""
-
-    try:
-        response = client.chat.completions.create(
-            model="deepseek-chat",  # 👈 指定使用 DeepSeek V3 模型
-            messages=[
-                {"role": "system", "content": DEEPSEEK_SYSTEM_PROMPT},
-                {"role": "user", "content": stock_info}
-            ],
-            temperature=0.1, # 让回答更稳定
-            max_tokens=100
-        )
-        usage = getattr(response, "usage", None)
-        if usage:
-            hit = getattr(usage, "prompt_cache_hit_tokens", None)
-            miss = getattr(usage, "prompt_cache_miss_tokens", None)
-            if hit is not None or miss is not None:
-                print(f"   💰 DeepSeek prompt cache: 命中 {hit} tokens / 未命中 {miss} tokens")
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"DeepSeek 分析出错: {e}"
 
 # === 6. 报告页面的设置面板 (颜色自定义 + 自定义指标公式) ===
 # 这几块单独写成普通字符串 (不是 f-string)，因为内容全是 JS/CSS 不需要 Python 变量插值，
@@ -3119,6 +3153,9 @@ MARKET_CSS = """
   .bt .bt-every { display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; align-items: baseline; font-size: var(--fs-sm); margin: 0.35rem 0; }
   html:not([data-lang="en"]) .bt h5 > small, html:not([data-lang="en"]) .bt dt > i, html:not([data-lang="en"]) .bt-head h4 > i,
   html:not([data-lang="en"]) .bt-win tbody th > small { display: none; }
+  .news-digest { margin: 0.2rem 0 0.4rem; font-size: var(--fs-sm); color: var(--text-secondary); line-height: 1.5; }
+  .news-digest b { font-weight: 600; color: var(--text-primary); margin-right: 0.3rem; font-size: var(--fs-xs); }
+  html:not([data-lang="en"]) .news-digest .nd-en, html[data-lang="en"] .news-digest .nd-zh:has(+ .nd-en) { display: none; }
   .mk-changes { margin-top: 0.4rem; } .mk-chip-off { cursor: default; opacity: 0.75; }
   .mk-chip {
     font: inherit; display: inline-flex; align-items: baseline; gap: 0.4rem; padding: 0.32rem 0.6rem; border-radius: 8px; cursor: pointer;
@@ -4261,6 +4298,16 @@ def build_market_html(market, stocks):
             f'<h2 class="section" id="sec-market-h">今日市场{info_btn("market", "今日市场", chr(10).join(tip))}</h2>{"".join(parts)}</section>')
 
 
+def news_digest_html(s):
+    """信号卡片上的一行消息面摘要 (DeepSeek 看新闻 + 公告写的)；中文模式显示中文、英文模式显示英文"""
+    zh, en = s.get("ai_comment"), s.get("ai_comment_en")
+    if not zh and not en:
+        return ""
+    zh_html = f'<span class="nd-zh" data-keep="1">{html.escape(zh)}</span>' if zh else ""
+    en_html = f'<span class="nd-en" data-keep="1">{html.escape(en)}</span>' if en else ""
+    return f'<p{tip_attrs("", "AI 根据最近 30 天的新闻和交易所公告标题整理，只是摘要，请看原文", "news-digest")}><b>消息面</b> {zh_html}{en_html}</p>'
+
+
 def build_backtest_html(bt):
     """"后台信号"下面的策略回测区块 (纯 HTML，不开 JS 也看得到)。
     上面：上个月 (基准) / 本月至今 / 合计 三栏 + 10 日平均 vs 基准；「详细数据」展开：全部、月度、固定天数涨跌、风险报酬、分布、最近信号。
@@ -4660,6 +4707,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
                 <div class="card-price"><b>{fmt_price(data['close'])}</b> <span class="{change_class}">{sign}{fmt_price(change)} ({sign}{change_pct:.2f}%)</span></div>
             </div>
             <p class="card-tags">{tags_html}</p>
+            {news_digest_html(s)}
             <p class="tf-note" id="{chart_id}-tfnote" hidden></p>
             <div class="chart-wrap">
                 <div id="{chart_id}" class="chart"></div>
@@ -5208,10 +5256,7 @@ def main():
         if data:
             matched, reason = check_strategy(data)
             if matched:
-                # 防止 DeepSeek 限频：只在两次调用之间停 1 秒，最后一次调用之后不用等
-                if deepseek_calls:
-                    time.sleep(1)
-                ai_comment = strip_trade_advice(ask_deepseek(data, reason))
+                # AI 点评改成看新闻 / 公告 (11/10)：要等后面抓完新闻和公告才写，见 add_news_digests
                 data["chart_history"] = get_chart_history(symbol)
                 deepseek_calls += 1
                 print(f"✅ 找到机会: {symbol}")
@@ -5238,24 +5283,6 @@ def main():
           f"数据不足/抓取失败 {no_data} 支")
     print(f"日内走势: {got_intraday}/{len(table_stocks)} 支拿到数据，其余用近 30 日走势代替")
 
-    # 导出 CSV / Excel / PDF 下载文件 (要在生成网页之前，网页上的下载区块才能列出最新的文件)。
-    # 导出出错不能拖垮主流程：报告照样生成和发布，只是这次没有下载区块。
-    t_export = time.perf_counter()
-    downloads = None
-    try:
-        downloads = export_downloads(stocks, today_local, datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M"),
-                                     downloads_dir=DOWNLOADS_DIR, title=MKT["title"], tz_label=MKT["tz_label"],
-                                     file_prefix=MKT["file_prefix"])
-        pf = downloads.get("pool") or {}
-        new_codes = set(pf.get("new_codes") or [])
-        for s in stocks:
-            s["pool_new"] = s["symbol"].split(".")[0] in new_codes
-        print(f"📥 下载文件已导出: 保留 {len(downloads['days'])} 天 ({downloads['days'][0]['date']} 起)；"
-              f"股票池存档 {pf.get('days', 0)} 天，今天新进 {len(pf.get('new') or [])} 支"
-              + (f" ({'、'.join(pf['new'][:10])}{' …' if len(pf['new']) > 10 else ''})" if pf.get("new") else ""))
-    except Exception as e:
-        print(f"⚠️ 导出下载文件失败 ({type(e).__name__}: {e})，报告照常生成，只是这次没有下载区块")
-    export_secs = time.perf_counter() - t_export
 
     # 点开"其余股票"看完整图表 (以及网页上的选股条件) 用的K线 + 个股资料 (财报、长期K线，一周刷新一次，每次补一批)。
     # 出错都不影响报告本身
@@ -5294,6 +5321,35 @@ def main():
     except Exception as e:
         print(f"⚠️ 更新公司公告失败 ({type(e).__name__}: {e})")
     fin_secs = time.perf_counter() - t_fin
+
+    # 信号股的消息面摘要 (DeepSeek，看新闻 + 公告标题)：要在导出和生成网页之前
+    t_ai = time.perf_counter()
+    try:
+        n = add_news_digests(stocks, datetime.now(LOCAL_TZ))
+        if any(s["matched"] for s in stocks):
+            print(f"🤖 消息面摘要: 调用 DeepSeek {n} 次")
+    except Exception as e:
+        print(f"⚠️ 消息面摘要失败 ({type(e).__name__}: {e})")
+    filter_secs += time.perf_counter() - t_ai
+
+    # 导出 CSV / Excel / PDF 下载文件 (要在生成网页之前，网页上的下载区块才能列出最新的文件)。
+    # 导出出错不能拖垮主流程：报告照样生成和发布，只是这次没有下载区块。
+    t_export = time.perf_counter()
+    downloads = None
+    try:
+        downloads = export_downloads(stocks, today_local, datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M"),
+                                     downloads_dir=DOWNLOADS_DIR, title=MKT["title"], tz_label=MKT["tz_label"],
+                                     file_prefix=MKT["file_prefix"])
+        pf = downloads.get("pool") or {}
+        new_codes = set(pf.get("new_codes") or [])
+        for s in stocks:
+            s["pool_new"] = s["symbol"].split(".")[0] in new_codes
+        print(f"📥 下载文件已导出: 保留 {len(downloads['days'])} 天 ({downloads['days'][0]['date']} 起)；"
+              f"股票池存档 {pf.get('days', 0)} 天，今天新进 {len(pf.get('new') or [])} 支"
+              + (f" ({'、'.join(pf['new'][:10])}{' …' if len(pf['new']) > 10 else ''})" if pf.get("new") else ""))
+    except Exception as e:
+        print(f"⚠️ 导出下载文件失败 ({type(e).__name__}: {e})，报告照常生成，只是这次没有下载区块")
+    export_secs = time.perf_counter() - t_export
 
     # 今日市场 (大盘指数 + 全市场涨跌家数) 和策略回测：出错都不影响报告
     market = {"indices": [], "breadth": None, "usd_myr": None}

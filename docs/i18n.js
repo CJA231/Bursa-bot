@@ -177,6 +177,10 @@
 
   // ---------- 2. 带数字的句型 (按顺序全部套用) ----------
   var PATTERNS = [
+    [/^(\d+) 笔已结算$/, '$1 closed'], [/^每笔投入 (.+)$/, '$1 per trade'], [/^同时最多 (\d+) 笔$/, 'Max $1 open'], [/^(\d+\/\d+) 起$/, 'since $1'],
+    [/^(\d+) 笔 · 胜率 ([\d.]+%|—) · 期望$/, '$1 trades · win rate $2 · expectancy'], [/^平均$/, 'Avg'], [/^ · 基准 (.+) · 超额$/, ' · benchmark $1 · excess'],
+    [/^(\d+) 笔 · 持有 (\d+)\/(\S+)( · 已卖| · 浮动)?$/, function (m, n, h, c, x) { return n + ' trades · holding ' + h + '/' + c + (x ? (x.indexOf('已卖') > 0 ? ' · sold' : ' · open') : ''); }], [/ · (\d+) 仓$/, ' · $1 slots'], [/^ · 已卖$/, ' · sold'], [/^ · 浮动$/, ' · open'], [/^ · 胜率 (.+)$/, ' · win rate $1'],
+    [/^(\d+\/\d+) 以后的信号才会买进，还没有交易。$/, 'Buys signals from $1 onward; no trades yet.'], [/^近 (\d+) 天没有新闻或公告$/, 'No news or announcements in the last $1 days'],
     [/^近 (\d+) 天合并 CSV$/, 'Last $1 days merged CSV'], [/^今天新进 (\d+) 支$/, '$1 new today'],
     [/^信号筛选 ▾ · (\d+)$/, 'Signal filter ▾ · $1'], [/^信号筛选 ▴ · (\d+)$/, 'Signal filter ▴ · $1'],
     [/^报告里没有「(.*)」$/, 'No "$1" in the report'],
@@ -346,6 +350,8 @@
     '站上 EMA50': 'Closes above EMA50', 'MACD 金叉': 'MACD golden cross', 'RSI 上穿 30': 'RSI crosses above 30', '创 20 日新高': '20-day high', 'SAR 转空': 'SAR flips bearish', 'Supertrend 转空': 'Supertrend flips bearish',
     '跌破布林下轨': 'Breaks below Bollinger lower', 'EMA5 下穿 EMA20': 'EMA5 crosses below EMA20', '跌破 EMA50': 'Closes below EMA50', 'MACD 死叉': 'MACD death cross', 'RSI 下穿 70': 'RSI crosses below 70', '创 20 日新低': '20-day low', '计算中…': 'Calculating…'
   });
+  Object.assign(EXACT, { '每个信号都买': 'Every signal', '持有 10 天': '10-day hold', '模拟账户': 'Paper account', '按月份': 'By period', '期望值': 'Expectancy', '合计盈亏': 'Net P/L', '最大回撤': 'Max drawdown', '胜率': 'Win rate' });
+  Object.assign(EXACT, { '消息面': 'News', 'AI 根据最近 30 天的新闻和交易所公告标题整理，只是摘要，请看原文': 'AI summary of the last 30 days of news and exchange announcement headlines; check the originals' });
   Object.assign(EXACT, { '今天新进': 'New today', '新进': 'New', '今天第一次进股票池': 'Entered the stock pool today', '今天 CSV': "Today's CSV", '股票池存档：': 'Stock pool archive: ' });
   Object.assign(EXACT, { '新上市': 'New listings', '改名': 'Renamed', '下市': 'Delisted' });
   Object.assign(PHRASES, {
