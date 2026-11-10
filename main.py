@@ -3055,6 +3055,8 @@ MARKET_CSS = """
   .mk-group { min-width: 0; }
   .mk-group h4 { margin: 0 0 0.35rem; font-size: var(--fs-xs); font-weight: 500; color: var(--text-secondary); }
   .mk-group > div { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .pool-new { font-size: var(--fs-xs); color: #b7791f; border: 1px solid currentColor; border-radius: 999px; padding: 0 0.4rem; margin-left: 0.3rem; white-space: nowrap; }
+  .dl-new { font-size: var(--fs-xs); color: #b7791f; margin-left: 0.4rem; }
   .mk-changes { margin-top: 0.4rem; } .mk-chip-off { cursor: default; opacity: 0.75; }
   .mk-chip {
     font: inherit; display: inline-flex; align-items: baseline; gap: 0.4rem; padding: 0.32rem 0.6rem; border-radius: 8px; cursor: pointer;
@@ -3687,6 +3689,14 @@ def build_downloads_html(downloads):
         f'<a class="dl-link" href="downloads/{combined["csv"]}" download>CSV</a></p>'
         if combined else ""
     )
+    pool = downloads.get("pool")
+    if pool:
+        new = pool.get("new") or []
+        combined_html += (
+            f'<p class="dl-combined">股票池存档：'
+            f'<a class="dl-link" href="downloads/{pool["today"]}" download>今天 CSV</a>'
+            f'<a class="dl-link" href="downloads/{pool["history"]}" download>近 {pool["days"]} 天合并 CSV</a>'
+            f'{f"<span class=dl-new>今天新进 {len(new)} 支</span>" if new else ""}</p>')
     return f"""<details class="downloads" id="downloads">
   <summary>下载报告 (近 {downloads["keep_days"]} 个交易日)</summary>
   <div class="downloads-body">
@@ -4485,13 +4495,13 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
                 f'<td class="num col-ema {"change-up" if data["close"] > ema else "change-down"}" data-label="EMA20" data-value="{ema}">{fmt_price(ema)}</td>'
                 if ema is not None else '<td class="num col-ema" data-label="EMA20" data-value="-1">—</td>'
             )
-            new_badge = history_badge(data) + tick_badge(data["close"])
-            flags = (f'data-sar="{sar_value}" data-rv="{rel_vol if rel_vol is not None else -1}" '
+            new_badge = history_badge(data) + tick_badge(data["close"]) + ('<span class="pool-new" title="今天第一次进股票池">新进</span>' if s.get("pool_new") else "")
+            flags = (f'data-new="{1 if s.get("pool_new") else 0}" data-sar="{sar_value}" data-rv="{rel_vol if rel_vol is not None else -1}" '
                      f'data-rsi="{fmt_num(data["rsi"], "{}", "-1")}" data-px="{data["close"]}"')
 
             # 马股: 徽章 = 名称、灰字 = 代号；美股公司全名太长 (Micron Technology, Inc.)，手机上会把代号挤掉 → 徽章 = 代号、灰字 = 公司名
             main_label, sub_label = (html.escape(x) for x in name_pair(code, s["name"]))
-            if table_ok(s["symbol"], data): table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()} {fname.lower()}" data-code="{code}" data-name="{fname}" tabindex="0" {flags}>
+            if s.get("in_pool", table_ok(s["symbol"], data)): table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()} {fname.lower()}" data-code="{code}" data-name="{fname}" tabindex="0" {flags}>
                 <td class="idx-cell"></td>
                 <td class="stock-cell" data-value="{main_label}"><span class="ticker">{main_label}</span><span class="stock-code">{sub_label}</span>{new_badge}</td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
@@ -4786,6 +4796,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
   <div class="tf-chips" id="table-chips" role="group" aria-label="快速筛选">
     <button type="button" class="tf-chip" data-f="watch" aria-pressed="false">★ 自选</button>
     <button type="button" class="tf-chip" data-f="sar" aria-pressed="false">SAR 多头</button>
+    <button type="button" class="tf-chip" data-f="new" aria-pressed="false">今天新进</button>
     <button type="button" class="tf-chip" data-f="rv" aria-pressed="false">放量 ≥ 2×</button>
     <button type="button" class="tf-chip" data-f="rsilo" aria-pressed="false">RSI &lt; 30</button>
     <button type="button" class="tf-chip" data-f="rsihi" aria-pressed="false">RSI &gt; 70</button>
@@ -5147,6 +5158,8 @@ def main():
 
     for threshold in sorted(low_volume_by_tier):
         print(f"⏭️ {volume_rule_text(threshold)} 被忽略: {low_volume_by_tier[threshold]} 支")
+    for s in stocks:  # 「其余股票」股票池 (网页表格、下载文件、股票池存档都用这个)
+        s["in_pool"] = bool(s["data"]) and not s["data"].get("low_volume") and not s["matched"] and table_ok(s["symbol"], s["data"])
     table_stocks = [s for s in stocks if s["data"] and not s["matched"]]
     got_intraday = sum(1 for s in table_stocks if s["intraday"])
     print(f"进入报告: {len(stocks) - no_data} 支 (信号 {deepseek_calls} 支, 表格 {len(table_stocks)} 支)；"
@@ -5161,7 +5174,13 @@ def main():
         downloads = export_downloads(stocks, today_local, datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M"),
                                      downloads_dir=DOWNLOADS_DIR, title=MKT["title"], tz_label=MKT["tz_label"],
                                      file_prefix=MKT["file_prefix"])
-        print(f"📥 下载文件已导出: 保留 {len(downloads['days'])} 天 ({downloads['days'][0]['date']} 起)")
+        pf = downloads.get("pool") or {}
+        new_codes = set(pf.get("new_codes") or [])
+        for s in stocks:
+            s["pool_new"] = s["symbol"].split(".")[0] in new_codes
+        print(f"📥 下载文件已导出: 保留 {len(downloads['days'])} 天 ({downloads['days'][0]['date']} 起)；"
+              f"股票池存档 {pf.get('days', 0)} 天，今天新进 {len(pf.get('new') or [])} 支"
+              + (f" ({'、'.join(pf['new'][:10])}{' …' if len(pf['new']) > 10 else ''})" if pf.get("new") else ""))
     except Exception as e:
         print(f"⚠️ 导出下载文件失败 ({type(e).__name__}: {e})，报告照常生成，只是这次没有下载区块")
     export_secs = time.perf_counter() - t_export

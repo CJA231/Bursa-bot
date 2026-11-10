@@ -177,6 +177,7 @@
 
   // ---------- 2. 带数字的句型 (按顺序全部套用) ----------
   var PATTERNS = [
+    [/^近 (\d+) 天合并 CSV$/, 'Last $1 days merged CSV'], [/^今天新进 (\d+) 支$/, '$1 new today'],
     [/^信号筛选 ▾ · (\d+)$/, 'Signal filter ▾ · $1'], [/^信号筛选 ▴ · (\d+)$/, 'Signal filter ▴ · $1'],
     [/^报告里没有「(.*)」$/, 'No "$1" in the report'],
 
@@ -345,6 +346,7 @@
     '站上 EMA50': 'Closes above EMA50', 'MACD 金叉': 'MACD golden cross', 'RSI 上穿 30': 'RSI crosses above 30', '创 20 日新高': '20-day high', 'SAR 转空': 'SAR flips bearish', 'Supertrend 转空': 'Supertrend flips bearish',
     '跌破布林下轨': 'Breaks below Bollinger lower', 'EMA5 下穿 EMA20': 'EMA5 crosses below EMA20', '跌破 EMA50': 'Closes below EMA50', 'MACD 死叉': 'MACD death cross', 'RSI 下穿 70': 'RSI crosses below 70', '创 20 日新低': '20-day low', '计算中…': 'Calculating…'
   });
+  Object.assign(EXACT, { '今天新进': 'New today', '新进': 'New', '今天第一次进股票池': 'Entered the stock pool today', '今天 CSV': "Today's CSV", '股票池存档：': 'Stock pool archive: ' });
   Object.assign(EXACT, { '新上市': 'New listings', '改名': 'Renamed', '下市': 'Delisted' });
   Object.assign(PHRASES, {
     '市值': 'Mkt cap', '没有': 'no ', '标 = ': 'Target = ', '全部满足': 'all must hold', '进场：': 'Entry: ', '「SAR 转多」': '"SAR turns bullish"', 'K 线图': 'Candles', '空心K线图': 'Hollow candles', 'K线图': 'Candles', '均线金叉': 'MA golden cross', 'RSI 超卖回升': 'RSI oversold rebound', 'MACD 线上穿信号线': 'MACD line crosses above signal line',

@@ -7,6 +7,9 @@
 - 超过 KEEP_REPORT_DAYS 个交易日的文件夹会被自动删掉
 - 另外生成一份"近 N 天合并"的 Excel (每天一个工作表) 和 CSV (多一列日期)
 - 标题、时区、文件名前缀由 main.py 按市场传进来；不传就是原来的马股文案 (bursa-report-*)
+- 股票池 (11/10 加)：导出只放「信号 + 股票池」里的股票，每支标出第一次进股票池的日期、连续在池几天、今天是不是新进；
+  每天的股票池另外存一份 CSV 在 downloads/pool/ (保留 POOL_KEEP_DAYS 天，不跟着 7 天一起删)，
+  再合并成一份近 POOL_HISTORY_DAYS 天的 CSV，方便回头查某支股票哪天进来、进来后怎么走
 """
 import csv
 import json
@@ -17,11 +20,15 @@ import shutil
 
 DOWNLOADS_DIR = os.path.join("docs", "downloads")
 KEEP_REPORT_DAYS = 7  # 保留最近几个"报告日" (只有交易日才有报告，所以约等于一周半的日历天数)
+POOL_DIR = "pool"          # downloads/pool/：每天的股票池 CSV + pool_index.json (谁哪天进来、连续几天)
+POOL_KEEP_DAYS = 250       # 每天的股票池 CSV 保留约一年 (交易日)
+POOL_HISTORY_DAYS = 60     # 合并文件放近 60 个交易日
 DEFAULT_TITLE = "马股自动分析报告"
 DEFAULT_TZ_LABEL = "MYT"
 DEFAULT_FILE_PREFIX = "bursa-report"
 
-COLUMNS = ["类型", "代码", "名称", "价格", "涨跌%", "成交量", "相对量", "RSI", "SAR", "EMA20", "50日均线", "信号", "AI点评"]
+COLUMNS = ["类型", "代码", "名称", "价格", "涨跌%", "成交量", "成交额", "相对量", "RSI", "SAR", "EMA20", "50日均线",
+           "新进股票池", "首次进池", "连续在池天数", "信号", "AI点评"]
 DATE_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -44,13 +51,19 @@ def change_pct(close, prev_close):
     return round((close - prev) / prev * 100, 2) if prev else 0.0
 
 
-def build_rows(stocks):
-    """把 main() 里的 stocks 整理成导出用的行：信号在前，其余按成交量从高到低 (跟网页顺序一致)。"""
+def build_rows(stocks, pool=None):
+    """把 main() 里的 stocks 整理成导出用的行：信号在前，其余按成交量从高到低 (跟网页顺序一致)。
+    main() 标了 in_pool 的话，表格部分只放股票池里的 (跟网页「其余股票」一样)；pool = update_pool 的结果"""
     signals, others = [], []
+    pool = pool or {}
     for s in stocks:
         d = s.get("data")
         if not d or d.get("low_volume"):
             continue
+        if not s["matched"] and s.get("in_pool") is False:
+            continue
+        code = s["symbol"].split(".")[0]
+        p = pool.get(code) or {}
         row = {
             "类型": "信号" if s["matched"] else "表格",
             "代码": s["symbol"].split(".")[0],
@@ -58,11 +71,15 @@ def build_rows(stocks):
             "价格": _num(d["close"], 3),
             "涨跌%": _num(change_pct(d["close"], d["prev_close"]), 2),
             "成交量": int(d["volume"]),
+            "成交额": _num(d.get("turnover"), 0),
             "相对量": _num(d.get("rel_volume"), 2),
             "RSI": _num(d.get("rsi"), 2),   # 价格 14 天都没动的股票 RSI 是 NaN (0/0)
             "SAR": "—" if d.get("sar_bullish_now") is None else ("多头" if d["sar_bullish_now"] else "空头"),
             "EMA20": _num(d.get("ema20_latest"), 3),
             "50日均线": _num(d.get("sma50"), 3),
+            "新进股票池": "新进" if p.get("new") else "",
+            "首次进池": p.get("first") or "",
+            "连续在池天数": p.get("streak"),
             "信号": s.get("reason") or "",
             "AI点评": s.get("ai_comment") or "",
         }
@@ -119,6 +136,9 @@ def _fill_sheet(ws, rows):
         ws.cell(row=row_idx, column=COLUMNS.index("EMA20") + 1).number_format = "0.000"
         ws.cell(row=row_idx, column=COLUMNS.index("50日均线") + 1).number_format = "0.000"
         ws.cell(row=row_idx, column=COLUMNS.index("成交量") + 1).number_format = "#,##0"
+        ws.cell(row=row_idx, column=COLUMNS.index("成交额") + 1).number_format = "#,##0"
+        if r.get("新进股票池"):
+            ws.cell(row=row_idx, column=COLUMNS.index("新进股票池") + 1).font = Font(bold=True, color="B7791F")
         ws.cell(row=row_idx, column=COLUMNS.index("相对量") + 1).number_format = "0.00"
         sar_cell = ws.cell(row=row_idx, column=COLUMNS.index("SAR") + 1)
         sar_cell.font = up if sar_cell.value == "多头" else down
@@ -127,7 +147,8 @@ def _fill_sheet(ws, rows):
                 ws.cell(row=row_idx, column=c).fill = signal_fill
         ws.cell(row=row_idx, column=COLUMNS.index("AI点评") + 1).alignment = Alignment(wrap_text=True, vertical="top")
 
-    widths = {"类型": 7, "代码": 8, "名称": 16, "价格": 9, "涨跌%": 9, "成交量": 14, "相对量": 8,
+    widths = {"类型": 7, "代码": 8, "名称": 16, "价格": 9, "涨跌%": 9, "成交量": 14, "成交额": 14, "相对量": 8,
+              "新进股票池": 9, "首次进池": 11, "连续在池天数": 10,
               "RSI": 7, "SAR": 7, "EMA20": 9, "50日均线": 10, "信号": 30, "AI点评": 50}
     for i, c in enumerate(COLUMNS, start=1):
         ws.column_dimensions[get_column_letter(i)].width = widths.get(c, 10)
@@ -201,14 +222,19 @@ def write_pdf(path, date, rows, generated_at, title=DEFAULT_TITLE, tz_label=DEFA
             story.append(Paragraph(f"AI 点评: {escape(_plain(r['AI点评']))}", sub_style))
         story.append(Spacer(1, 2 * mm))
 
-    story.append(Paragraph(f"其余股票 ({len(others)}，按成交量从高到低)", h_style))
+    fresh = [r for r in others if r.get("新进股票池")]
+    if fresh:
+        story.append(Paragraph(f"今天新进股票池 ({len(fresh)})", h_style))
+        story.append(Paragraph("　".join(f"{escape(r['名称'])} {r['代码']} {_fmt(r['价格'], '{:.3f}')} ({(r['涨跌%'] or 0):+.2f}%)"
+                                         for r in fresh), body_style))
+    story.append(Paragraph(f"股票池 ({len(others)}，按成交量从高到低，★ = 今天新进)", h_style))
     header = ["#", "代码", "名称", "价格", "涨跌%", "成交量", "相对量", "RSI", "SAR", "EMA20"]
     data = [header]
     styles = []
     for i, r in enumerate(others, start=1):
         chg = r["涨跌%"] or 0.0
         data.append([
-            str(i), r["代码"], Paragraph(escape(r["名称"]), cell_style), _fmt(r["价格"], "{:.3f}"),
+            str(i), r["代码"], Paragraph(("★ " if r.get("新进股票池") else "") + escape(r["名称"]), cell_style), _fmt(r["价格"], "{:.3f}"),
             f"{chg:+.2f}%" if chg else "0.00%", f"{r['成交量']:,}",
             _fmt(r["相对量"], "{:.2f}"), _fmt(r["RSI"], "{:.1f}"), r["SAR"], _fmt(r["EMA20"], "{:.3f}"),
         ])
@@ -247,6 +273,57 @@ def write_pdf(path, date, rows, generated_at, title=DEFAULT_TITLE, tz_label=DEFA
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
 
 
+# ---------- 股票池记录 ----------
+
+def update_pool(stocks, date, downloads_dir=DOWNLOADS_DIR):
+    """记下今天股票池里有哪些股票：第一次进池的日期、连续在池几个报告日、今天是不是新进。
+    pool_index.json 存「上一个报告日」的状态，同一天跑几次都从上一个报告日重算，不会重复累加。
+    返回 {代码: {"name", "first", "streak", "new"}}"""
+    pool_dir = os.path.join(downloads_dir, POOL_DIR)
+    os.makedirs(pool_dir, exist_ok=True)
+    path = os.path.join(pool_dir, "pool_index.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            idx = json.load(f)
+    except (OSError, ValueError):
+        idx = {}
+    if idx.get("date") and idx["date"] != date:  # 换了一天：昨天的结果变成「上一个报告日」
+        idx = {"prev_date": idx["date"], "prev": idx.get("cur", {})}
+    prev = idx.get("prev", {})
+    cur = {}
+    for s in stocks:
+        d = s.get("data")
+        if not d or d.get("low_volume") or s["matched"] or not s.get("in_pool"):
+            continue
+        code = s["symbol"].split(".")[0]
+        before = prev.get(code)
+        cur[code] = ({"name": s["name"], "first": before["first"], "streak": before["streak"] + 1, "new": False} if before
+                     else {"name": s["name"], "first": date, "streak": 1, "new": bool(prev or idx.get("prev_date"))})
+    idx.update(date=date, cur=cur)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(idx, f, ensure_ascii=False, separators=(",", ":"))
+    return cur
+
+
+def archive_pool(rows, date, downloads_dir=DOWNLOADS_DIR, file_prefix=DEFAULT_FILE_PREFIX):
+    """每天的股票池 (含信号) 存一份 CSV，保留 POOL_KEEP_DAYS 天；再合并近 POOL_HISTORY_DAYS 天成一份 (多一列日期)"""
+    pool_dir = os.path.join(downloads_dir, POOL_DIR)
+    os.makedirs(pool_dir, exist_ok=True)
+    name_re = re.compile(rf"^{re.escape(file_prefix)}-pool-(\d{{4}}-\d{{2}}-\d{{2}})\.csv$")
+    write_csv(os.path.join(pool_dir, f"{file_prefix}-pool-{date}.csv"), rows)
+    files = sorted((f for f in os.listdir(pool_dir) if name_re.match(f)), reverse=True)
+    for old in files[POOL_KEEP_DAYS:]:
+        os.remove(os.path.join(pool_dir, old))
+    merged = []
+    for f in files[:POOL_HISTORY_DAYS]:
+        day = name_re.match(f).group(1)
+        with open(os.path.join(pool_dir, f), encoding="utf-8-sig", newline="") as fh:
+            merged += [dict(r, 日期=day) for r in csv.DictReader(fh)]
+    history = f"{POOL_DIR}/{file_prefix}-pool-last{POOL_HISTORY_DAYS}.csv"
+    write_csv(os.path.join(downloads_dir, history), merged, with_date=True)
+    return {"history": history, "days": min(len(files), POOL_HISTORY_DAYS), "today": f"{POOL_DIR}/{file_prefix}-pool-{date}.csv"}
+
+
 # ---------- 主入口 ----------
 
 def _files_for(date, file_prefix=DEFAULT_FILE_PREFIX):
@@ -263,7 +340,8 @@ def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR,
                         "combined": {"xlsx", "csv"} 或 None}
     """
     date = report_date_of(stocks, today)
-    rows = build_rows(stocks)
+    pool = update_pool(stocks, date, downloads_dir)
+    rows = build_rows(stocks, pool)
 
     day_dir = os.path.join(downloads_dir, date)
     os.makedirs(day_dir, exist_ok=True)
@@ -307,4 +385,7 @@ def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR,
         write_csv(os.path.join(downloads_dir, combined["csv"]),
                   [dict(r, 日期=d) for d, rs in combined_days for r in rs], with_date=True)
 
-    return {"days": days, "combined": combined, "keep_days": KEEP_REPORT_DAYS}
+    pool_files = archive_pool(rows, date, downloads_dir, file_prefix)
+    pool_files["new"] = [r["名称"] for r in rows if r.get("新进股票池")]
+    pool_files["new_codes"] = [r["代码"] for r in rows if r.get("新进股票池")]
+    return {"days": days, "combined": combined, "keep_days": KEEP_REPORT_DAYS, "pool": pool_files}
