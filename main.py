@@ -193,6 +193,13 @@ def min_volume_for(price):
     return MIN_DAILY_VOLUME
 
 
+def report_volume_for(price):
+    """进报告的成交量门槛 = 信号门槛和股票池门槛 (1M) 里较低的那个：
+    够股票池、但没到信号分级门槛的股票也要下载历史 (get_stock_data 里标成 pool_only)"""
+    need = min_volume_for(price)
+    return min(need, POOL_MIN_VOLUME) if POOL_MIN_VOLUME else need
+
+
 def volume_rule_text(threshold):
     """日志里"⏭️ …被忽略"那一行的说明。美股每支股票的门槛股数都不一样 (按价格算)，只写成交额"""
     if MIN_TURNOVER:
@@ -967,13 +974,14 @@ def load_ledger():
     return None
 
 
-def advance_book(book, raw, cap, since):
+def advance_book(book, raw, cap, since, admit=None):
     """一本账往前走一天：持有中的按今天的日线重算 (结算了就定下来)，再按仓位数加进 since 之后才出现的信号。
+    admit = 可以收进来的信号 (默认 raw)：盘中跑的时候不收今天的 (收盘前可能消失)。
     返回 (新的账, 这次新出现的信号, 满仓跳过几个)"""
     by_key = {(t["code"], t["sig"]): t for t in raw}
     book = [by_key.get((t["code"], t["sig"]), t) if t["reason"] == "open" else t for t in book]
     seen = {(t["code"], t["sig"]) for t in book}
-    new = [t for t in raw if (t["code"], t["sig"]) not in seen and t["sig"] > since]
+    new = [t for t in (raw if admit is None else admit) if (t["code"], t["sig"]) not in seen and t["sig"] > since]
     taken, skipped = portfolio_trades(new, cap, prior=book)
     return book + taken, new, skipped
 
@@ -1024,23 +1032,36 @@ def summarize_backtest(stocks):
             except Exception as e:  # 抓不到就先停在上一次的状态
                 print(f"⚠️ 持仓 {sym} 补抓失败 ({type(e).__name__}: {e})")
     start = STRATEGY["paper_start"]
+    # 新信号只收「已经收盘」的日子：盘中跑的时候今天这根日线还没收完，今天的信号收盘前可能消失，等收盘后那一次再收。
+    # (11/10 修：以前 since = 最新日线日期，每天第一次盘中跑完就把 since 推到今天，收盘才出现的信号永远进不了账本，
+    # 9/30 以后账本一直没加新信号) admitted = 已经收过信号的最后一个收盘日
+    now = datetime.now(LOCAL_TZ)
+    today = now.strftime("%Y-%m-%d")
+    live = market_state(now) == "live"
+    admit = [t for t in raw if not (live and t["sig"] >= today)]
     if led is None:  # 建账本：手上所有日线里的信号一次收进来
         taken, skipped = portfolio_trades(raw, cap)
         start = start or last_day
         led = {"v": LEDGER_VERSION, "sig": strategy_signature(), "from": first_day, "base": base, "trades": taken,
                "signals": sum(t.get("fresh", 1) for t in raw), "skipped": skipped,
-               "every": portfolio_trades(raw, 10 ** 6)[0],
-               "paper": {"start": start, "trades": portfolio_trades([t for t in raw if t["sig"] >= start], cap)[0]}}
+               "every": portfolio_trades(admit, 10 ** 6)[0],
+               "paper": {"start": start, "trades": portfolio_trades([t for t in admit if t["sig"] >= start], cap)[0]}}
+        since = None
     else:
-        led["trades"], new, skipped = advance_book(led["trades"], raw, cap, led["last"])  # 只收账本建好以后才出现的信号
+        # 旧账本没有 admitted：从账本里最后一个信号日之后补收 (把 9/30 以后漏掉的信号补回来)
+        since = led.get("admitted") or max((t["sig"] for t in led["every"]), default=led["last"])
+        led["trades"], new, skipped = advance_book(led["trades"], raw, cap, since, admit)  # 只收账本建好以后才出现的信号
         led["signals"] += sum(t.get("fresh", 1) for t in new)
         led["skipped"] += skipped
-        led["every"] = advance_book(led["every"], raw, 10 ** 6, led["last"])[0]
+        led["every"] = advance_book(led["every"], raw, 10 ** 6, since, admit)[0]
         paper = led["paper"]
         if start and start != paper["start"]:  # strategy.json 改了开始日：用手上的日线从那天重算
-            paper.update(start=start, trades=portfolio_trades([t for t in raw if t["sig"] >= start], cap)[0])
+            paper.update(start=start, trades=portfolio_trades([t for t in admit if t["sig"] >= start], cap)[0])
         else:
-            paper["trades"] = advance_book(paper["trades"], [t for t in raw if t["sig"] >= paper["start"]], cap, led["last"])[0]
+            paper["trades"] = advance_book(paper["trades"], [t for t in raw if t["sig"] >= paper["start"]], cap, since,
+                                           [t for t in admit if t["sig"] >= paper["start"]])[0]
+    closed_day = last_day if not (live and last_day >= today) else None
+    led["admitted"] = max(filter(None, [closed_day, since, led.get("admitted")]), default=last_day)
     led["last"] = max(last_day, led.get("last") or last_day)
     last_day = led["last"]
     for t in led["trades"] + led["every"] + led["paper"]["trades"]:  # 距今几个交易日 (周末以外的休市日不扣，够用)
@@ -1148,7 +1169,7 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 pool_only = bool(POOL_MIN_VOLUME) and threshold > last_volume >= POOL_MIN_VOLUME
                 if last_volume < threshold and not pool_only:
                     return {"symbol": symbol, "low_volume": True, "close": round(last_close, 3),
-                            "volume": last_volume, "threshold": threshold}
+                            "volume": last_volume, "threshold": report_volume_for(last_close)}
 
             # 新上市的股票历史很短也照样处理 (9/24 用户要求：不足 90 天一样按成交量门槛筛选，以前 < 50 天直接丢掉)。
             # 天数不够算的指标留空 (None)：RSI 要 15 天、EMA20 要 20 天、50日均线要 50 天、SAR 要 2 天。
@@ -1801,7 +1822,7 @@ BURSA_CAT_RULES = [
     ("results", r"quarterly r(?:e)?p(?:or)?t|financial result|financial statement|interim report|audited account"),
     ("dividend", r"entitlement|dividend|distribution"),
     ("buyback", r"buy[\s-]?back"),
-    ("holding", r"substantial shareholder|change in sub|changes? in director|director'?s interest|shareholding|"
+    ("holding", r"substantial shareholder|change in sub|changes? in director|director'?s interest|shareholding|dealings? in listed securities|"
                 r"notice of (?:interest|person ceasing)|interest in securities"),
     ("people", r"change in (?:boardroom|principal officer|audit committee|company secretary|chief)"),
     ("meeting", r"annual report|general meeting|\bAGM\b|\bEGM\b"),
@@ -1858,6 +1879,51 @@ def parse_bursa_row(row):
         return None
     return {"id": m.group(1), "date": date, "title": title, "code": code.group(1) if code else None,
             "company": _strip_tags(comp.group(1)) if comp else None, "link": BURSA_ANN_DETAIL + m.group(1), "cat": ann_category(title)}
+
+
+# Bursa 官网 (API 和网页) 都在 Cloudflare 后面，GitHub Actions 的机器一律 403 (11/10 实测)。
+# 改用 KLSE Screener 的公告页 (内容同样来自 Bursa)：个股 /v2/announcements/stock/<代码>，全市场最新 /v2/announcements
+KLSE_ANN_STOCK = "https://www.klsescreener.com/v2/announcements/stock/{}"
+KLSE_ANN_LIST = "https://www.klsescreener.com/v2/announcements"
+KLSE_ANN_VIEW = "https://www.klsescreener.com/v2/announcements/view/{}"
+KLSE_HEADERS = {"User-Agent": BURSA_HEADERS["User-Agent"], "Accept": "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9"}
+KLSE_ITEM_RE = re.compile(r'<a[^>]+href="/v2/announcements/view/(\d+)"[^>]*class="announcement-item"[^>]*>(.*?)</a>', re.S | re.I)
+_MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+
+
+def parse_klse_announcements(page_html, today):
+    """KLSE Screener 公告列表 → [{id, date, title, company, link, cat}]。日期只有「日 + 月」，年份按今天推：比今天晚就是去年"""
+    out = []
+    for ann_id, body in KLSE_ITEM_RE.findall(page_html):
+        day = re.search(r'class="day"[^>]*>\s*(\d{1,2})', body)
+        mon = re.search(r'class="month"[^>]*>\s*([A-Za-z]{3})', body)
+        title = re.search(r'class="title"[^>]*>(.*?)</div>', body, re.S)
+        if not (day and mon and title) or mon.group(1).lower() not in _MONTHS:
+            continue
+        m, d = _MONTHS[mon.group(1).lower()], int(day.group(1))
+        year = today.year - (1 if (m, d) > (today.month, today.day) else 0)
+        try:
+            date = datetime(year, m, d).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+        title_txt = _strip_tags(title.group(1))
+        tag = re.search(r'class="category-tag[^"]*"[^>]*>(.*?)</span>', body, re.S)
+        comp = re.search(r'class="company-label"[^>]*>(.*?)</span>', body, re.S)
+        tag_txt = _strip_tags(tag.group(1)) if tag else ""
+        out.append({"id": ann_id, "date": date, "title": title_txt, "company": _strip_tags(comp.group(1)) if comp else None,
+                     "link": KLSE_ANN_VIEW.format(ann_id), "cat": ann_category(f"{title_txt} {tag_txt}")})
+    return out
+
+
+def klse_announcements(code=None):
+    """个股 (code) 或全市场最新公告；页面认不出来就报错 (网站改版时在日志里看得到)"""
+    url = KLSE_ANN_STOCK.format(code) if code else KLSE_ANN_LIST
+    r = requests.get(url, headers=KLSE_HEADERS, timeout=20)
+    r.raise_for_status()
+    items = parse_klse_announcements(r.text, datetime.now(LOCAL_TZ).date())
+    if not items and "announcement-item" in r.text:
+        raise ValueError("KLSE Screener 公告格式认不出来 (网站可能改版了)")
+    return items
 
 
 def bursa_announcements(company="", per_page=20, page=1):
@@ -1924,7 +1990,8 @@ def fetch_announcements(symbol, now):
         items, source = sec_filings(code), "SEC EDGAR"
         time.sleep(0.3)  # SEC 限每秒 10 个请求 (4 个线程各停 0.3 秒，大约每秒 8 个)
     else:
-        items, source = bursa_announcements(company=code), "Bursa Malaysia"
+        items, source = klse_announcements(code), "Bursa Malaysia (via KLSE Screener)"
+        time.sleep(0.5)  # 别打太快
     oldest = (now.date() - pd.Timedelta(days=ANN_MAX_DAYS)).strftime("%Y-%m-%d")
     seen, keep = set(), []
     for it in sorted(items, key=lambda x: x["date"], reverse=True):
@@ -2001,13 +2068,14 @@ def refresh_announcements(stocks, now):
             s = by_code[code]
             board.append({"code": code, "name": s["name"], "signal": bool(s["matched"]), **{k: it[k] for k in ("date", "title", "link", "cat")}})
     if MARKET_ID == "MY":
-        try:
-            for page in (1, 2, 3):
-                for it in bursa_announcements(per_page=50, page=page):
-                    if it["code"] in by_code:
-                        add(it["code"], it)
+        try:  # 全市场最新公告只有公司全名 (JAG BERHAD)，按报告里股票的公司全名对回代码
+            by_name = {full_name(c, s["name"]).upper(): c for c, s in by_code.items()}
+            for it in klse_announcements():
+                code = by_name.get((it.get("company") or "").upper())
+                if code:
+                    add(code, it)
         except Exception as e:
-            print(f"⚠️ Bursa 全市场最新公告获取失败 ({type(e).__name__}: {e})，公告栏只用个股公告文件")
+            print(f"⚠️ 全市场最新公告获取失败 ({type(e).__name__}: {e})，公告栏只用个股公告文件")
     for code in by_code:
         ann = read_ann(code)
         for it in (ann or {}).get("items", []):
@@ -2199,15 +2267,79 @@ def check_strategy(data):
 # 每支股票变化的部分全部放进 user message。DeepSeek 的 prompt cache 是按"从头开始逐字节比对的
 # 最长公共前缀"计费打折的，一次运行里命中的股票经常不止一支，只要 system prompt 前缀完全一致，
 # 从第二支股票开始这一段就能命中缓存、按缓存价计费，比混在一起写省钱也通常更快。
-DEEPSEEK_SYSTEM_PROMPT = f"""你是专业的{MKT['analyst']}分析师，同时是严谨的金融助手。
+DEEPSEEK_SYSTEM_PROMPT = f"""你是{MKT['analyst']}的消息面整理助手。
 
-任务: 根据用户给出的某支股票的技术信号和基本数据，用简短的中文 (50字以内) 从技术面评价这个信号的可靠性，
-例如 RSI 是否偏高或超买、现价相对 50 日均线的位置。
+任务: 用户会给出一支股票最近 30 天的新闻标题和交易所公告标题 (附日期)。请判断有没有会影响股价的重大事件
+(业绩、派息、合同 / 订单、并购 / 出售资产、配售 / 附加股、大股东或董事增减持、停牌 / 交易所质询、诉讼)，
+用一句话概括最重要的一两件，写明日期。没有重大事件就说「近 30 天没有重大消息」。
 
-严格要求: 只做客观的技术面描述，不要给出任何操作或投资建议，
-不要出现买入、卖出、观望、持有、加仓、减仓、止损、止盈、目标价之类的字眼。
+输出 JSON: {{"zh": "中文一句话，40 字以内", "en": "the same in English, under 25 words"}}
 
-接下来用户消息里会给出这支股票的具体数据，请只根据这些数据作答，不要虚构未提供的信息。"""
+严格要求: 只根据给出的标题，不要猜测标题以外的内容；不要给任何操作或投资建议，
+不要出现买入、卖出、观望、持有、加仓、减仓、止损、止盈、目标价之类的字眼。"""
+DIGEST_DAYS = 30
+
+
+def recent_headlines(code, now):
+    """这支股票最近 DIGEST_DAYS 天的新闻 + 公告标题 [(日期, 来源, 标题)]，新的在前"""
+    since = (now.date() - pd.Timedelta(days=DIGEST_DAYS)).strftime("%Y-%m-%d")
+    out = []
+    try:
+        with open(os.path.join(NEWS_DIR, f"{code}.json"), encoding="utf-8") as f:
+            for it in json.load(f).get("items") or []:
+                day = datetime.fromtimestamp(it["time"], LOCAL_TZ).strftime("%Y-%m-%d") if it.get("time") else None
+                if day and day >= since:
+                    out.append((day, "新闻", it["title"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    for it in (read_ann(code) or {}).get("items", []):
+        if it.get("date", "") >= since:
+            out.append((it["date"], "公告", it["title"]))
+    out.sort(reverse=True)
+    return out[:12]
+
+
+def ask_deepseek(code, name, headlines):
+    """消息面摘要 → (中文, English)；出错返回 (None, None)"""
+    lines = "\n".join(f"- {d} [{src}] {t}" for d, src, t in headlines)
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "system", "content": DEEPSEEK_SYSTEM_PROMPT},
+                      {"role": "user", "content": f"股票: {name} ({code})\n最近 {DIGEST_DAYS} 天的标题:\n{lines}"}],
+            temperature=0.1, max_tokens=300, response_format={"type": "json_object"})
+        usage = getattr(response, "usage", None)
+        if usage and getattr(usage, "prompt_cache_hit_tokens", None) is not None:
+            print(f"   💰 DeepSeek prompt cache: 命中 {usage.prompt_cache_hit_tokens} tokens / 未命中 {usage.prompt_cache_miss_tokens} tokens")
+        out = json.loads(response.choices[0].message.content or "{}")
+        return (out.get("zh") or "").strip() or None, (out.get("en") or "").strip() or None
+    except Exception as e:
+        print(f"⚠️ DeepSeek 消息面摘要失败 {code} ({type(e).__name__}: {e})")
+        return None, None
+
+
+EN_ADVICE_RE = re.compile(r"\b(buy|sell|hold|accumulate|stop[- ]?loss|take[- ]?profit|target price)\b", re.I)
+
+
+def add_news_digests(stocks, now):
+    """信号股：把最近 30 天的新闻 + 公告标题交给 DeepSeek 写一句消息面摘要 (中英文)，放在信号卡片和下载文件里。
+    没有新闻 / 公告就不调用 (直接写「近 30 天没有新闻或公告」)。返回调用了几次"""
+    calls = 0
+    for s in stocks:
+        if not s["matched"]:
+            continue
+        code = s["symbol"].split(".")[0]
+        heads = recent_headlines(code, now)
+        if not heads:
+            s["ai_comment"], s["ai_comment_en"] = f"近 {DIGEST_DAYS} 天没有新闻或公告", f"No news or announcements in the last {DIGEST_DAYS} days"
+            continue
+        if calls:
+            time.sleep(1)  # DeepSeek 限频
+        zh, en = ask_deepseek(code, s["name"], heads)
+        calls += 1
+        s["ai_comment"] = strip_trade_advice(zh) if zh else None
+        s["ai_comment_en"] = en if en and not EN_ADVICE_RE.search(en) else None
+    return calls
 
 # 就算模型没听话，也把带操作建议的分句删掉再放进报告 (图表下方、Excel、PDF 都用这个结果)
 TRADE_ADVICE_RE = re.compile(
@@ -2228,36 +2360,6 @@ def strip_trade_advice(text):
     result = "".join(kept).strip().rstrip("，,；;：:")
     return result + "。" if result and result[-1] not in "。！？!?" else result
 
-
-def ask_deepseek(data, reason):
-    # 这部分每支股票都不一样，所以放在 user message 里，不会污染上面固定的 system prompt 前缀
-    stock_info = f"""股票代码: {data['symbol']}
-触发信号: {reason}
-
-基本数据:
-- 现价: {CURRENCY_SYMBOL} {data['close']}
-- RSI (14): {data['rsi']}
-- 50日均线: {f"{CURRENCY_SYMBOL} {data['sma50']}" if data['sma50'] is not None else "数据不足 (新上市，不到 50 个交易日)"}"""
-
-    try:
-        response = client.chat.completions.create(
-            model="deepseek-chat",  # 👈 指定使用 DeepSeek V3 模型
-            messages=[
-                {"role": "system", "content": DEEPSEEK_SYSTEM_PROMPT},
-                {"role": "user", "content": stock_info}
-            ],
-            temperature=0.1, # 让回答更稳定
-            max_tokens=100
-        )
-        usage = getattr(response, "usage", None)
-        if usage:
-            hit = getattr(usage, "prompt_cache_hit_tokens", None)
-            miss = getattr(usage, "prompt_cache_miss_tokens", None)
-            if hit is not None or miss is not None:
-                print(f"   💰 DeepSeek prompt cache: 命中 {hit} tokens / 未命中 {miss} tokens")
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"DeepSeek 分析出错: {e}"
 
 # === 6. 报告页面的设置面板 (颜色自定义 + 自定义指标公式) ===
 # 这几块单独写成普通字符串 (不是 f-string)，因为内容全是 JS/CSS 不需要 Python 变量插值，
@@ -3034,6 +3136,26 @@ MARKET_CSS = """
   .mk-group { min-width: 0; }
   .mk-group h4 { margin: 0 0 0.35rem; font-size: var(--fs-xs); font-weight: 500; color: var(--text-secondary); }
   .mk-group > div { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .pool-new { font-size: var(--fs-xs); color: #b7791f; border: 1px solid currentColor; border-radius: 999px; padding: 0 0.4rem; margin-left: 0.3rem; white-space: nowrap; }
+  .dl-new { font-size: var(--fs-xs); color: #b7791f; margin-left: 0.4rem; }
+  /* 策略回测 11/10 改版：上面 4 个数字 + 模拟账户一行一笔；中文模式不显示英文小字 (英文模式由 i18n 换成英文) */
+  .bt-kpi { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; margin: 0.6rem 0 0.8rem; }
+  .bt-kpi > div { border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.7rem; display: grid; gap: 0.1rem; min-width: 0; }
+  .bt-kpi dt { font-size: var(--fs-xs); color: var(--text-secondary); margin: 0; } .bt-kpi dd { margin: 0; font-size: var(--fs-xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .bt-kpi small { font-size: var(--fs-xs); color: var(--muted); }
+  .pp-kpi { margin: 0.2rem 0 0.4rem; font-size: var(--fs-sm); color: var(--text-secondary); } .pp-kpi b { font-weight: 600; }
+  .pp-from { font-size: var(--fs-xs); color: var(--muted); font-weight: 400; margin-left: 0.3rem; }
+  .pp-list { list-style: none; margin: 0; padding: 0; display: grid; }
+  .pp-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "nm ret" "mid ret"; gap: 0.15rem 0.6rem; padding: 0.55rem 0; border-top: 1px solid var(--border); cursor: pointer; }
+  .pp-nm { grid-area: nm; display: flex; gap: 0.4rem; align-items: baseline; min-width: 0; } .pp-nm small { color: var(--muted); font-size: var(--fs-xs); }
+  .pp-mid { grid-area: mid; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; } .pp-mid small { color: var(--text-secondary); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+  .pp-ret { grid-area: ret; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; align-self: center; } .pp-ret small { display: block; font-weight: 400; font-size: var(--fs-xs); color: var(--muted); }
+  .bt .bt-every { display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; align-items: baseline; font-size: var(--fs-sm); margin: 0.35rem 0; }
+  html:not([data-lang="en"]) .bt h5 > small, html:not([data-lang="en"]) .bt dt > i, html:not([data-lang="en"]) .bt-head h4 > i,
+  html:not([data-lang="en"]) .bt-win tbody th > small { display: none; }
+  .news-digest { margin: 0.2rem 0 0.4rem; font-size: var(--fs-sm); color: var(--text-secondary); line-height: 1.5; }
+  .news-digest b { font-weight: 600; color: var(--text-primary); margin-right: 0.3rem; font-size: var(--fs-xs); }
+  html:not([data-lang="en"]) .news-digest .nd-en, html[data-lang="en"] .news-digest .nd-zh:has(+ .nd-en) { display: none; }
   .mk-changes { margin-top: 0.4rem; } .mk-chip-off { cursor: default; opacity: 0.75; }
   .mk-chip {
     font: inherit; display: inline-flex; align-items: baseline; gap: 0.4rem; padding: 0.32rem 0.6rem; border-radius: 8px; cursor: pointer;
@@ -3666,6 +3788,14 @@ def build_downloads_html(downloads):
         f'<a class="dl-link" href="downloads/{combined["csv"]}" download>CSV</a></p>'
         if combined else ""
     )
+    pool = downloads.get("pool")
+    if pool:
+        new = pool.get("new") or []
+        combined_html += (
+            f'<p class="dl-combined">股票池存档：'
+            f'<a class="dl-link" href="downloads/{pool["today"]}" download>今天 CSV</a>'
+            f'<a class="dl-link" href="downloads/{pool["history"]}" download>近 {pool["days"]} 天合并 CSV</a>'
+            f'{f"<span class=dl-new>今天新进 {len(new)} 支</span>" if new else ""}</p>')
     return f"""<details class="downloads" id="downloads">
   <summary>下载报告 (近 {downloads["keep_days"]} 个交易日)</summary>
   <div class="downloads-body">
@@ -4168,6 +4298,16 @@ def build_market_html(market, stocks):
             f'<h2 class="section" id="sec-market-h">今日市场{info_btn("market", "今日市场", chr(10).join(tip))}</h2>{"".join(parts)}</section>')
 
 
+def news_digest_html(s):
+    """信号卡片上的一行消息面摘要 (DeepSeek 看新闻 + 公告写的)；中文模式显示中文、英文模式显示英文"""
+    zh, en = s.get("ai_comment"), s.get("ai_comment_en")
+    if not zh and not en:
+        return ""
+    zh_html = f'<span class="nd-zh" data-keep="1">{html.escape(zh)}</span>' if zh else ""
+    en_html = f'<span class="nd-en" data-keep="1">{html.escape(en)}</span>' if en else ""
+    return f'<p{tip_attrs("", "AI 根据最近 30 天的新闻和交易所公告标题整理，只是摘要，请看原文", "news-digest")}><b>消息面</b> {zh_html}{en_html}</p>'
+
+
 def build_backtest_html(bt):
     """"后台信号"下面的策略回测区块 (纯 HTML，不开 JS 也看得到)。
     上面：上个月 (基准) / 本月至今 / 合计 三栏 + 10 日平均 vs 基准；「详细数据」展开：全部、月度、固定天数涨跌、风险报酬、分布、最近信号。
@@ -4302,26 +4442,34 @@ def build_backtest_html(bt):
         done = [t for t in pp["trades"] if t["reason"] != "open"]
         open_rm = sum(t["ret"] for t in held)
 
-        def prow(t):
+        def prow(t):  # 一行一笔：名称 · 进场日 → 状态 · 收益 (11/10 改版：原来 6 栏的表在手机上挤)
             v = t["ret"] if t["reason"] == "open" else t["net"]
-            return (f'<tr data-code="{html.escape(t["code"])}" tabindex="0"><td><b>{html.escape(name_pair(t["code"], t["name"])[0])}</b> '
-                    f'<small>{html.escape(name_pair(t["code"], t["name"])[1])}</small></td><td>{md(t["entry_date"])}</td>'
-                    f'<td class="num">{fmt_price(t["entry"])}</td><td class="num">{fmt_price(t["exit"])}</td>'
-                    f'<td class="num {cls(v)}">{pct_text(v, 1)}<small>{rm(v)}</small></td>'
-                    f'<td><span class="bt-st {t["reason"]}">{status[t["reason"]]}</span> <small>{t["days"]} 天</small></td></tr>')
-        head = '<thead><tr><th>股票</th><th>进场</th><th class="num">进场价</th><th class="num">现价 / 卖出</th><th class="num">收益</th><th>状态</th></tr></thead>'
-        kpi = (f'<div class="bt-paper-kpi"><span>买进 <b>{len(pp["trades"])}</b> 笔</span><span>持有中 <b>{len(held)}</b> / {bt["slots"] or "不限"}</span>'
-               f'<span>已卖出合计 <b class="{cls(ps["total"])}">{rm(ps["total"]) if done else "—"}</b></span>'
-               f'<span>持有浮动 <b class="{cls(open_rm)}">{rm(open_rm) if held else "—"}</b></span>'
-               f'<span>胜率 <b>{pct(ps["win_rate"])}</b></span></div>')
-        body = (f'<div class="bt-table-wrap"><table class="bt-table bt-recent">{head}<tbody>{"".join(prow(t) for t in held + done)}</tbody></table></div>'
-                if pp["trades"] else f'<p class="hint">{md(pp["start"])} 以后出现的信号才会买进 (最多同时 {bt["slots"] or "不限"} 笔)，现在还没有交易。</p>')
-        start_txt = md(pp["start"])
-        paper_html = f'<div class="bt-paper">{h5("模拟账户", "Paper Account · 从 " + start_txt + " 开始", "paper")}{kpi}{body}</div>'
+            nm, cd = name_pair(t["code"], t["name"])
+            return (f'<li data-code="{html.escape(t["code"])}" tabindex="0" role="button"><span class="pp-nm"><b>{html.escape(nm)}</b><small>{html.escape(cd)}</small></span>'
+                    f'<span class="pp-mid"><small>{md(t["entry_date"])} · {fmt_price(t["entry"])} → {fmt_price(t["exit"])}</small>'
+                    f'<span class="bt-st {t["reason"]}">{status[t["reason"]]} · {t["days"]} 天</span></span>'
+                    f'<span class="pp-ret num {cls(v)}">{pct_text(v, 1)}<small>{rm(v)}</small></span></li>')
+        kpi = (f'<p class="pp-kpi">{len(pp["trades"])} 笔 · 持有 {len(held)}/{bt["slots"] or "不限"}'
+               + (f' · 已卖 <b class="{cls(ps["total"])}">{rm(ps["total"])}</b>' if done else "")
+               + (f' · 浮动 <b class="{cls(open_rm)}">{rm(open_rm)}</b>' if held else "")
+               + (f' · 胜率 {pct(ps["win_rate"])}' if done else "") + '</p>')
+        body = (f'<ul class="pp-list">{"".join(prow(t) for t in held + done)}</ul>' if pp["trades"]
+                else f'<p class="hint">{md(pp["start"])} 以后的信号才会买进，还没有交易。</p>')
+        paper_html = f'<div class="bt-paper"><h5>{label("模拟账户", "paper")} <span class="pp-from">{md(pp["start"])} 起</span></h5>{kpi}{body}</div>'
     ev = bt.get("every")
-    every_html = (f'<p class="bt-every"{tip_attrs("every")}><span class="tl">策略整体</span> <small>每个信号都买，不受仓位限制</small>'
-                  f'<span>{ev["n"]} 笔 · 胜率 {pct(ev["win_rate"])} · 期望值 <b class="{cls(ev["avg"])}">{pct_text(ev["avg"], 2)}</b>'
-                  f' · 合计 <b class="{cls(ev["total"])}">{rm(ev["total"])}</b> · 最多同时 {ev["peak_open"]} 笔</span></p>') if ev and ev["n"] else ""
+    every_html = (f'<p class="bt-every"{tip_attrs("every")}><span class="tl">每个信号都买</span>'
+                  f'<span>{ev["n"]} 笔 · 胜率 {pct(ev["win_rate"])} · 期望 <b class="{cls(ev["avg"])}">{pct_text(ev["avg"], 2)}</b></span></p>') if ev and ev["n"] else ""
+    if h10 and h10["avg"] is not None and h10["base_avg"] is not None:
+        vs = (f'<p class="bt-every"{tip_attrs("forward")}><span class="tl">持有 10 天</span>'
+              f'<span>平均 <b class="{cls(h10["avg"])}">{pct_text(h10["avg"], 2)}</b> · 基准 {pct_text(h10["base_avg"], 2)}'
+              f' · 超额 <b class="{cls(diff(h10["avg"], h10["base_avg"]))}">{pct_text(diff(h10["avg"], h10["base_avg"]), 2)}</b></span></p>')
+    # 上面只放 4 个数字 (账户全部交易)；三个时间窗口的对照表收进「详细数据」
+    kpis = [("胜率", "winrate", pct(a["win_rate"]), "", f'{a["closed"]} 笔已结算'),
+            ("期望值", "expectancy", pct_text(a["avg"], 2), cls(a["avg"]), f'每笔 {rm(a["avg"])}'),
+            ("合计盈亏", "netpl", rm(a["total"]), cls(a["total"]), f'每笔投入 {rm(100, False)}'),
+            ("最大回撤", "mdd", pct_text(a["mdd_pct"], 1), "change-down" if a["mdd"] else "", f'同时最多 {a["slots"]} 笔')]
+    kpi_html = '<dl class="bt-kpi">' + "".join(f'<div{tip_attrs(g)}><dt class="tl">{zh}</dt><dd class="{c}">{v}</dd><small>{sub}</small></div>'
+                                              for zh, g, v, c, sub in kpis) + '</dl>'
     rule_tip = "\n".join([f"进场：{strategy_note_text()}" + (" (任何一套命中都算)" if len(STRATEGY["strategies"]) > 1 else ""),
                           (f"仓位：最多同时 {bt['slots']} 笔，满了新信号跳过 (这段期间 {bt['signals']} 个信号，满仓跳过 {bt['skipped']} 个)；同一天先买相对量高的"
                            if bt.get("slots") else "仓位：不限 (每个信号都买)"),
@@ -4329,14 +4477,16 @@ def build_backtest_html(bt):
                           f"成本：来回 {bt['cost']:g}% · 每笔 {rm(100, False)} · {period} · {bt['stocks']} 支"])
     return f"""<div class="bt" id="sec-backtest">
   <div class="bt-head"><h4>策略回测 <i>Backtest</i>{info_btn("backtest", "策略回测", rule_tip)}</h4>
-    <span class="bt-sub">{period} · {a['n']} 笔{f" · {bt['slots']} 个仓位 · 满仓跳过 {bt['skipped']}" if bt.get("slots") else ""}</span>
+    <span class="bt-sub">{period} · {a['n']} 笔{f" · {bt['slots']} 仓" if bt.get("slots") else ""}</span>
     <button type="button" class="sp-btn bt-custom" data-act="my-holdings">我的持仓 ›</button>
     <button type="button" class="sp-btn bt-custom" data-act="custom-backtest">自定义回测 ›</button></div>
+  {kpi_html}
   {paper_html}
-  {windows}
   {every_html}
   {vs}
   <details class="bt-more"><summary>详细数据</summary>
+    {h5("按月份", "By period")}
+    {windows}
     {h5("全部", f"All · {period}")}
     <dl class="bt-tiles">{tiles_html}</dl>
     {h5("月度表现", "Monthly", "monthly")}
@@ -4464,13 +4614,13 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
                 f'<td class="num col-ema {"change-up" if data["close"] > ema else "change-down"}" data-label="EMA20" data-value="{ema}">{fmt_price(ema)}</td>'
                 if ema is not None else '<td class="num col-ema" data-label="EMA20" data-value="-1">—</td>'
             )
-            new_badge = history_badge(data) + tick_badge(data["close"])
-            flags = (f'data-sar="{sar_value}" data-rv="{rel_vol if rel_vol is not None else -1}" '
+            new_badge = history_badge(data) + tick_badge(data["close"]) + ('<span class="pool-new" title="今天第一次进股票池">新进</span>' if s.get("pool_new") else "")
+            flags = (f'data-new="{1 if s.get("pool_new") else 0}" data-sar="{sar_value}" data-rv="{rel_vol if rel_vol is not None else -1}" '
                      f'data-rsi="{fmt_num(data["rsi"], "{}", "-1")}" data-px="{data["close"]}"')
 
             # 马股: 徽章 = 名称、灰字 = 代号；美股公司全名太长 (Micron Technology, Inc.)，手机上会把代号挤掉 → 徽章 = 代号、灰字 = 公司名
             main_label, sub_label = (html.escape(x) for x in name_pair(code, s["name"]))
-            if table_ok(s["symbol"], data): table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()} {fname.lower()}" data-code="{code}" data-name="{fname}" tabindex="0" {flags}>
+            if s.get("in_pool", table_ok(s["symbol"], data)): table_rows.append((data["volume"], f"""<tr data-search="{code.lower()} {name.lower()} {fname.lower()}" data-code="{code}" data-name="{fname}" tabindex="0" {flags}>
                 <td class="idx-cell"></td>
                 <td class="stock-cell" data-value="{main_label}"><span class="ticker">{main_label}</span><span class="stock-code">{sub_label}</span>{new_badge}</td>
                 <td class="spark-cell" title="{spark_title}">{spark}</td>
@@ -4557,6 +4707,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
                 <div class="card-price"><b>{fmt_price(data['close'])}</b> <span class="{change_class}">{sign}{fmt_price(change)} ({sign}{change_pct:.2f}%)</span></div>
             </div>
             <p class="card-tags">{tags_html}</p>
+            {news_digest_html(s)}
             <p class="tf-note" id="{chart_id}-tfnote" hidden></p>
             <div class="chart-wrap">
                 <div id="{chart_id}" class="chart"></div>
@@ -4765,6 +4916,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
   <div class="tf-chips" id="table-chips" role="group" aria-label="快速筛选">
     <button type="button" class="tf-chip" data-f="watch" aria-pressed="false">★ 自选</button>
     <button type="button" class="tf-chip" data-f="sar" aria-pressed="false">SAR 多头</button>
+    <button type="button" class="tf-chip" data-f="new" aria-pressed="false">今天新进</button>
     <button type="button" class="tf-chip" data-f="rv" aria-pressed="false">放量 ≥ 2×</button>
     <button type="button" class="tf-chip" data-f="rsilo" aria-pressed="false">RSI &lt; 30</button>
     <button type="button" class="tf-chip" data-f="rsihi" aria-pressed="false">RSI &gt; 70</button>
@@ -5066,9 +5218,9 @@ def main():
     prefiltered = {}
     for item in scan_list:
         q = quotes.get(item["symbol"])
-        if q and q[1] < min_volume_for(q[0]):
+        if q and q[1] < report_volume_for(q[0]):  # 11/10 修：以前用信号门槛，1M~5M 的低价股在这里就被丢掉，进不了股票池
             prefiltered[item["symbol"]] = {"symbol": item["symbol"], "low_volume": True, "close": q[0],
-                                           "volume": q[1], "threshold": min_volume_for(q[0])}
+                                           "volume": q[1], "threshold": report_volume_for(q[0])}
     pre_secs = time.perf_counter() - t_pre
     print(f"screener 预筛选: 拿到 {len(quotes)} 支报价，其中 {len(prefiltered)} 支成交量不够、不用下载历史")
 
@@ -5104,10 +5256,7 @@ def main():
         if data:
             matched, reason = check_strategy(data)
             if matched:
-                # 防止 DeepSeek 限频：只在两次调用之间停 1 秒，最后一次调用之后不用等
-                if deepseek_calls:
-                    time.sleep(1)
-                ai_comment = strip_trade_advice(ask_deepseek(data, reason))
+                # AI 点评改成看新闻 / 公告 (11/10)：要等后面抓完新闻和公告才写，见 add_news_digests
                 data["chart_history"] = get_chart_history(symbol)
                 deepseek_calls += 1
                 print(f"✅ 找到机会: {symbol}")
@@ -5126,24 +5275,14 @@ def main():
 
     for threshold in sorted(low_volume_by_tier):
         print(f"⏭️ {volume_rule_text(threshold)} 被忽略: {low_volume_by_tier[threshold]} 支")
+    for s in stocks:  # 「其余股票」股票池 (网页表格、下载文件、股票池存档都用这个)
+        s["in_pool"] = bool(s["data"]) and not s["data"].get("low_volume") and not s["matched"] and table_ok(s["symbol"], s["data"])
     table_stocks = [s for s in stocks if s["data"] and not s["matched"]]
     got_intraday = sum(1 for s in table_stocks if s["intraday"])
     print(f"进入报告: {len(stocks) - no_data} 支 (信号 {deepseek_calls} 支, 表格 {len(table_stocks)} 支)；"
           f"数据不足/抓取失败 {no_data} 支")
     print(f"日内走势: {got_intraday}/{len(table_stocks)} 支拿到数据，其余用近 30 日走势代替")
 
-    # 导出 CSV / Excel / PDF 下载文件 (要在生成网页之前，网页上的下载区块才能列出最新的文件)。
-    # 导出出错不能拖垮主流程：报告照样生成和发布，只是这次没有下载区块。
-    t_export = time.perf_counter()
-    downloads = None
-    try:
-        downloads = export_downloads(stocks, today_local, datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M"),
-                                     downloads_dir=DOWNLOADS_DIR, title=MKT["title"], tz_label=MKT["tz_label"],
-                                     file_prefix=MKT["file_prefix"])
-        print(f"📥 下载文件已导出: 保留 {len(downloads['days'])} 天 ({downloads['days'][0]['date']} 起)")
-    except Exception as e:
-        print(f"⚠️ 导出下载文件失败 ({type(e).__name__}: {e})，报告照常生成，只是这次没有下载区块")
-    export_secs = time.perf_counter() - t_export
 
     # 点开"其余股票"看完整图表 (以及网页上的选股条件) 用的K线 + 个股资料 (财报、长期K线，一周刷新一次，每次补一批)。
     # 出错都不影响报告本身
@@ -5182,6 +5321,35 @@ def main():
     except Exception as e:
         print(f"⚠️ 更新公司公告失败 ({type(e).__name__}: {e})")
     fin_secs = time.perf_counter() - t_fin
+
+    # 信号股的消息面摘要 (DeepSeek，看新闻 + 公告标题)：要在导出和生成网页之前
+    t_ai = time.perf_counter()
+    try:
+        n = add_news_digests(stocks, datetime.now(LOCAL_TZ))
+        if any(s["matched"] for s in stocks):
+            print(f"🤖 消息面摘要: 调用 DeepSeek {n} 次")
+    except Exception as e:
+        print(f"⚠️ 消息面摘要失败 ({type(e).__name__}: {e})")
+    filter_secs += time.perf_counter() - t_ai
+
+    # 导出 CSV / Excel / PDF 下载文件 (要在生成网页之前，网页上的下载区块才能列出最新的文件)。
+    # 导出出错不能拖垮主流程：报告照样生成和发布，只是这次没有下载区块。
+    t_export = time.perf_counter()
+    downloads = None
+    try:
+        downloads = export_downloads(stocks, today_local, datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M"),
+                                     downloads_dir=DOWNLOADS_DIR, title=MKT["title"], tz_label=MKT["tz_label"],
+                                     file_prefix=MKT["file_prefix"])
+        pf = downloads.get("pool") or {}
+        new_codes = set(pf.get("new_codes") or [])
+        for s in stocks:
+            s["pool_new"] = s["symbol"].split(".")[0] in new_codes
+        print(f"📥 下载文件已导出: 保留 {len(downloads['days'])} 天 ({downloads['days'][0]['date']} 起)；"
+              f"股票池存档 {pf.get('days', 0)} 天，今天新进 {len(pf.get('new') or [])} 支"
+              + (f" ({'、'.join(pf['new'][:10])}{' …' if len(pf['new']) > 10 else ''})" if pf.get("new") else ""))
+    except Exception as e:
+        print(f"⚠️ 导出下载文件失败 ({type(e).__name__}: {e})，报告照常生成，只是这次没有下载区块")
+    export_secs = time.perf_counter() - t_export
 
     # 今日市场 (大盘指数 + 全市场涨跌家数) 和策略回测：出错都不影响报告
     market = {"indices": [], "breadth": None, "usd_myr": None}

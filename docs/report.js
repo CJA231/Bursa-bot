@@ -3870,6 +3870,7 @@
     var TABLE_FILTERS = {
       watch: function (tr) { return isWatched(tr.dataset.code); },
       sar: function (tr) { return tr.dataset.sar === '1'; },
+      'new': function (tr) { return tr.dataset['new'] === '1'; },
       rv: function (tr) { return parseFloat(tr.dataset.rv) >= 2; },
       rsilo: function (tr) { var v = parseFloat(tr.dataset.rsi); return v >= 0 && v < 30; },
       rsihi: function (tr) { return parseFloat(tr.dataset.rsi) > 70; },

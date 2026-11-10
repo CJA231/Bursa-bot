@@ -28,4 +28,7 @@ jobs:
       - name: Run debug script
         env:
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
-        run: python scripts/debug_stock.py "${{ github.event.inputs.symbol }}" --days-back "${{ github.event.inputs.days_back }}"
+        run: |
+          # symbol 填 PROBE = 检查公告 / 新闻网站在 Actions 上连不连得上 (scripts/probe_sources.py)
+          if [ "${{ github.event.inputs.symbol }}" = "PROBE" ]; then python scripts/probe_sources.py --klse; python scripts/probe_sources.py; exit 0; fi
+          python scripts/debug_stock.py "${{ github.event.inputs.symbol }}" --days-back "${{ github.event.inputs.days_back }}"
