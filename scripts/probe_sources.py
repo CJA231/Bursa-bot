@@ -27,7 +27,30 @@ def urls(code, name):
     ]
 
 
+def check_klse():
+    """用 main.py 里真正的解析函数抓几支股票的公告，确认格式认得出来"""
+    import os
+    from datetime import datetime
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import main as m
+    for code in ("0024", "1155", "5347", "7113"):
+        try:
+            ann = m.fetch_announcements(code + ".KL", datetime.now(m.LOCAL_TZ))
+            items = ann["items"]
+            print(f"[klse {code}] {len(items)} 条", *(f"\n    {x['date']} [{x['cat']}] {x['title'][:80]}" for x in items[:3]))
+        except Exception as e:
+            print(f"[klse {code}] ERROR {type(e).__name__}: {e}")
+    try:
+        rows = m.klse_announcements()
+        print(f"[klse 全市场] {len(rows)} 条，例如 {rows[0] if rows else None}")
+    except Exception as e:
+        print(f"[klse 全市场] ERROR {type(e).__name__}: {e}")
+
+
 def main():
+    if "--klse" in sys.argv:
+        check_klse()
+        return
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     code = args[0] if args else "0024"
     name = args[1] if len(args) > 1 else "JAG"

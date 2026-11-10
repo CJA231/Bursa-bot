@@ -1881,6 +1881,51 @@ def parse_bursa_row(row):
             "company": _strip_tags(comp.group(1)) if comp else None, "link": BURSA_ANN_DETAIL + m.group(1), "cat": ann_category(title)}
 
 
+# Bursa 官网 (API 和网页) 都在 Cloudflare 后面，GitHub Actions 的机器一律 403 (11/10 实测)。
+# 改用 KLSE Screener 的公告页 (内容同样来自 Bursa)：个股 /v2/announcements/stock/<代码>，全市场最新 /v2/announcements
+KLSE_ANN_STOCK = "https://www.klsescreener.com/v2/announcements/stock/{}"
+KLSE_ANN_LIST = "https://www.klsescreener.com/v2/announcements"
+KLSE_ANN_VIEW = "https://www.klsescreener.com/v2/announcements/view/{}"
+KLSE_HEADERS = {"User-Agent": BURSA_HEADERS["User-Agent"], "Accept": "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9"}
+KLSE_ITEM_RE = re.compile(r'<a[^>]+href="/v2/announcements/view/(\d+)"[^>]*class="announcement-item"[^>]*>(.*?)</a>', re.S | re.I)
+_MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+
+
+def parse_klse_announcements(page_html, today):
+    """KLSE Screener 公告列表 → [{id, date, title, company, link, cat}]。日期只有「日 + 月」，年份按今天推：比今天晚就是去年"""
+    out = []
+    for ann_id, body in KLSE_ITEM_RE.findall(page_html):
+        day = re.search(r'class="day"[^>]*>\s*(\d{1,2})', body)
+        mon = re.search(r'class="month"[^>]*>\s*([A-Za-z]{3})', body)
+        title = re.search(r'class="title"[^>]*>(.*?)</div>', body, re.S)
+        if not (day and mon and title) or mon.group(1).lower() not in _MONTHS:
+            continue
+        m, d = _MONTHS[mon.group(1).lower()], int(day.group(1))
+        year = today.year - (1 if (m, d) > (today.month, today.day) else 0)
+        try:
+            date = datetime(year, m, d).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+        title_txt = _strip_tags(title.group(1))
+        tag = re.search(r'class="category-tag[^"]*"[^>]*>(.*?)</span>', body, re.S)
+        comp = re.search(r'class="company-label"[^>]*>(.*?)</span>', body, re.S)
+        tag_txt = _strip_tags(tag.group(1)) if tag else ""
+        out.append({"id": ann_id, "date": date, "title": title_txt, "company": _strip_tags(comp.group(1)) if comp else None,
+                     "link": KLSE_ANN_VIEW.format(ann_id), "cat": ann_category(f"{title_txt} {tag_txt}")})
+    return out
+
+
+def klse_announcements(code=None):
+    """个股 (code) 或全市场最新公告；页面认不出来就报错 (网站改版时在日志里看得到)"""
+    url = KLSE_ANN_STOCK.format(code) if code else KLSE_ANN_LIST
+    r = requests.get(url, headers=KLSE_HEADERS, timeout=20)
+    r.raise_for_status()
+    items = parse_klse_announcements(r.text, datetime.now(LOCAL_TZ).date())
+    if not items and "announcement-item" in r.text:
+        raise ValueError("KLSE Screener 公告格式认不出来 (网站可能改版了)")
+    return items
+
+
 def bursa_announcements(company="", per_page=20, page=1):
     params = {"ann_type": "company", "keyword": "", "dt_ht": "", "dt_lt": "", "company": company, "mkt": "", "sec": "",
               "subsec": "", "per_page": per_page, "page": page}
@@ -1945,7 +1990,8 @@ def fetch_announcements(symbol, now):
         items, source = sec_filings(code), "SEC EDGAR"
         time.sleep(0.3)  # SEC 限每秒 10 个请求 (4 个线程各停 0.3 秒，大约每秒 8 个)
     else:
-        items, source = bursa_announcements(company=code), "Bursa Malaysia"
+        items, source = klse_announcements(code), "Bursa Malaysia (via KLSE Screener)"
+        time.sleep(0.5)  # 别打太快
     oldest = (now.date() - pd.Timedelta(days=ANN_MAX_DAYS)).strftime("%Y-%m-%d")
     seen, keep = set(), []
     for it in sorted(items, key=lambda x: x["date"], reverse=True):
@@ -2022,13 +2068,14 @@ def refresh_announcements(stocks, now):
             s = by_code[code]
             board.append({"code": code, "name": s["name"], "signal": bool(s["matched"]), **{k: it[k] for k in ("date", "title", "link", "cat")}})
     if MARKET_ID == "MY":
-        try:
-            for page in (1, 2, 3):
-                for it in bursa_announcements(per_page=50, page=page):
-                    if it["code"] in by_code:
-                        add(it["code"], it)
+        try:  # 全市场最新公告只有公司全名 (JAG BERHAD)，按报告里股票的公司全名对回代码
+            by_name = {full_name(c, s["name"]).upper(): c for c, s in by_code.items()}
+            for it in klse_announcements():
+                code = by_name.get((it.get("company") or "").upper())
+                if code:
+                    add(code, it)
         except Exception as e:
-            print(f"⚠️ Bursa 全市场最新公告获取失败 ({type(e).__name__}: {e})，公告栏只用个股公告文件")
+            print(f"⚠️ 全市场最新公告获取失败 ({type(e).__name__}: {e})，公告栏只用个股公告文件")
     for code in by_code:
         ann = read_ann(code)
         for it in (ann or {}).get("items", []):
@@ -3057,6 +3104,21 @@ MARKET_CSS = """
   .mk-group > div { display: flex; flex-wrap: wrap; gap: 0.35rem; }
   .pool-new { font-size: var(--fs-xs); color: #b7791f; border: 1px solid currentColor; border-radius: 999px; padding: 0 0.4rem; margin-left: 0.3rem; white-space: nowrap; }
   .dl-new { font-size: var(--fs-xs); color: #b7791f; margin-left: 0.4rem; }
+  /* 策略回测 11/10 改版：上面 4 个数字 + 模拟账户一行一笔；中文模式不显示英文小字 (英文模式由 i18n 换成英文) */
+  .bt-kpi { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; margin: 0.6rem 0 0.8rem; }
+  .bt-kpi > div { border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.7rem; display: grid; gap: 0.1rem; min-width: 0; }
+  .bt-kpi dt { font-size: var(--fs-xs); color: var(--text-secondary); margin: 0; } .bt-kpi dd { margin: 0; font-size: var(--fs-xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .bt-kpi small { font-size: var(--fs-xs); color: var(--muted); }
+  .pp-kpi { margin: 0.2rem 0 0.4rem; font-size: var(--fs-sm); color: var(--text-secondary); } .pp-kpi b { font-weight: 600; }
+  .pp-from { font-size: var(--fs-xs); color: var(--muted); font-weight: 400; margin-left: 0.3rem; }
+  .pp-list { list-style: none; margin: 0; padding: 0; display: grid; }
+  .pp-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "nm ret" "mid ret"; gap: 0.15rem 0.6rem; padding: 0.55rem 0; border-top: 1px solid var(--border); cursor: pointer; }
+  .pp-nm { grid-area: nm; display: flex; gap: 0.4rem; align-items: baseline; min-width: 0; } .pp-nm small { color: var(--muted); font-size: var(--fs-xs); }
+  .pp-mid { grid-area: mid; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; } .pp-mid small { color: var(--text-secondary); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+  .pp-ret { grid-area: ret; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; align-self: center; } .pp-ret small { display: block; font-weight: 400; font-size: var(--fs-xs); color: var(--muted); }
+  .bt .bt-every { display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; align-items: baseline; font-size: var(--fs-sm); margin: 0.35rem 0; }
+  html:not([data-lang="en"]) .bt h5 > small, html:not([data-lang="en"]) .bt dt > i, html:not([data-lang="en"]) .bt-head h4 > i,
+  html:not([data-lang="en"]) .bt-win tbody th > small { display: none; }
   .mk-changes { margin-top: 0.4rem; } .mk-chip-off { cursor: default; opacity: 0.75; }
   .mk-chip {
     font: inherit; display: inline-flex; align-items: baseline; gap: 0.4rem; padding: 0.32rem 0.6rem; border-radius: 8px; cursor: pointer;
@@ -4333,26 +4395,34 @@ def build_backtest_html(bt):
         done = [t for t in pp["trades"] if t["reason"] != "open"]
         open_rm = sum(t["ret"] for t in held)
 
-        def prow(t):
+        def prow(t):  # 一行一笔：名称 · 进场日 → 状态 · 收益 (11/10 改版：原来 6 栏的表在手机上挤)
             v = t["ret"] if t["reason"] == "open" else t["net"]
-            return (f'<tr data-code="{html.escape(t["code"])}" tabindex="0"><td><b>{html.escape(name_pair(t["code"], t["name"])[0])}</b> '
-                    f'<small>{html.escape(name_pair(t["code"], t["name"])[1])}</small></td><td>{md(t["entry_date"])}</td>'
-                    f'<td class="num">{fmt_price(t["entry"])}</td><td class="num">{fmt_price(t["exit"])}</td>'
-                    f'<td class="num {cls(v)}">{pct_text(v, 1)}<small>{rm(v)}</small></td>'
-                    f'<td><span class="bt-st {t["reason"]}">{status[t["reason"]]}</span> <small>{t["days"]} 天</small></td></tr>')
-        head = '<thead><tr><th>股票</th><th>进场</th><th class="num">进场价</th><th class="num">现价 / 卖出</th><th class="num">收益</th><th>状态</th></tr></thead>'
-        kpi = (f'<div class="bt-paper-kpi"><span>买进 <b>{len(pp["trades"])}</b> 笔</span><span>持有中 <b>{len(held)}</b> / {bt["slots"] or "不限"}</span>'
-               f'<span>已卖出合计 <b class="{cls(ps["total"])}">{rm(ps["total"]) if done else "—"}</b></span>'
-               f'<span>持有浮动 <b class="{cls(open_rm)}">{rm(open_rm) if held else "—"}</b></span>'
-               f'<span>胜率 <b>{pct(ps["win_rate"])}</b></span></div>')
-        body = (f'<div class="bt-table-wrap"><table class="bt-table bt-recent">{head}<tbody>{"".join(prow(t) for t in held + done)}</tbody></table></div>'
-                if pp["trades"] else f'<p class="hint">{md(pp["start"])} 以后出现的信号才会买进 (最多同时 {bt["slots"] or "不限"} 笔)，现在还没有交易。</p>')
-        start_txt = md(pp["start"])
-        paper_html = f'<div class="bt-paper">{h5("模拟账户", "Paper Account · 从 " + start_txt + " 开始", "paper")}{kpi}{body}</div>'
+            nm, cd = name_pair(t["code"], t["name"])
+            return (f'<li data-code="{html.escape(t["code"])}" tabindex="0" role="button"><span class="pp-nm"><b>{html.escape(nm)}</b><small>{html.escape(cd)}</small></span>'
+                    f'<span class="pp-mid"><small>{md(t["entry_date"])} · {fmt_price(t["entry"])} → {fmt_price(t["exit"])}</small>'
+                    f'<span class="bt-st {t["reason"]}">{status[t["reason"]]} · {t["days"]} 天</span></span>'
+                    f'<span class="pp-ret num {cls(v)}">{pct_text(v, 1)}<small>{rm(v)}</small></span></li>')
+        kpi = (f'<p class="pp-kpi">{len(pp["trades"])} 笔 · 持有 {len(held)}/{bt["slots"] or "不限"}'
+               + (f' · 已卖 <b class="{cls(ps["total"])}">{rm(ps["total"])}</b>' if done else "")
+               + (f' · 浮动 <b class="{cls(open_rm)}">{rm(open_rm)}</b>' if held else "")
+               + (f' · 胜率 {pct(ps["win_rate"])}' if done else "") + '</p>')
+        body = (f'<ul class="pp-list">{"".join(prow(t) for t in held + done)}</ul>' if pp["trades"]
+                else f'<p class="hint">{md(pp["start"])} 以后的信号才会买进，还没有交易。</p>')
+        paper_html = f'<div class="bt-paper"><h5>{label("模拟账户", "paper")} <span class="pp-from">{md(pp["start"])} 起</span></h5>{kpi}{body}</div>'
     ev = bt.get("every")
-    every_html = (f'<p class="bt-every"{tip_attrs("every")}><span class="tl">策略整体</span> <small>每个信号都买，不受仓位限制</small>'
-                  f'<span>{ev["n"]} 笔 · 胜率 {pct(ev["win_rate"])} · 期望值 <b class="{cls(ev["avg"])}">{pct_text(ev["avg"], 2)}</b>'
-                  f' · 合计 <b class="{cls(ev["total"])}">{rm(ev["total"])}</b> · 最多同时 {ev["peak_open"]} 笔</span></p>') if ev and ev["n"] else ""
+    every_html = (f'<p class="bt-every"{tip_attrs("every")}><span class="tl">每个信号都买</span>'
+                  f'<span>{ev["n"]} 笔 · 胜率 {pct(ev["win_rate"])} · 期望 <b class="{cls(ev["avg"])}">{pct_text(ev["avg"], 2)}</b></span></p>') if ev and ev["n"] else ""
+    if h10 and h10["avg"] is not None and h10["base_avg"] is not None:
+        vs = (f'<p class="bt-every"{tip_attrs("forward")}><span class="tl">持有 10 天</span>'
+              f'<span>平均 <b class="{cls(h10["avg"])}">{pct_text(h10["avg"], 2)}</b> · 基准 {pct_text(h10["base_avg"], 2)}'
+              f' · 超额 <b class="{cls(diff(h10["avg"], h10["base_avg"]))}">{pct_text(diff(h10["avg"], h10["base_avg"]), 2)}</b></span></p>')
+    # 上面只放 4 个数字 (账户全部交易)；三个时间窗口的对照表收进「详细数据」
+    kpis = [("胜率", "winrate", pct(a["win_rate"]), "", f'{a["closed"]} 笔已结算'),
+            ("期望值", "expectancy", pct_text(a["avg"], 2), cls(a["avg"]), f'每笔 {rm(a["avg"])}'),
+            ("合计盈亏", "netpl", rm(a["total"]), cls(a["total"]), f'每笔投入 {rm(100, False)}'),
+            ("最大回撤", "mdd", pct_text(a["mdd_pct"], 1), "change-down" if a["mdd"] else "", f'同时最多 {a["slots"]} 笔')]
+    kpi_html = '<dl class="bt-kpi">' + "".join(f'<div{tip_attrs(g)}><dt class="tl">{zh}</dt><dd class="{c}">{v}</dd><small>{sub}</small></div>'
+                                              for zh, g, v, c, sub in kpis) + '</dl>'
     rule_tip = "\n".join([f"进场：{strategy_note_text()}" + (" (任何一套命中都算)" if len(STRATEGY["strategies"]) > 1 else ""),
                           (f"仓位：最多同时 {bt['slots']} 笔，满了新信号跳过 (这段期间 {bt['signals']} 个信号，满仓跳过 {bt['skipped']} 个)；同一天先买相对量高的"
                            if bt.get("slots") else "仓位：不限 (每个信号都买)"),
@@ -4360,14 +4430,16 @@ def build_backtest_html(bt):
                           f"成本：来回 {bt['cost']:g}% · 每笔 {rm(100, False)} · {period} · {bt['stocks']} 支"])
     return f"""<div class="bt" id="sec-backtest">
   <div class="bt-head"><h4>策略回测 <i>Backtest</i>{info_btn("backtest", "策略回测", rule_tip)}</h4>
-    <span class="bt-sub">{period} · {a['n']} 笔{f" · {bt['slots']} 个仓位 · 满仓跳过 {bt['skipped']}" if bt.get("slots") else ""}</span>
+    <span class="bt-sub">{period} · {a['n']} 笔{f" · {bt['slots']} 仓" if bt.get("slots") else ""}</span>
     <button type="button" class="sp-btn bt-custom" data-act="my-holdings">我的持仓 ›</button>
     <button type="button" class="sp-btn bt-custom" data-act="custom-backtest">自定义回测 ›</button></div>
+  {kpi_html}
   {paper_html}
-  {windows}
   {every_html}
   {vs}
   <details class="bt-more"><summary>详细数据</summary>
+    {h5("按月份", "By period")}
+    {windows}
     {h5("全部", f"All · {period}")}
     <dl class="bt-tiles">{tiles_html}</dl>
     {h5("月度表现", "Monthly", "monthly")}
