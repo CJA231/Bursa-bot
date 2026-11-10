@@ -1,7 +1,31 @@
 {
-  "updated": "2026-11-09",
-  "count": 1073,
+  "updated": "2026-11-10",
+  "count": 1069,
   "events": [
+    {
+      "date": "2026-11-10",
+      "type": "removed",
+      "symbol": "0179.KL",
+      "name": "BIOHLDG"
+    },
+    {
+      "date": "2026-11-10",
+      "type": "removed",
+      "symbol": "03052.KL",
+      "name": "RGS"
+    },
+    {
+      "date": "2026-11-10",
+      "type": "removed",
+      "symbol": "03071.KL",
+      "name": "NOESIS"
+    },
+    {
+      "date": "2026-11-10",
+      "type": "removed",
+      "symbol": "5065.KL",
+      "name": "ORNA"
+    },
     {
       "date": "2026-11-08",
       "type": "removed",

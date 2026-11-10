@@ -508,10 +508,6 @@
     "name": "SEDANIA"
   },
   {
-    "symbol": "0179.KL",
-    "name": "BIOHLDG"
-  },
-  {
     "symbol": "0180.KL",
     "name": "KTC"
   },
@@ -976,20 +972,12 @@
     "name": "SUNMOW"
   },
   {
-    "symbol": "03052.KL",
-    "name": "RGS"
-  },
-  {
     "symbol": "0306.KL",
     "name": "SMART"
   },
   {
     "symbol": "0307.KL",
     "name": "KENERGY"
-  },
-  {
-    "symbol": "03071.KL",
-    "name": "NOESIS"
   },
   {
     "symbol": "0308.KL",
@@ -2098,10 +2086,6 @@
   {
     "symbol": "5062.KL",
     "name": "HUAYANG"
-  },
-  {
-    "symbol": "5065.KL",
-    "name": "ORNA"
   },
   {
     "symbol": "5066.KL",
