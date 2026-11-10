@@ -193,6 +193,13 @@ def min_volume_for(price):
     return MIN_DAILY_VOLUME
 
 
+def report_volume_for(price):
+    """进报告的成交量门槛 = 信号门槛和股票池门槛 (1M) 里较低的那个：
+    够股票池、但没到信号分级门槛的股票也要下载历史 (get_stock_data 里标成 pool_only)"""
+    need = min_volume_for(price)
+    return min(need, POOL_MIN_VOLUME) if POOL_MIN_VOLUME else need
+
+
 def volume_rule_text(threshold):
     """日志里"⏭️ …被忽略"那一行的说明。美股每支股票的门槛股数都不一样 (按价格算)，只写成交额"""
     if MIN_TURNOVER:
@@ -967,13 +974,14 @@ def load_ledger():
     return None
 
 
-def advance_book(book, raw, cap, since):
+def advance_book(book, raw, cap, since, admit=None):
     """一本账往前走一天：持有中的按今天的日线重算 (结算了就定下来)，再按仓位数加进 since 之后才出现的信号。
+    admit = 可以收进来的信号 (默认 raw)：盘中跑的时候不收今天的 (收盘前可能消失)。
     返回 (新的账, 这次新出现的信号, 满仓跳过几个)"""
     by_key = {(t["code"], t["sig"]): t for t in raw}
     book = [by_key.get((t["code"], t["sig"]), t) if t["reason"] == "open" else t for t in book]
     seen = {(t["code"], t["sig"]) for t in book}
-    new = [t for t in raw if (t["code"], t["sig"]) not in seen and t["sig"] > since]
+    new = [t for t in (raw if admit is None else admit) if (t["code"], t["sig"]) not in seen and t["sig"] > since]
     taken, skipped = portfolio_trades(new, cap, prior=book)
     return book + taken, new, skipped
 
@@ -1024,23 +1032,36 @@ def summarize_backtest(stocks):
             except Exception as e:  # 抓不到就先停在上一次的状态
                 print(f"⚠️ 持仓 {sym} 补抓失败 ({type(e).__name__}: {e})")
     start = STRATEGY["paper_start"]
+    # 新信号只收「已经收盘」的日子：盘中跑的时候今天这根日线还没收完，今天的信号收盘前可能消失，等收盘后那一次再收。
+    # (11/10 修：以前 since = 最新日线日期，每天第一次盘中跑完就把 since 推到今天，收盘才出现的信号永远进不了账本，
+    # 9/30 以后账本一直没加新信号) admitted = 已经收过信号的最后一个收盘日
+    now = datetime.now(LOCAL_TZ)
+    today = now.strftime("%Y-%m-%d")
+    live = market_state(now) == "live"
+    admit = [t for t in raw if not (live and t["sig"] >= today)]
     if led is None:  # 建账本：手上所有日线里的信号一次收进来
         taken, skipped = portfolio_trades(raw, cap)
         start = start or last_day
         led = {"v": LEDGER_VERSION, "sig": strategy_signature(), "from": first_day, "base": base, "trades": taken,
                "signals": sum(t.get("fresh", 1) for t in raw), "skipped": skipped,
-               "every": portfolio_trades(raw, 10 ** 6)[0],
-               "paper": {"start": start, "trades": portfolio_trades([t for t in raw if t["sig"] >= start], cap)[0]}}
+               "every": portfolio_trades(admit, 10 ** 6)[0],
+               "paper": {"start": start, "trades": portfolio_trades([t for t in admit if t["sig"] >= start], cap)[0]}}
+        since = None
     else:
-        led["trades"], new, skipped = advance_book(led["trades"], raw, cap, led["last"])  # 只收账本建好以后才出现的信号
+        # 旧账本没有 admitted：从账本里最后一个信号日之后补收 (把 9/30 以后漏掉的信号补回来)
+        since = led.get("admitted") or max((t["sig"] for t in led["every"]), default=led["last"])
+        led["trades"], new, skipped = advance_book(led["trades"], raw, cap, since, admit)  # 只收账本建好以后才出现的信号
         led["signals"] += sum(t.get("fresh", 1) for t in new)
         led["skipped"] += skipped
-        led["every"] = advance_book(led["every"], raw, 10 ** 6, led["last"])[0]
+        led["every"] = advance_book(led["every"], raw, 10 ** 6, since, admit)[0]
         paper = led["paper"]
         if start and start != paper["start"]:  # strategy.json 改了开始日：用手上的日线从那天重算
-            paper.update(start=start, trades=portfolio_trades([t for t in raw if t["sig"] >= start], cap)[0])
+            paper.update(start=start, trades=portfolio_trades([t for t in admit if t["sig"] >= start], cap)[0])
         else:
-            paper["trades"] = advance_book(paper["trades"], [t for t in raw if t["sig"] >= paper["start"]], cap, led["last"])[0]
+            paper["trades"] = advance_book(paper["trades"], [t for t in raw if t["sig"] >= paper["start"]], cap, since,
+                                           [t for t in admit if t["sig"] >= paper["start"]])[0]
+    closed_day = last_day if not (live and last_day >= today) else None
+    led["admitted"] = max(filter(None, [closed_day, since, led.get("admitted")]), default=last_day)
     led["last"] = max(last_day, led.get("last") or last_day)
     last_day = led["last"]
     for t in led["trades"] + led["every"] + led["paper"]["trades"]:  # 距今几个交易日 (周末以外的休市日不扣，够用)
@@ -1148,7 +1169,7 @@ def get_stock_data(symbol, retries=1, check_volume=True):
                 pool_only = bool(POOL_MIN_VOLUME) and threshold > last_volume >= POOL_MIN_VOLUME
                 if last_volume < threshold and not pool_only:
                     return {"symbol": symbol, "low_volume": True, "close": round(last_close, 3),
-                            "volume": last_volume, "threshold": threshold}
+                            "volume": last_volume, "threshold": report_volume_for(last_close)}
 
             # 新上市的股票历史很短也照样处理 (9/24 用户要求：不足 90 天一样按成交量门槛筛选，以前 < 50 天直接丢掉)。
             # 天数不够算的指标留空 (None)：RSI 要 15 天、EMA20 要 20 天、50日均线要 50 天、SAR 要 2 天。
@@ -5066,9 +5087,9 @@ def main():
     prefiltered = {}
     for item in scan_list:
         q = quotes.get(item["symbol"])
-        if q and q[1] < min_volume_for(q[0]):
+        if q and q[1] < report_volume_for(q[0]):  # 11/10 修：以前用信号门槛，1M~5M 的低价股在这里就被丢掉，进不了股票池
             prefiltered[item["symbol"]] = {"symbol": item["symbol"], "low_volume": True, "close": q[0],
-                                           "volume": q[1], "threshold": min_volume_for(q[0])}
+                                           "volume": q[1], "threshold": report_volume_for(q[0])}
     pre_secs = time.perf_counter() - t_pre
     print(f"screener 预筛选: 拿到 {len(quotes)} 支报价，其中 {len(prefiltered)} 支成交量不够、不用下载历史")
 

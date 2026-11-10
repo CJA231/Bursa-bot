@@ -184,6 +184,10 @@
     "name": "AP"
   },
   {
+    "symbol": "0075.KL",
+    "name": "LYC"
+  },
+  {
     "symbol": "0078.KL",
     "name": "GDEX"
   },
@@ -372,6 +376,10 @@
     "name": "SANICHI"
   },
   {
+    "symbol": "0136.KL",
+    "name": "GREENYB"
+  },
+  {
     "symbol": "0138.KL",
     "name": "ZETRIX"
   },
@@ -440,6 +448,10 @@
     "name": "SCC"
   },
   {
+    "symbol": "0160.KL",
+    "name": "HHHCORP"
+  },
+  {
     "symbol": "0161.KL",
     "name": "HEXIND"
   },
@@ -506,6 +518,10 @@
   {
     "symbol": "0178.KL",
     "name": "SEDANIA"
+  },
+  {
+    "symbol": "0179.KL",
+    "name": "BIOHLDG"
   },
   {
     "symbol": "0180.KL",
@@ -956,6 +972,10 @@
     "name": "TOPMIX"
   },
   {
+    "symbol": "03021.KL",
+    "name": "ETH"
+  },
+  {
     "symbol": "0303.KL",
     "name": "ALPHA"
   },
@@ -974,6 +994,14 @@
   {
     "symbol": "0306.KL",
     "name": "SMART"
+  },
+  {
+    "symbol": "03061.KL",
+    "name": "TPTEC"
+  },
+  {
+    "symbol": "03065.KL",
+    "name": "LPCGRP"
   },
   {
     "symbol": "0307.KL",
@@ -1460,6 +1488,10 @@
     "name": "CHINA100-MYR"
   },
   {
+    "symbol": "0839EA.KL",
+    "name": "EQ8WAQF"
+  },
+  {
     "symbol": "1015.KL",
     "name": "AMBANK"
   },
@@ -1654,6 +1686,10 @@
   {
     "symbol": "2658.KL",
     "name": "AJI"
+  },
+  {
+    "symbol": "2674.KL",
+    "name": "ALCOM"
   },
   {
     "symbol": "2739.KL",
@@ -1912,6 +1948,10 @@
     "name": "DNEX"
   },
   {
+    "symbol": "4464.KL",
+    "name": "PHB"
+  },
+  {
     "symbol": "4502.KL",
     "name": "MEDIA"
   },
@@ -2048,12 +2088,20 @@
     "name": "BIPORT"
   },
   {
+    "symbol": "5036.KL",
+    "name": "EDARAN"
+  },
+  {
     "symbol": "5037.KL",
     "name": "COMPUGT"
   },
   {
     "symbol": "5038.KL",
     "name": "KSL"
+  },
+  {
+    "symbol": "5040.KL",
+    "name": "MERIDIAN"
   },
   {
     "symbol": "5041.KL",
@@ -2672,6 +2720,10 @@
     "name": "FPGROUP"
   },
   {
+    "symbol": "5278.KL",
+    "name": "RHONEMA"
+  },
+  {
     "symbol": "5280.KL",
     "name": "KIPREIT"
   },
@@ -2726,6 +2778,10 @@
   {
     "symbol": "5297.KL",
     "name": "TJSETIA"
+  },
+  {
+    "symbol": "5298.KL",
+    "name": "OMH"
   },
   {
     "symbol": "5299.KL",
@@ -3058,6 +3114,10 @@
   {
     "symbol": "6084.KL",
     "name": "STAR"
+  },
+  {
+    "symbol": "6114.KL",
+    "name": "MKH"
   },
   {
     "symbol": "6139.KL",
@@ -3620,6 +3680,10 @@
     "name": "CHGP"
   },
   {
+    "symbol": "7188.KL",
+    "name": "BTM"
+  },
+  {
     "symbol": "7191.KL",
     "name": "ADVENTA"
   },
@@ -3656,6 +3720,10 @@
     "name": "HEXRTL"
   },
   {
+    "symbol": "7203.KL",
+    "name": "WANGZNG"
+  },
+  {
     "symbol": "7204.KL",
     "name": "D&O"
   },
@@ -3666,6 +3734,10 @@
   {
     "symbol": "7208.KL",
     "name": "EURO"
+  },
+  {
+    "symbol": "7209.KL",
+    "name": "CHEETAH"
   },
   {
     "symbol": "7210.KL",
@@ -3704,6 +3776,10 @@
     "name": "AIZO"
   },
   {
+    "symbol": "7219PA.KL",
+    "name": "AIZO-PA"
+  },
+  {
     "symbol": "7221.KL",
     "name": "BSLCORP"
   },
@@ -3722,6 +3798,10 @@
   {
     "symbol": "7226.KL",
     "name": "WATTA"
+  },
+  {
+    "symbol": "7227.KL",
+    "name": "UMSNGB"
   },
   {
     "symbol": "7228.KL",
@@ -3758,6 +3838,10 @@
   {
     "symbol": "7237.KL",
     "name": "PWROOT"
+  },
+  {
+    "symbol": "7239.KL",
+    "name": "SCNWOLF"
   },
   {
     "symbol": "7240.KL",
@@ -4132,6 +4216,10 @@
     "name": "KPSCB"
   },
   {
+    "symbol": "9148.KL",
+    "name": "GBAY"
+  },
+  {
     "symbol": "9172.KL",
     "name": "FPI"
   },
@@ -4270,6 +4358,10 @@
   {
     "symbol": "9954.KL",
     "name": "RGTBHD"
+  },
+  {
+    "symbol": "9962.KL",
+    "name": "GMUTUAL"
   },
   {
     "symbol": "9997.KL",
