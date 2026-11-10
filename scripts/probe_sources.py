@@ -28,8 +28,9 @@ def urls(code, name):
 
 
 def main():
-    code = sys.argv[1] if len(sys.argv) > 1 else "0024"
-    name = sys.argv[2] if len(sys.argv) > 2 else "JAG"
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    code = args[0] if args else "0024"
+    name = args[1] if len(args) > 1 else "JAG"
     for label, url in urls(code, name):
         try:
             r = requests.get(url, headers=UA, timeout=20)
@@ -37,6 +38,11 @@ def main():
             snippet = re.sub(r"\s+", " ", body[:400])
             anns = len(re.findall(r"announcement", body, re.I))
             print(f"[{label}] {r.status_code} {r.headers.get('content-type', '')[:40]} len={len(body)} 'announcement'×{anns}\n    {url}\n    {snippet[:300]}")
+            if "--html" in sys.argv and r.status_code == 200 and label in ("klsescreener", "klsescreener list", "i3investor", "malaysiastock.biz"):
+                hits = [m.start() for m in re.finditer(r"<a[^>]+href=\"[^\"]*announcement[^\"]*\d[^\"]*\"", body, re.I)]
+                print(f"    {len(hits)} announcement links")
+                for h in hits[2:5]:
+                    print("    ---- " + re.sub(r"\s+", " ", body[max(0, h - 700):h + 500]))
         except Exception as e:
             print(f"[{label}] ERROR {type(e).__name__}: {e}\n    {url}")
 
