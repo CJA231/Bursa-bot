@@ -12,6 +12,10 @@
     "name": "UCREST"
   },
   {
+    "symbol": "0006.KL",
+    "name": "PINEAPP"
+  },
+  {
     "symbol": "0007.KL",
     "name": "PUC"
   },
@@ -1448,6 +1452,10 @@
     "name": "RPLANET"
   },
   {
+    "symbol": "0480.KL",
+    "name": "0480.KL"
+  },
+  {
     "symbol": "0800EA.KL",
     "name": "ABFMY1"
   },
@@ -2134,6 +2142,10 @@
   {
     "symbol": "5062.KL",
     "name": "HUAYANG"
+  },
+  {
+    "symbol": "5065.KL",
+    "name": "ORNA"
   },
   {
     "symbol": "5066.KL",
