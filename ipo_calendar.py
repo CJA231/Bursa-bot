@@ -31,7 +31,8 @@ STATE_PATH = os.path.join("data", "ipos.json")
 REFRESH_HOURS = 6
 KEEP_DAYS = 400            # 上市超过约 13 个月的不再追踪 (汇总统计看近 12 个月)
 SUB_WINDOW = (-45, 20)     # 截止认购后 / 上市前后这段时间才去个股页找超额认购倍数 (天)
-SUB_MAX_TRIES = 8          # 每家最多找几次 (每次运行一次)，找不到就算了
+SUB_MAX_TRIES = 8          # 上市前后那段时间每家最多找几次 (每次运行一次)，找不到就算了
+SUB_OLD_TRIES = 1          # 更早上市的 (近 13 个月) 补找一次，汇总统计才有足够的样本
 SUB_PER_RUN = 10           # 每次最多打开几个个股页
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
            "Accept": "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9"}
@@ -94,8 +95,11 @@ def find_oversub(page, rec):
     text = re.sub(r"\s+", " ", _html.unescape(re.sub(r"<[^>]+>", " | ", re.sub(r"<script.*?</script>|<style.*?</style>", " ", page, flags=re.S | re.I))))
     keys = {rec["ticker"].lower(), rec["name"].split()[0].lower()}
     for part in text.split(" | "):
+        part = part.strip(" |")
         m = SUB_RE.search(part)
-        if m and any(k and k in part.lower() for k in keys) and re.search(r"\bIPO\b|public|offering|listing", part, re.I):
+        # 公司名称要是一个完整的字 (简称像 RT 不能配到 report 里面)
+        named = any(k and re.search(r"(?<![a-z0-9])" + re.escape(k) + r"(?![a-z0-9])", part.lower()) for k in keys)
+        if m and named and re.search(r"\bIPO\b|public|offering|listing", part, re.I):
             n = float(m.group(2).replace(",", ""))
             if m.group(1).lower() == "under":
                 return {"oversub": None, "sub_note": part.strip()[:160], "under": True}
@@ -133,10 +137,11 @@ def _perf(recs, today, log):
         dates = [x.strftime("%Y-%m-%d") for x in d.index]
         lim = (datetime.strptime(r["listing"], "%Y-%m-%d") + timedelta(days=7)).strftime("%Y-%m-%d")
         first = next((i for i, x in enumerate(dates) if r["listing"] <= x <= lim), None)
-        if first is not None and r.get("d1_close") is None:
+        # 首日那根定了就不再改；如果首日就是今天 (还没收盘、Yahoo 盘中的开盘价有时是 0)，下次运行再更新
+        if first is not None and (r.get("d1_close") is None or r.get("d1_date") == today):
             row = d.iloc[first]
-            r.update({"d1_date": dates[first], "d1_open": round(float(row["Open"]), 4), "d1_high": round(float(row["High"]), 4),
-                      "d1_low": round(float(row["Low"]), 4), "d1_close": round(float(row["Close"]), 4)})
+            val = lambda k: round(float(row[k]), 4) if float(row[k]) > 0 else None  # noqa: E731
+            r.update({"d1_date": dates[first], "d1_open": val("Open"), "d1_high": val("High"), "d1_low": val("Low"), "d1_close": val("Close")})
         r["last"] = round(float(d["Close"].iloc[-1]), 4)
         r["last_date"] = dates[-1]
 
@@ -181,13 +186,13 @@ def update(path=STATE_PATH, now=None, force=False, log=print):
     # 超额认购倍数 (截止认购之后才会有)
     opened = 0
     for rec in sorted(old.values(), key=lambda v: v.get("listing") or ""):
-        if rec.get("oversub") is not None or rec.get("under") or rec.get("sub_tries", 0) >= SUB_MAX_TRIES or opened >= SUB_PER_RUN:
+        if rec.get("oversub") is not None or rec.get("under") or opened >= SUB_PER_RUN:
             continue
         ref = rec.get("listing") or rec.get("close")
         if not rec.get("close") or rec["close"] > today or not ref:
             continue
         days = (datetime.strptime(ref, "%Y-%m-%d") - now).days
-        if not (SUB_WINDOW[0] <= days <= SUB_WINDOW[1]):
+        if rec.get("sub_tries", 0) >= (SUB_MAX_TRIES if SUB_WINDOW[0] <= days <= SUB_WINDOW[1] else SUB_OLD_TRIES):
             continue
         opened += 1
         rec["sub_tries"] = rec.get("sub_tries", 0) + 1
@@ -200,6 +205,9 @@ def update(path=STATE_PATH, now=None, force=False, log=print):
             rec.update(hit)
 
     _perf(list(old.values()), today, log)
+    for v in old.values():  # None 的栏位不存
+        for k in [k for k, x in v.items() if x is None]:
+            del v[k]
     state.update({"v": 1, "fetched": now.strftime("%Y-%m-%d %H:%M"), "source": IPO_URL})
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:

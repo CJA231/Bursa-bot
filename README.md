@@ -199,11 +199,13 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
   4. **回测**：后台账本，或者**自定义回测** —— 自己选进场条件、选一支或几支股票合在一起算、自定回测期间
   5. **股票池**：成交量 ≥ 1M 的全部股票，名称前有股票代码，各栏可以正 / 反方向排序
   6. **公告**：最近的公司公告，一排可以左右滑的分类按钮筛选；AI 标出值得注意的公告 (📌 重要事件 / ⚠ 留意事项，**只表示「值得注意」，不代表利好或利空**)
-  7. **日历**：企业活动日历 (会议、派息、财报、企业活动、新上市)，月历格子 + 列表，可以按类别筛选 (见下方)
+  7. **日历**：最上面是 **IPO 新股** (招股中 / 待上市的认购、抽签、上市日期和招股价；近 12 个月已上市的超额认购倍数、首日开盘 / 收盘、上市至今的涨跌和汇总统计)，下面是企业活动日历 (会议、派息、财报、企业活动、新上市，IPO 的日期也画在月历上)，月历格子 + 列表，可以按类别筛选 (见下方)
 - **字符 K 线**：默认是**空心K线** (跟 TradingView 一样：收盘 > 开盘画空心框、收盘 < 开盘实心，颜色看收盘比前一天涨还是跌)，图表右下角的按钮或 `k` 切换成全部实心；设置存在自己的浏览器
 - **个股页**：K 线图、关键数字、财报图表 (营收 / 净利润 / 净利率 / 现金流的阶梯图和柱状图 + 完整表格)、**公司简介** (官网链接、背景、业务线)、**AI 公司资讯** (近况、重要事件、留意事项、财报一两句)、公告和新闻
 - **✦ AI 问答**：每一页右下角的 ✦ 按钮，把当前页面的资料附上去问 DeepSeek (见下方[设置](#-ai-问答设置))
 - **中文 / English**：页脚的 EN 按钮切换整个界面，包括数据里的中文 (分类、理由、日历事件、AI 资讯都有英文版)；语言跟标准报告共用同一个设置
+- **离线也能看 (PWA)**：在 iPhone Safari 按「分享 → 添加到主屏幕」，像 app 一样打开。有网时永远先拿最新的；没网 (或 8 秒连不上) 时显示最后一次的页面、日线和新股资料，顶部标「离线 · 显示的是 xx 的数据」。只缓存终端版自己的文件 (约 1MB)，个股财报 / 公告 / 新闻和 AI 问答还是要上网
+- **字体自托管**：JetBrains Mono 完整版 (含 K 线用的方块和框线字符) 放在网站里，不连 Google Fonts，手机上 K 线粗细一致
 - **使用条款**：页脚链接到 [`legal.html`](https://cja231.github.io/Bursa-bot/terminal/legal.html) (中英双语：不构成投资建议、风险、资料来源、AI 内容、责任限制、知识产权、隐私)
 
 ## 公司资讯与企业活动日历 (DeepSeek)
@@ -214,6 +216,14 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
 - **输出** (`docs/intel/<代码>.json`)：近况 2~3 句、重要事件、留意事项、财报一两句，每条公告一个标签 (重要 / 留意 / 例行)；全部只陈述事实，提示词要求 + 程序再过滤一次，不出现「利好 / 利空 / 买入 / 卖出」这类字眼
 - **企业活动日历** (`docs/intel/calendar.json`)：从公告里抽出股东大会、特别大会、除权日、权益登记日、派发日、上市日 (权证、红股、附加股) 等日期；另外按季度结束 + 2 个月推算「财报截止日」
 - 输入没变就不再问 DeepSeek，超过 7 天才重新整理；`docs/intel/index.json` 给终端版公告页和日历用
+
+## 新股 IPO 资料 (`ipo_calendar.py`)
+
+马股报告每次运行时顺便更新 (每 6 小时最多抓一次 IPO 页)，状态存在 `data/ipos.json`，终端版读 `docs/terminal/ipo.json`：
+- **KLSE Screener IPO 页** (`/v2/ipos`)：代码、简称、招股价、开始 / 截止认购、抽签、分配、上市日期、发行规模、市值、板块 (Main / ACE / LEAP)、行业 (不登入看得到最近约两年)
+- **超额认购倍数**：同一网站个股页新闻栏的标题 (例如「… IPO oversubscribed 36.46 times」)，标题里要有公司名称才算；找不到就留空，不猜
+- **首日开盘 / 收盘、上市至今**：Yahoo Finance 不复权日线，跟招股价比；首日那根定了就不再改
+- 只记录事实，不评论好坏，也不构成认购建议；手动测试：Debug Stock workflow 的 symbol 填 `IPO`
 
 ## ✦ AI 问答设置
 
@@ -288,7 +298,7 @@ KLSE Screener 公告 + 新闻 + 季报 → DeepSeek 整理 → docs/intel/ (公�
 | `daily.yml` | 跑报告 (马股 / 美股)、生成终端版、提交、推送通知 | cron-job.org 按当地时间调用 (workflow_dispatch，参数 `market`) |
 | `company_intel.yml` | DeepSeek 公司资讯 + 企业活动日历 | 平日 11:17 UTC (马来西亚 19:17)，或手动 |
 | `update-watchlist.yml` | 更新全市场股票清单 | 手动 (平时 daily.yml 每天第一次运行会自动更新) |
-| `debug_stock.yml` | 调试某支股票过去几天的条件；另有 `LATENCY` (记录各公告来源的延迟)、`PROBE*` (测试资料来源) | 手动 |
+| `debug_stock.yml` | 调试某支股票过去几天的条件；另有 `IPO` (更新并印出新股资料)、`LATENCY` (记录各公告来源的延迟)、`PROBE*` (测试资料来源) | 手动 |
 
 两个会 `git push` 的流程 (`daily.yml`、`company_intel.yml`) 在同一个 concurrency 组，排队跑，不会撞在一起。Actions 用 `actions/checkout@v7`、`actions/setup-python@v7`、`actions/cache@v6` (Node.js 24)。
 
@@ -299,7 +309,7 @@ KLSE Screener 公告 + 新闻 + 季报 → DeepSeek 整理 → docs/intel/ (公�
 | 行情数据 | [yfinance](https://github.com/ranaroussi/yfinance) |
 | 技术指标 | [pandas-ta](https://github.com/twopirllc/pandas-ta) |
 | AI 点评 / 公司资讯 / 日历 / 问答 | [DeepSeek](https://www.deepseek.com/) API |
-| 公告 | KLSE Screener (马股)、SEC EDGAR (美股) |
+| 公告 / 新股 IPO | KLSE Screener (马股)、SEC EDGAR (美股) |
 | AI 问答中转 (可选) | Cloudflare Workers |
 | K 线图 | [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) v5（Apache 2.0，已自托管在 `docs/vendor/`） |
 | 手机推送 | [ntfy.sh](https://ntfy.sh) |
@@ -315,8 +325,9 @@ Bursa-bot/
 ├── engine.py                    # 选股条件的公式引擎 (网页 report.js 同一套的 Python 版)
 ├── strategy.json                # 后台信号的条件 + 回测离场规则 (可以自己改)
 ├── terminal_site.py             # 生成终端版 docs/terminal/ (data.json、bars.json + 页面)
+├── ipo_calendar.py              # 新股 IPO 日历 + 上市表现 (KLSE Screener + Yahoo)，状态在 data/ipos.json
 ├── public_site.py               # 生成精简版公开展示站 public_site/ (见最下方)
-├── terminal_assets/             # 终端版页面原稿：index.html、terminal.js、terminal.css、terminal_en.js (英文)、legal.html (使用条款)
+├── terminal_assets/             # 终端版页面原稿：index.html、terminal.js、terminal.css、terminal_en.js (英文)、legal.html (使用条款)、sw.js + manifest.webmanifest (离线 PWA)、fonts/ (JetBrains Mono + OFL 授权)
 ├── worker/                      # ✦ AI 问答的 Cloudflare Worker 中转 (ai-proxy.js + 设置说明)
 ├── data/watchlist.json          # 全市场股票清单 (1070+ 支)
 ├── docs/index.html              # 生成的报告，GitHub Pages 从这里发布

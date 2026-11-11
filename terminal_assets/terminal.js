@@ -708,11 +708,90 @@
     return pn(title, T('公告 ') + (r.ann || []).length + T(' · 新闻 ') + (r.news || []).length, h);
   }
 
+  // ---------- 新股 IPO (ipo_calendar.py：KLSE Screener IPO 页 + 新闻标题里的超额认购 + Yahoo 日线)：日历页顶部 ----------
+  // 只列事实 (日期、招股价、认购倍数、首日和至今的价格变化)，不评论好坏；ipo.json 在 /terminal/ 里面，离线也看得到
+  var IPO = null, ipoLoading = false;
+  function loadIpo() {
+    if (IPO || ipoLoading) return; ipoLoading = true;
+    fetch('ipo.json?v=' + V).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
+      .then(function (j) { IPO = (j && j.ipos) || []; IPO.updated = j && j.updated; if (S.page === 'cal' && !S.code) render(); });
+  }
+  function ipoBoard(b) { return !b ? '' : /ACE/i.test(b) ? 'ACE' : /LEAP/i.test(b) ? 'LEAP' : /Main/i.test(b) ? 'Main' : b; }
+  function ipoPx(v) { return isNum(v) ? 'RM' + (v < 1 ? v.toFixed(3).replace(/0$/, '') : v.toFixed(2)) : '—'; }
+  function ipoChg(v, ref) { return isNum(v) && isNum(ref) && ref > 0 ? (v / ref - 1) * 100 : null; }
+  function pctS(v) { return isNum(v) && Math.abs(v) >= 100 ? pct(v, 0) : pct(v, 1); }  // 表格格子窄：三位数的百分比不带小数
+  function addDays(d, n) { return new Date(Date.parse(d + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10); }
+  function ipoStatus(r, td) {
+    if (r.open && td < r.open) return ['dim', T('即将招股')];
+    if (r.close && td <= r.close) return ['warn', td === r.close ? T('今天截止') : T('招股中')];
+    if (r.ballot && td <= r.ballot) return ['acc', T('待抽签')];
+    return ['acc', T('待上市')];
+  }
+  // IPO 的日期也放进月历 (新上市类别)
+  var IPO_T = [['open', 'ipo_open'], ['close', 'ipo_close'], ['ballot', 'ipo_ballot'], ['listing', 'ipo_listing']];
+  function ipoEvents(from) {
+    var out = [];
+    (IPO || []).forEach(function (r) {
+      var w = [ipoPx(r.price), ipoBoard(r.board)].filter(Boolean).join(' · ');
+      IPO_T.forEach(function (k) {
+        if (r[k[0]] && r[k[0]] >= from) out.push({ date: r[k[0]], type: k[1], code: r.code, name: r.ticker, what: w, what_en: w, ipo: 1, link: 'https://www.klsescreener.com/v2/stocks/view/' + r.code });
+      });
+    });
+    return out;
+  }
+  function ipoName(r) {  // 已经在我们名单里的 → 点了打开个股页；还没上市的只显示名称
+    return NAMES[r.code] ? '<button type="button" data-q="' + esc(r.code) + '" class="acc">' + esc(r.ticker) + '</button>' : '<b class="acc">' + esc(r.ticker) + '</b>';
+  }
+  function ipoPanel() {
+    loadIpo();
+    if (!IPO) return pn(T('IPO 新股'), '', '<p class="dim">loading…</p>');
+    if (!IPO.length) return '';
+    var td = today(), yago = addDays(td, -365);
+    var up = IPO.filter(function (r) { return !r.listing || r.listing > td; }).sort(function (a, b) { return (a.listing || a.close || '') < (b.listing || b.close || '') ? -1 : 1; });
+    var done = IPO.filter(function (r) { return r.listing && r.listing <= td && r.listing >= yago; });  // 已经按上市日新到旧
+    var h = T('<h3 class="fin-h">招股中 / 待上市 · ') + up.length + '</h3>';
+    h += up.length ? up.map(function (r) {
+      var st = ipoStatus(r, td), steps = [];
+      if (r.open || r.close) steps.push(T('认购 ') + md(r.open) + '–' + md(r.close));
+      if (r.ballot) steps.push(T('抽签 ') + md(r.ballot));
+      if (r.listing) { var dd = Math.round((Date.parse(r.listing) - Date.parse(td)) / 864e5); steps.push(T('上市 ') + md(r.listing) + ' (' + (dd === 0 ? T('今天') : dd + T(' 天后')) + ')'); }
+      var info = [r.sector && r.sector !== r.subsector ? r.sector + ' / ' + r.subsector : r.sector || r.subsector, isNum(r.mcap) ? T('市值 ') + 'RM' + (r.mcap / 1e6).toFixed(0) + 'M' : null].filter(Boolean).join(' · ');
+      return '<p class="list-ann ipo-r"><span class="cal-t cg-list">' + st[1] + '</span> ' + ipoName(r) + ' <span class="dim">' + esc(r.name) + '</span> · ' + esc([ipoBoard(r.board), ipoPx(r.price)].filter(function (x) { return x && x !== '—'; }).join(' · ')) +
+        '<br><span class="dim">' + esc(steps.join(' · ')) + (info ? '<br>' + esc(info) : '') + '</span></p>';
+    }).join('') : T('<p class="dim">目前没有招股中或待上市的新股。</p>');
+    // 近 12 个月汇总
+    var d1 = done.map(function (r) { return ipoChg(r.d1_close, r.price); }).filter(isNum).sort(function (a, b) { return a - b; });
+    var subs = done.map(function (r) { return r.oversub; }).filter(isNum);
+    var avg = function (a) { return a.reduce(function (s, x) { return s + x; }, 0) / a.length; };
+    var stat = [T('近 12 个月 ') + done.length + T(' 家上市')];
+    if (subs.length) stat.push(T('平均超额认购 ') + avg(subs).toFixed(1) + T(' 倍') + span('dim', ' (' + subs.length + T(' 家有资料)')));
+    if (d1.length) {
+      var ups = d1.filter(function (x) { return x > 0; }).length;
+      stat.push(T('首日收盘高于招股价 ') + ups + '/' + d1.length + T(' 家') + span('dim', ' (' + Math.round(ups / d1.length * 100) + '%)'));
+      stat.push(T('首日收盘平均 ') + span(cls(avg(d1)), pct(avg(d1), 1)) + T(' · 中位数 ') + span(cls(d1[d1.length >> 1]), pct(d1[d1.length >> 1], 1)));
+    }
+    h += T('<h3 class="fin-h">已上市 · 近 12 个月</h3>') + '<p class="ipo-stat">' + stat.join('<br>') + '</p>';
+    if (done.length) {
+      var rows = S.ipoAll ? done : done.slice(0, 12);
+      var hd = cell(T('股票'), 10) + cell(T('上市日'), 6) + cell(T('招股'), 6, true) + cell(T('认购'), 7, true) + cell(T('首日开'), 7, true) + cell(T('首日收'), 7, true) + cell(T('至今'), 7, true);
+      h += '<pre class="txt ipo-t"><span class="dim">' + hd + '</span>\n' + rows.map(function (r) {
+        var o = ipoChg(r.d1_open, r.price), c = ipoChg(r.d1_close, r.price), n = ipoChg(r.last, r.price);
+        return cell(ipoName(r), 10) + cell(md(r.listing), 6) + cell(isNum(r.price) ? r.price.toFixed(r.price < 1 ? 3 : 2).replace(/0$/, '') : '—', 6, true) +
+          cell(isNum(r.oversub) ? r.oversub.toFixed(r.oversub < 100 ? 1 : 0) + '×' : r.under ? T('不足') : '—', 7, true) +
+          cell(span(cls(o), pctS(o)), 7, true) + cell(span(cls(c), pctS(c)), 7, true) + cell(span(cls(n), pctS(n)), 7, true);
+      }).join('\n') + '</pre>';
+      if (done.length > 12) h += '<button type="button" class="more" data-ipo="all">' + (S.ipoAll ? T('收起') : T('全部 ') + done.length + T(' 家')) + '</button>';
+    }
+    h += T('<p class="dim intel-note">资料：KLSE Screener IPO 页 (日期、招股价、板块)、新闻标题 (超额认购倍数，找不到就留空)、Yahoo Finance 日线 (首日开盘 / 收盘、最新收盘，跟招股价比)。日期以招股书和交易所公告为准。过去的新股表现不代表将来，这里不构成认购或买卖建议 · 更新 ') + esc(IPO.updated || '—') + '</p>';
+    return pn(T('IPO 新股'), up.length + T(' 家待上市'), h);
+  }
+
   // ---------- 日历：企业活动日期 (scripts/company_intel.py 用 DeepSeek 从公告内文找出的日期 + 程序按交易所规定算的季报最迟公布日) ----------
   // 分类跟公告页一样：会议 / 派息 / 财报 / 企业 / 新上市；月历上每天的小点 = 那天有哪些类别，点日期看那天的明细
   var CAL = null, calLoading = false;
   var CAL_T = { agm: ['meet', T('常年股东大会')], egm: ['meet', T('特别股东大会')], ex_date: ['div', T('除权 / 除息')], entitlement: ['div', T('截止过户')], payment: ['div', T('派发')],
-    results: ['res', T('业绩公布')], results_due: ['res', T('季报最迟公布')], listing: ['list', T('上市')], corporate: ['corp', T('企业活动')] };
+    results: ['res', T('业绩公布')], results_due: ['res', T('季报最迟公布')], listing: ['list', T('上市')], corporate: ['corp', T('企业活动')],
+    ipo_open: ['list', T('IPO 开始认购')], ipo_close: ['list', T('IPO 截止认购')], ipo_ballot: ['list', T('IPO 抽签')], ipo_listing: ['list', T('IPO 上市')] };
   var CAL_G = [['meet', T('会议')], ['div', T('派息')], ['res', T('财报')], ['corp', T('企业')], ['list', T('新上市')]];
   function loadCal() {
     if (CAL || calLoading) return; calLoading = true;
@@ -722,15 +801,21 @@
   function today() { var d = new Date(Date.now() + 8 * 3600e3); return d.toISOString().slice(0, 10); }  // 马来西亚日期
   function calRow(e) {
     var t = CAL_T[e.type] || ['corp', e.type];
-    return '<p class="list-ann cal-r"><span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> <button type="button" data-q="' + esc(e.code) + '" class="acc">' + esc(e.name || e.code) + '</button> ' +
+    var nm = e.ipo && !NAMES[e.code] ? '<b class="acc">' + esc(e.name || e.code) + '</b>' : '<button type="button" data-q="' + esc(e.code) + '" class="acc">' + esc(e.name || e.code) + '</button>';
+    return '<p class="list-ann cal-r"><span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> ' + nm + ' ' +
       esc(L(e, 'what') || '') + (e.link ? ' <a href="' + esc(e.link) + T('" target="_blank" rel="noopener" aria-label="公告原文">↗</a>') : '') + (e.src === 'rule' ? T(' <span class="dim">(推算)</span>') : '') + '</p>';
   }
   function pageCal() {
     loadCal();
-    if (!CAL) return pn(T('CALENDAR 日历'), '', '<p class="dim">loading…</p>');
+    var top = ipoPanel();
+    if (!CAL) return top + pn(T('CALENDAR 日历'), '', '<p class="dim">loading…</p>');
     var g = S.calG || '', mine = !!S.calW, wset = {};
     W.folders.forEach(function (f) { f.codes.forEach(function (c) { wset[c] = 1; }); });
-    var ev = CAL.filter(function (e) { return (!g || (CAL_T[e.type] || [])[0] === g) && (!mine || wset[e.code]); });
+    // 公告整理出来的日期 + IPO 日期；同一支同一天的「上市」只留 IPO 那条
+    var ipoEv = ipoEvents(addDays(today(), -7)), ipoKey = {};
+    ipoEv.forEach(function (e) { if (e.type === 'ipo_listing') ipoKey[e.code + e.date] = 1; });
+    var ALL = CAL.filter(function (e) { return !(e.type === 'listing' && ipoKey[e.code + e.date]); }).concat(ipoEv).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    var ev = ALL.filter(function (e) { return (!g || (CAL_T[e.type] || [])[0] === g) && (!mine || wset[e.code]); });
     var btn = function (k, label, on, attr) { return '<button type="button" ' + attr + '="' + k + '" aria-pressed="' + on + '">' + label + '</button>'; };
     var bar = T('<div class="fbar" role="group" aria-label="筛选日历">') + btn('', T('全部'), !g, 'data-calg') + '<div class="fscroll">' +
       CAL_G.map(function (x) { return btn(x[0], '<i class="cal-dot cg-' + x[0] + '"></i>' + x[1], g === x[0], 'data-calg'); }).join('') +
@@ -758,8 +843,8 @@
         var h = e.date !== last ? '<p class="dim cal-day">── ' + md(e.date) + ' ' + (LANG === 'en' ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'])[new Date(e.date + 'T00:00:00Z').getUTCDay()] + ' ──</p>' : ''; last = e.date; return h + calRow(e); }).join('') :
         T('<p class="dim">接下来 30 天没有记录') + (mine ? T(' (只看观察列表)') : '') + '。</p>');
     }
-    var note = T('<p class="dim intel-note">日期由 AI (DeepSeek) 从公告原文整理，「季报最迟公布」是按交易所规定 (季末后 2 个月内) 推算的最迟日期，不是公司宣布的日期。以公告原文为准 · 更新 ') + esc(CAL.updated || '—') + '</p>';
-    return pn(T('CALENDAR 日历'), ev.length + T(' 项 · 过去 7 天到未来半年'), bar + grid + listH + note);
+    var note = T('<p class="dim intel-note">日期由 AI (DeepSeek) 从公告原文整理，「季报最迟公布」是按交易所规定 (季末后 2 个月内) 推算的最迟日期，不是公司宣布的日期；IPO 日期来自 KLSE Screener。以公告原文为准 · 更新 ') + esc(CAL.updated || '—') + '</p>';
+    return top + pn(T('CALENDAR 日历'), ev.length + T(' 项 · 过去 7 天到未来半年'), bar + grid + listH + note);
   }
   function calClick(t) {
     var d = t.dataset;
@@ -806,6 +891,7 @@
       c.今天信号 = (D.signals || []).map(function (x) { return x.name + ' ' + x.code + T(' 条件: ') + (x.why || []).join('; '); });
       c.当前页面 = (PAGES.filter(function (p) { return p[0] === S.page; })[0] || [])[1];
       if (S.page === 'ann') c.最近公告 = (D.board || []).slice(0, 25).map(function (x) { return x.date + ' ' + x.name + ': ' + x.title; });
+      if (S.page === 'cal' && IPO) c.待上市新股 = IPO.filter(function (r) { return !r.listing || r.listing > today(); }).map(function (r) { return { 代码: r.code, 简称: r.ticker, 名称: r.name, 板块: r.board, 招股价: r.price, 截止认购: r.close, 抽签: r.ballot, 上市: r.listing, 行业: r.sector }; });
       if (S.page === 'cal' && CAL) c.日历 = CAL.filter(function (e) { return e.date >= today(); }).slice(0, 30).map(function (e) { return e.date + ' ' + e.name + ' ' + (CAL_T[e.type] || [])[1] + ' ' + (e.what || ''); });
       if (S.page === 'watch') c.观察列表 = curFolder().codes.map(function (x) { return ST[x] ? brief(ST[x]) : nameOf(x) + ' ' + x; });
     }
@@ -1100,6 +1186,7 @@
     var ai = e.target.closest('[data-ai]'); if (ai) { aiClick(ai); return; }
     var ct = e.target.closest('[data-calg],[data-calw],[data-calm],[data-cald]'); if (ct) { calClick(ct); return; }
     if (e.target.closest('[data-candle]')) { toggleCandle(); return; }
+    if (e.target.closest('[data-ipo]')) { S.ipoAll = !S.ipoAll; render(); return; }
     var hbx = e.target.closest('[data-hb]'); if (hbx) { S.hb = S.hb === hbx.dataset.hb ? null : hbx.dataset.hb; render(); return; }
     var t = e.target.closest('[data-page],[data-q],[data-back],[data-flt],[data-sort],[data-more],[data-cat],[data-heat]');
     if (!t) return;
@@ -1176,8 +1263,26 @@
     if (main.querySelector('.dim')) main.innerHTML = '<p class="dim">Loading data…</p>';
   })();
 
-  fetch('data.json?v=' + V).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function (j) {
-    D = j; ingest(); fromHash();
+  // 离线 (PWA)：sw.js 存着最后一次的页面和 data.json / bars.json；连不上网时用存着的，顶部显示「离线 · 数据时间」
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+  }
+  var OFFLINE = false;
+  function offlineBar() {
+    var el = document.getElementById('offline');
+    if (!OFFLINE || !D) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement('p'); el.id = 'offline'; el.className = 'offline'; document.getElementById('status').insertAdjacentElement('beforebegin', el); }
+    var when = esc(md(D.updated.slice(0, 10)) + D.updated.slice(10)) + ' ' + esc(D.tz || '');
+    el.innerHTML = navigator.onLine === false
+      ? T('⚠ 离线 · 显示的是 ') + when + T(' 的数据')
+      : T('⚠ 连不上服务器 · 显示的是 ') + when + T(' 的数据 · <button type="button" data-reload>重新载入</button>');
+  }
+  window.addEventListener('online', function () { if (OFFLINE) offlineBar(); });
+  window.addEventListener('offline', function () { if (OFFLINE) offlineBar(); });
+  document.addEventListener('click', function (e) { if (e.target.closest('[data-reload]')) location.reload(); });
+
+  fetch('data.json?v=' + V).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); OFFLINE = r.headers.get('x-bterm-offline') === '1'; return r.json(); }).then(function (j) {
+    D = j; ingest(); fromHash(); offlineBar();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { CW = null; render(); });  // 网页字体到了再量一次字宽
     document.getElementById('status').innerHTML = status();
     var tk = document.querySelector('#status .tick > span');  // 速度固定约每秒 40px，内容长短不影响快慢

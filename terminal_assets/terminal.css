@@ -1,3 +1,8 @@
+/* 字体自托管 (JetBrains Mono 2.305 完整版，SIL OFL 1.1，授权见 fonts/OFL.txt)：
+   Google Fonts 的版本不含方块 / 框线字符 (█ ▀ ▄ │ ━ ╌ ▁…)，iPhone 会退回系统字体，K 线粗细不一致；也不用再连 Google */
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/JetBrainsMono-Medium.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/JetBrainsMono-Bold.woff2") format("woff2"); }
 /* bursa.term — 纯文字终端界面。深色 = 中性灰底 #303030 + 珍珠白 #F8F6F2 字 + 香槟银 #D8D0C1 标题；
    浅色 = 珍珠白底 + 夜幕蓝 #162A46 字；跑马灯两种模式都用卡其色 #C3B091 高亮。跟系统，按 t 可切换 */
 :root {
@@ -46,6 +51,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 1px solid 
 .status { margin: 4px 0 8px; white-space: nowrap; overflow: hidden; position: relative; padding: 4px 0; background: var(--tk-bg); color: var(--tk-fg); border: 1px solid var(--tk-bd); font-weight: 500; }
 /* 跑马灯：卡其色高亮底 + 深色字 (深浅模式一样)，里面的涨跌色换成在卡其色上看得清的深绿 / 深红 */
 :root { --tk-bg: #C3B091; --tk-fg: #1F1F1F; --tk-bd: #A8956F; --tk-up: #164622; --tk-dn: #7A1C26; --tk-mut: #4A4436; }
+.offline { margin: 4px 0 0; padding: 3px 6px; border: 1px dashed var(--warn); color: var(--warn); font-size: 12px; }
+.offline button { font: inherit; color: var(--acc2); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
 .status b { color: inherit; }
 .status .up { color: var(--tk-up); } .status .dn { color: var(--tk-dn); } .status .dim, .status .g { color: var(--tk-mut); }
 .status .acc, .status .warn { color: inherit; font-weight: 700; }
@@ -245,6 +252,10 @@ pre.txt .nm { font: inherit; }
 .intel-l li b { font-weight: 400; }
 .intel-f { font-size: 12px; }
 .intel-note { font-size: 11px; margin-top: 8px; }
+.ipo-r { line-height: 1.5; margin: 6px 0; }
+.ipo-stat { font-size: 12px; line-height: 1.6; margin: 2px 0 6px; }
+pre.ipo-t { font-size: 11px; line-height: 1.6; }
+pre.ipo-t button { font: inherit; padding: 0; border: 0; background: none; cursor: pointer; }
 
 /* 公告筛选：一排，「全部」固定，右边横向滑动 (右侧淡出提示还可以滑) */
 .fbar { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 4px; }
