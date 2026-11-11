@@ -67,11 +67,11 @@ def dump_lists():
             if r.status_code != 200:
                 continue
             # 公告链接 (i3: /web/announcement/detail/<id>；msb: 含 announcement 的 .aspx 链接) 附近的 HTML
-            pat = r"/web/announcement/detail/\\d+" if "i3" in label else r"href=\"[^\"]*[Aa]nnouncement[^\"]*\\d[^\"]*\""
+            pat = r"/web/announcement/detail/\d+" if "i3" in label else r"href=\"[^\"]*[Aa]nnouncement[^\"]*\d[^\"]*\""
             hits = [m.start() for m in re.finditer(pat, body)]
             print(f"    {len(hits)} announcement links")
             for h in hits[:2] + hits[10:11]:
-                print("    ---- " + re.sub(r"\\s+", " ", body[max(0, h - 900):h + 500]))
+                print("    ---- " + re.sub(r"\s+", " ", body[max(0, h - 900):h + 500]))
         except Exception as e:
             print(f"[{label}] ERROR {type(e).__name__}: {e}")
 
