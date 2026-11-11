@@ -150,8 +150,19 @@ def dump_ipo():
         links = sorted(set(re.findall(r'href="(/v2/ipos?/[^"#?]+)"', h)))
         print("ipo links:", links[:20])
         if not tables:
-            k = h.find("IPO")
-            print("---- body sample:", re.sub(r"\s+", " ", h[max(0, k - 500):k + 3000]))
+            from collections import Counter
+            body = re.sub(r"<script.*?</script>|<style.*?</style>", " ", h, flags=re.S | re.I)
+            print("body len (no script/style):", len(body))
+            cls = Counter(c for x in re.findall(r'class="([^"]+)"', body) for c in x.split())
+            print("top classes:", cls.most_common(60))
+            hrefs = Counter(re.sub(r"\d+", "N", x) for x in re.findall(r'href="(/v2/[^"#?]*)', body))
+            print("href patterns:", hrefs.most_common(30))
+            scripts = re.findall(r"<script[^>]*>(.*?)</script>", h, re.S | re.I)
+            for sc in sorted(scripts, key=len, reverse=True)[:3]:
+                print("---- big script len", len(sc), re.sub(r"\s+", " ", sc[:1500]))
+            for kw in ("Listing", "Offer Price", "Closing", "Prospectus", "Oversub", "Market"):
+                k = body.find(kw)
+                print(f"---- around {kw!r} @ {k}:", re.sub(r"\s+", " ", body[max(0, k - 1500):k + 2500]) if k >= 0 else "-")
     # 详情页 (第一条链接) 的结构
     try:
         h = requests.get("https://www.klsescreener.com/v2/ipos", headers=UA, timeout=30).text
