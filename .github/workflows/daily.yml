@@ -107,3 +107,23 @@ jobs:
           git add -A
           git diff --staged --quiet || git commit -m "Update public showcase"
           git push
+
+      # 终端版 (纯文字) 也可以放到独立仓库：报告本身已经在 docs/terminal/ (= 报告网址/terminal/)，这一步只是把同一份复制过去。
+      # 需要设置：Variable TERMINAL_REPO = CJA231/bursa-term、Secret TERMINAL_REPO_TOKEN (对那个仓库有 Contents 写权限；
+      # 没有就用 PUBLIC_REPO_TOKEN，前提是那个 token 也勾了这个仓库)，再到那个仓库 Settings → Pages 选 main / root。没设置就跳过
+      - name: Publish terminal site (own repo)
+        if: ${{ github.event.inputs.market != 'US' }}
+        env:
+          TERMINAL_REPO_TOKEN: ${{ secrets.TERMINAL_REPO_TOKEN || secrets.PUBLIC_REPO_TOKEN }}
+          TERMINAL_REPO: ${{ vars.TERMINAL_REPO }}
+        run: |
+          if [ -z "$TERMINAL_REPO_TOKEN" ] || [ -z "$TERMINAL_REPO" ] || [ ! -f docs/terminal/data.json ]; then echo "没有设置终端版仓库，跳过"; exit 0; fi
+          git clone --depth 1 "https://x-access-token:${TERMINAL_REPO_TOKEN}@github.com/${TERMINAL_REPO}.git" term
+          rsync -a --delete --exclude '.git' --exclude 'README*' --exclude 'LICENSE*' --exclude 'CNAME' docs/terminal/ term/  # 仓库自己的 README / LICENSE 留着
+          touch term/.nojekyll
+          cd term
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet || git commit -m "Update terminal site"
+          git push origin HEAD:main  # 新建的空仓库也能推 (第一次推就建出 main)

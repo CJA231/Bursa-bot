@@ -4154,6 +4154,7 @@ def build_dashboard_html(signal_count, stock_count, updated, downloads_html=""):
       <li><a href="#sec-backtest">策略回测</a></li>
       <li><a href="#sec-ann">公司公告</a></li>
       <li><a href="#sec-table">其余股票</a></li>
+      {'<li><a href="terminal/">终端版 (纯文字) ↗</a></li>' if MARKET_ID == "MY" else ''}
     </ul>
   </section>
   <section class="dash-sec" aria-labelledby="dash-h-tools">
@@ -4296,6 +4297,9 @@ def build_market_html(market, stocks):
         return ""
     return (f'<section class="market" id="sec-market" aria-labelledby="sec-market-h">'
             f'<h2 class="section" id="sec-market-h">今日市场{info_btn("market", "今日市场", chr(10).join(tip))}</h2>{"".join(parts)}</section>')
+
+
+REPORT_FOCUS = {"new": []}  # build_html_report 算好的「今天的新信号」，生成终端版时直接用
 
 
 def news_digest_html(s):
@@ -4546,7 +4550,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 
     cards = []
     chips = []
-    focus_new = []  # 首页「今天关注」的新增信号
+    focus_new = REPORT_FOCUS["new"] = []  # 首页「今天关注」的新增信号 (终端版也用这一份，见 terminal_site)
     take_pct = STRATEGY["exit"].get("take_pct") or 0
     chart_payload = {}
     table_rows = []
@@ -5388,6 +5392,19 @@ def main():
                 print(f"🌐 公开展示站已生成: {out_dir}/")
         except Exception as e:
             print(f"⚠️ 公开展示站生成失败 ({type(e).__name__}: {e})")
+    # 终端版 (纯文字 / Nord，只做马股)：docs/terminal/，跟完整报告同一份数据；出错不影响完整报告
+    if MARKET_ID == "MY":
+        try:
+            import terminal_site
+            now_dt = datetime.now(LOCAL_TZ)
+            out_dir = terminal_site.build(
+                stocks, market, backtest, board, REPORT_FOCUS["new"], market_state(now_dt), now_dt.strftime("%Y-%m-%d %H:%M"), MKT["tz_label"],
+                LEDGER_PATH, WATCHLIST_CHANGES_PATH, os.path.join(DOWNLOADS_DIR, "pool", "pool_index.json"),
+                mcaps={sym: q.get("mcap") for sym, q in QUOTE_META.items()}, report_url=REPORT_URL, out_dir=os.path.join(DOCS_DIR, "terminal"))
+            if out_dir:
+                print(f"🖥️ 终端版已生成: {out_dir}/")
+        except Exception as e:
+            print(f"⚠️ 终端版生成失败 ({type(e).__name__}: {e})")
     report_secs = time.perf_counter() - t_report
 
     hits = sum(1 for s in stocks if s["matched"])
