@@ -508,10 +508,10 @@
   }
   function pageQuote(code) {
     var s = ST[code];
-    if (!s) return pn('QUOTE', esc(code), '<p class="dim">报告里没有这支股票。</p><button type="button" class="back" data-back="1">← [q] 返回</button>');
+    if (!s) return pn(esc(code), '', '<p class="dim">报告里没有这支股票。</p><button type="button" class="back" data-back="1">← [q] 返回</button>');
     var sig = (D.signals || []).filter(function (x) { return x.code === code; })[0], fol = (D.follow || []).filter(function (x) { return x.code === code; })[0];
     var h = '<button type="button" class="back" data-back="1">← [q] 返回</button>';
-    h += pn('QUOTE ' + esc(s.name), '', '<p><b style="font-size:18px">' + px(s.p) + '</b> <span class="' + cls(s.c) + '">' + pct(s.c) + '</span>' + (s.sig ? '　<span class="up">● SIGNAL</span>' : '') + (s.fresh ? '　<span class="acc">今天新进股票池</span>' : '') + '</p>' +
+    h += pn(esc(s.name), esc(code), '<p><b style="font-size:18px">' + px(s.p) + '</b> <span class="' + cls(s.c) + '">' + pct(s.c) + '</span>' + (s.sig ? '　<span class="up">● SIGNAL</span>' : '') + (s.fresh ? '　<span class="acc">今天新进股票池</span>' : '') + '</p>' +
       chartFor(code, { rows: 14, stop: sig ? sig.stop : fol ? fol.stop : null, target: sig ? sig.target : null, label: s.name + ' 日线' }) +
       kv([['成交量', big(s.vol)], ['成交额', 'RM ' + big(s.to)], ['相对量', isNum(s.rv) ? s.rv.toFixed(2) + '×' : '—', s.rv >= 2 ? 'warn' : ''], ['RSI(14)', isNum(s.rsi) ? s.rsi.toFixed(1) : '—'],
         ['EMA20', px(s.ema), isNum(s.ema) ? (s.p > s.ema ? 'up' : 'dn') : ''], ['50日线', px(s.sma), isNum(s.sma) ? (s.p > s.sma ? 'up' : 'dn') : ''], ['SAR', s.sar == null ? '—' : s.sar ? '多头' : '空头', s.sar ? 'up' : 'dn'], ['ATR', isNum(s.atr) ? s.atr.toFixed(1) + '%' : '—'],
