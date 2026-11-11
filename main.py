@@ -4154,7 +4154,7 @@ def build_dashboard_html(signal_count, stock_count, updated, downloads_html=""):
       <li><a href="#sec-backtest">策略回测</a></li>
       <li><a href="#sec-ann">公司公告</a></li>
       <li><a href="#sec-table">其余股票</a></li>
-      {'<li><a href="terminal/">终端版 (纯文字) ↗</a></li>' if MARKET_ID == "MY" else ''}
+      {'<li><a href="terminal/" data-ui="term">切换到终端风格</a></li>' if MARKET_ID == "MY" else ''}
     </ul>
   </section>
   <section class="dash-sec" aria-labelledby="dash-h-tools">
@@ -4299,6 +4299,11 @@ def build_market_html(market, stocks):
             f'<h2 class="section" id="sec-market-h">今日市场{info_btn("market", "今日市场", chr(10).join(tip))}</h2>{"".join(parts)}</section>')
 
 
+# 界面风格 (标准报告 / 终端版) 记在 localStorage["bursa_ui"]：选了终端，打开报告就直接跳到 terminal/ (只有马股有终端版)。
+# 网址加 ?ui=std 一定显示标准版
+UI_REDIRECT_JS = ("<script>try{var u=new URLSearchParams(location.search).get('ui');"
+                  "if(u==='std'||u==='term')localStorage.setItem('bursa_ui',u);"
+                  "if(localStorage.getItem('bursa_ui')==='term')location.replace('terminal/')}catch(e){}</script>\n")
 REPORT_FOCUS = {"new": []}  # build_html_report 算好的「今天的新信号」，生成终端版时直接用
 
 
@@ -4754,7 +4759,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
     return f"""<!DOCTYPE html>
 <html lang="zh">
 <head>
-<meta charset="UTF-8">
+{UI_REDIRECT_JS if MARKET_ID == "MY" else ""}<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">

@@ -120,7 +120,7 @@
   }
 
   // ---------- 数据整理 ----------
-  var ST = {}, LIST = [];
+  var ST = {}, LIST = [], OPEN = {};  // OPEN = 哪些信号卡的 Info 是打开的 (重画后保持)
   function ingest() {
     LIST = D.stocks.map(function (r) {
       return { code: r[0], name: r[1], p: r[2], c: r[3], vol: r[4], to: r[5], rv: r[6], rsi: r[7], sar: r[8], ema: r[9], sma: r[10],
@@ -155,14 +155,15 @@
     if (!sigs.length) return pn('SIGNALS 信号', md(D.date), '<p>今天没有股票符合「SAR 转多」的全部条件。</p><p class="dim">还在跟进的信号看 [2] 持仓；回测结果看 [3]。</p>');
     return sigs.map(function (x) {
       var risk = isNum(x.stop) ? (x.price - x.stop) / x.price * 100 : null;
-      var inner = '<p><b>' + esc(x.name) + '</b> <span class="dim">' + esc(x.code) + '</span>　<b>' + px(x.price) + '</b> <span class="' + cls(x.chg) + '">' + pct(x.chg) + '</span>' + (D.state === 'live' ? '　<span class="warn">盘中</span>' : '') + '</p>' +
+      var inner = '<p><button type="button" class="nm" data-q="' + esc(x.code) + '"><b>' + esc(x.name) + '</b> <span class="dim">' + esc(x.code) + '</span></button>　<b>' + px(x.price) + '</b> <span class="' + cls(x.chg) + '">' + pct(x.chg) + '</span>' + (D.state === 'live' ? '　<span class="warn">盘中</span>' : '') + '</p>' +
         chartFor(x.code, { stop: x.stop, target: x.target, label: x.name + ' 日线' }) +
         kv([['风险 RISK', risk == null ? '—' : pct(-risk, 1), 'dn'], ['目标 TGT', x.tp ? '+' + x.tp + '%' : '—', 'up'], ['R:R', isNum(x.rr) ? x.rr.toFixed(1) : '—'], ['相对量', isNum(x.rv) ? x.rv.toFixed(2) + '×' : '—']], true) +
         (risk != null && x.tp ? '<pre class="txt">RISK ' + (function () { var k = Math.max(1, Math.round(risk / (risk + x.tp) * 24)); return span('cd', '█'.repeat(k)) + span('cu', '█'.repeat(24 - k)); })() + ' REWARD\n' +
           span('dim', 'STOP ' + px(x.stop) + (x.stop_by ? ' (' + esc(x.stop_by) + ')' : '') + '  ·  TGT ' + px(x.target)) + '</pre>' : '') +
-        '<pre class="txt">' + (x.why || []).map(function (w) { return span('up', '[x]') + ' ' + esc(w); }).join('\n') + '</pre>' +
         (x.digest ? '<p class="digest"><b>消息面&gt;</b> ' + esc(x.digest) + '</p>' : '') +
-        '<button type="button" class="more" data-q="' + esc(x.code) + '">→ quote ' + esc(x.name) + '</button>';
+        '<details class="info" data-code="' + esc(x.code) + '"' + (OPEN[x.code] ? ' open' : '') + '><summary>Info <span class="arw" aria-hidden="true">➡️</span></summary>' +
+        '<pre class="txt">' + (x.why || []).map(function (w) { return span('up', '[x]') + ' ' + esc(w); }).join('\n') + '</pre>' +
+        '<button type="button" class="more" data-q="' + esc(x.code) + '">个股详情 →</button></details>';
       return pn('SIGNAL · SAR 转多', md(x.date || D.date), inner);
     }).join('');
   }
@@ -304,8 +305,9 @@
     var counts = { sig: (D.signals || []).length, hold: (D.follow || []).filter(function (x) { return x.status !== 'out'; }).length, pool: LIST.filter(function (s) { return s.pool === 1; }).length, ann: (D.board || []).length };
     document.getElementById('keys').innerHTML = PAGES.map(function (p, i) {
       return '<button type="button" data-page="' + p[0] + '"' + (S.page === p[0] && !S.code ? ' aria-current="page"' : '') + '><span class="k">[' + (i + 1) + ']</span>' + p[1] + (counts[p[0]] ? ' ' + counts[p[0]] : '') + '</button>';
-    }).join('');
+    }).join('') + '<a class="ui-std" href="' + esc(stdUrl()) + '">⚙ 标准风格</a>';
   }
+  function stdUrl() { return (D.report || '../') + '?ui=std'; }
   function render() {
     if (!D) return;
     keys();
@@ -340,6 +342,7 @@
     else if (t.dataset.more) { S.limit += 50; render(); }
     else if (t.dataset.cat) { S.cat = t.dataset.cat; render(); }
   });
+  document.addEventListener('toggle', function (e) { var d = e.target; if (d.classList && d.classList.contains('info')) OPEN[d.dataset.code] = d.open; }, true);
   document.addEventListener('input', function (e) { if (e.target.id === 'grep') { S.q = e.target.value; S.limit = 50; render(); } });
   document.addEventListener('keydown', function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey || !D) return;
@@ -358,7 +361,8 @@
   });
   window.addEventListener('hashchange', function () { fromHash(); render(); });
   var resizeT = null;
-  window.addEventListener('resize', function () { clearTimeout(resizeT); resizeT = setTimeout(render, 150); });
+  var lastW = window.innerWidth;  // 只在宽度变了才重画 (iPhone 滚动时地址栏收起只改高度，不该重画)
+  window.addEventListener('resize', function () { if (window.innerWidth === lastW) return; lastW = window.innerWidth; clearTimeout(resizeT); resizeT = setTimeout(function () { CW = null; render(); }, 150); });
   function toggleTheme() {
     var root = document.documentElement, dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
     root.dataset.theme = dark ? 'light' : 'dark';
@@ -371,7 +375,7 @@
     D = j; ingest(); fromHash();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { CW = null; render(); });  // 网页字体到了再量一次字宽
     document.getElementById('status').innerHTML = status();
-    if (D.report) document.getElementById('full-report').href = D.report;
+    document.getElementById('full-report').href = stdUrl();
     render();
   }).catch(function (err) {
     main.innerHTML = '<p class="dn">读取 data.json 失败 (' + esc(err.message) + ')。报告可能还在生成，稍后再刷新。</p>';

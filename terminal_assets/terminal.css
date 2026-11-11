@@ -101,3 +101,13 @@ pre::-webkit-scrollbar { display: none; }
 .foot p { margin: 0 0 4px; }
 .foot button { color: var(--acc); }
 .back { color: var(--acc); padding: 4px 0; }
+
+/* 信号卡：股名按钮、Info ➡️ 折叠 (点开才看到符合的条件)、页签尾的风格切换 */
+.nm { text-align: left; }
+.info > summary { list-style: none; cursor: pointer; color: var(--acc); padding: 6px 0; display: inline-flex; gap: 6px; align-items: center; min-height: 36px; }
+.info > summary::-webkit-details-marker { display: none; }
+.info .arw { display: inline-block; transition: transform 0.15s; }
+.info[open] .arw { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .info .arw { transition: none; } }
+.info > pre { margin-top: 4px; }
+.keys .ui-std { flex: none; margin-left: auto; padding: 9px 9px; color: var(--acc); white-space: nowrap; text-decoration: none; min-height: 40px; display: inline-flex; align-items: center; }
