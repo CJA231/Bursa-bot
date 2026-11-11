@@ -224,10 +224,11 @@
     return d;
   })();
   function cbSave() { try { localStorage.setItem('bterm_cbt', JSON.stringify({ codes: CB.codes, from: CB.from, to: CB.to, rules: CB.rules, take: CB.take, stop: CB.stop, hold: CB.hold, emab: CB.emab, combo: CB.combo })); } catch (e) {} }
-  var DAILY = {};  // 代码 → 日线 [{d,o,h,l,c,v}]
+  var DAILY = {}, PROF = {};  // 代码 → 日线 [{d,o,h,l,c,v}]；代码 → 公司简介 (stock/<代码>.json 的 profile)
   function loadDaily(code) {
     if (DAILY[code]) return Promise.resolve(DAILY[code]);
     return fetch((D.report || '../') + 'stock/' + code + '.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }).then(function (j) {
+      PROF[code] = (j && j.profile) || null; PROF[code + '_name'] = j && j.long_name;
       var b = j && j.bars && j.bars.d, out = null;
       if (b && b.c && b.c.length) {
         var t = b.t0; out = b.c.map(function (_, i) { if (i) t += b.dt[i - 1] * b.u; return { d: new Date(t * 1000).toISOString().slice(0, 10), o: b.o[i] / 1000, h: b.h[i] / 1000, l: b.l[i] / 1000, c: b.c[i] / 1000, v: b.v[i] || 0 }; });
@@ -490,12 +491,27 @@
   }
   // 个股：字符 K 线 + 数字 + (信号 / 观察列表) + 公告和新闻
   var EXTRA = {};
+  // 公司简介：官网、行业、员工、中文背景 + 业务线 (DeepSeek 按 Yahoo 英文介绍写的)，英文原文收在 ➡️ 里
+  function profilePanel(code) {
+    if (!(code in PROF)) { loadDaily(code).then(function () { if (S.code === code) render(); }); return pn('PROFILE 公司简介', '', '<p class="dim">loading…</p>'); }
+    var p = PROF[code];
+    if (!p) return pn('PROFILE 公司简介', '', '<p class="dim">还没有这家公司的资料 (每天会陆续补上)。</p>');
+    var host = p.website ? p.website.replace(/^https?:\/\//i, '').replace(/\/$/, '') : '';
+    var h = (PROF[code + '_name'] ? '<p><b>' + esc(PROF[code + '_name']) + '</b></p>' : '') +
+      (p.sector || p.industry ? '<p><span class="acc">行业</span> ' + esc([p.sector, p.industry].filter(Boolean).join(' / ')) + '</p>' : '') +
+      (p.website ? '<p><span class="acc">官网</span> <a href="' + esc(p.website) + '" target="_blank" rel="noopener">' + esc(host) + ' ↗</a></p>' : '') +
+      kv([['员工', isNum(p.employees) ? p.employees.toLocaleString('en') + ' 人' : '—'], ['所在地', esc(p.city || '—')]]);
+    if (p.zh) h += '<p>' + esc(p.zh) + '</p>' + (p.lines && p.lines.length ? '<ul class="prof-lines">' + p.lines.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '');
+    else if (p.summary) h += '<p class="dim">中文介绍还在生成，先看英文原文：</p>';
+    if (p.summary) h += '<details class="info"' + (p.zh ? '' : ' open') + '><summary>English <span class="arw" aria-hidden="true">➡️</span></summary><p class="dim prof-en">' + esc(p.summary) + '</p></details>';
+    return pn('PROFILE 公司简介', '来源 Yahoo Finance', h);
+  }
   function pageQuote(code) {
     var s = ST[code];
-    if (!s) return pn('QUOTE', esc(code), '<p class="dim">报告里没有这支股票。</p><button type="button" class="back" data-back="1">← [q] 返回</button>');
+    if (!s) return pn(esc(code), '', '<p class="dim">报告里没有这支股票。</p><button type="button" class="back" data-back="1">← [q] 返回</button>');
     var sig = (D.signals || []).filter(function (x) { return x.code === code; })[0], fol = (D.follow || []).filter(function (x) { return x.code === code; })[0];
     var h = '<button type="button" class="back" data-back="1">← [q] 返回</button>';
-    h += pn('QUOTE ' + esc(s.name), esc(code), '<p><b style="font-size:18px">' + px(s.p) + '</b> <span class="' + cls(s.c) + '">' + pct(s.c) + '</span>' + (s.sig ? '　<span class="up">● SIGNAL</span>' : '') + (s.fresh ? '　<span class="acc">今天新进股票池</span>' : '') + '</p>' +
+    h += pn(esc(s.name), esc(code), '<p><b style="font-size:18px">' + px(s.p) + '</b> <span class="' + cls(s.c) + '">' + pct(s.c) + '</span>' + (s.sig ? '　<span class="up">● SIGNAL</span>' : '') + (s.fresh ? '　<span class="acc">今天新进股票池</span>' : '') + '</p>' +
       chartFor(code, { rows: 14, stop: sig ? sig.stop : fol ? fol.stop : null, target: sig ? sig.target : null, label: s.name + ' 日线' }) +
       kv([['成交量', big(s.vol)], ['成交额', 'RM ' + big(s.to)], ['相对量', isNum(s.rv) ? s.rv.toFixed(2) + '×' : '—', s.rv >= 2 ? 'warn' : ''], ['RSI(14)', isNum(s.rsi) ? s.rsi.toFixed(1) : '—'],
         ['EMA20', px(s.ema), isNum(s.ema) ? (s.p > s.ema ? 'up' : 'dn') : ''], ['50日线', px(s.sma), isNum(s.sma) ? (s.p > s.sma ? 'up' : 'dn') : ''], ['SAR', s.sar == null ? '—' : s.sar ? '多头' : '空头', s.sar ? 'up' : 'dn'], ['ATR', isNum(s.atr) ? s.atr.toFixed(1) + '%' : '—'],
@@ -505,6 +521,7 @@
     else if (fol) h += pn('WATCH 观察列表', STN[fol.status], kv([['信号日', md(fol.sig)], ['进场', px(fol.entry)], ['现价', px(fol.last)], ['收益', pct(fol.ret, 1), cls(fol.ret)],
       ['持有', fol.days + ' 天'], ['STOP', px(fol.stop), 'dn'], ['离 STOP', isNum(fol.dist) ? fol.dist.toFixed(1) + '%' : '—', fol.dist < 3 ? 'dn' : ''], ['状态', fol.status === 'out' ? (EXIT[fol.reason] || fol.reason) : STN[fol.status]]]) +
       (fol.hits && fol.hits.length ? '<p class="warn">趋势检查: ' + esc(fol.hits.join('、')) + '</p>' : ''));
+    h += profilePanel(code);
     var ex = EXTRA[code];
     if (!ex) { EXTRA[code] = 'loading'; fetchExtra(code); }
     var ann = ex && ex.ann || [], news = ex && ex.news || [];
