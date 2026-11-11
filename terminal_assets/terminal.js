@@ -59,6 +59,13 @@
 
   // ---------- 字符 K 线 ----------
   // 每栏一天：实体 █ (半格 ▀▄、十字 ━)，影线 │，EMA20 ·，风险线 / 目标 ╌；右边价格刻度，下面成交量 ▁▂▃ 和日期
+  // 两种画法 (图表右下角或 [k] 切换，存在 bterm_candle)：
+  //   hollow 空心K线 (默认，跟 TradingView 一样)：收盘 > 开盘 = 空心框，收盘 < 开盘 = 实心；颜色看收盘比前一天收盘涨还是跌
+  //   solid  实心K线：收盘 ≥ 开盘 绿、否则红，全部实心
+  // 空心框用 CSS 画 (.hc，四边 + 半格)，不靠字体里的框线字符，手机上粗细跟实心一样
+  var CANDLE = 'hollow';
+  try { if (localStorage.getItem('bterm_candle') === 'solid') CANDLE = 'solid'; } catch (e) {}
+  function toggleCandle() { CANDLE = CANDLE === 'hollow' ? 'solid' : 'hollow'; try { localStorage.setItem('bterm_candle', CANDLE); } catch (e) {} render(); }
   function candleChart(bars, opt) {
     opt = opt || {};
     var rows = opt.rows || 12, axis = 7, W = Math.min(bars.length, (opt.cols || cols()) - axis);
@@ -74,12 +81,26 @@
     function rowOf(v) { return Math.max(0, Math.min(rows - 1, Math.floor((hi - v) / step))); }
     var g = [];
     for (var r = 0; r < rows; r++) { g.push([]); for (var i = 0; i < W; i++) g[r].push([' ', '']); }
+    var hollow = CANDLE === 'hollow';
+    // 颜色：实心 = 收盘对开盘；空心 = 收盘对前一天收盘 (第一根没有前一天，用开盘)
+    var colr = bs.map(function (b, i) { var ref = hollow ? (i + off > 0 ? bars[i + off - 1].c : b.o) : b.o; return b.c >= ref ? 'u' : 'd'; });
     bs.forEach(function (b, i) {
-      var c = b.c >= b.o ? 'cu' : 'cd', bt = Math.max(b.o, b.c), bb = Math.min(b.o, b.c);
+      var c = 'c' + colr[i], bt = Math.max(b.o, b.c), bb = Math.min(b.o, b.c), doji = bt - bb < step * 0.25;
+      // 空心实体按半格算：ht / hb = 实体上 / 下缘离顶部几个半格
+      var hc = hollow && b.c > b.o && !doji, ht = 0, hb = 0;
+      if (hc) { ht = Math.max(0, Math.round((hi - bt) / step * 2)); hb = Math.min(rows * 2, Math.max(ht + 1, Math.round((hi - bb) / step * 2))); }
       for (var r = 0; r < rows; r++) {
         var top = hi - r * step, bot = top - step, ov = Math.min(bt, top) - Math.max(bb, bot);
-        if (bt - bb < step * 0.25 && (bt + bb) / 2 <= top && (bt + bb) / 2 > bot) g[r][i] = ['━', c];
-        else if (ov > 0) g[r][i] = [ov >= step * 0.55 ? '█' : bt >= top - step * 0.5 ? '▀' : '▄', c];
+        if (hc && hb > 2 * r && ht < 2 * r + 2) {
+          var a = Math.max(ht, 2 * r) - 2 * r, z = Math.min(hb, 2 * r + 2) - 2 * r, k = c + ' hc';
+          if (a === 1) k += ' ha' + (b.h > bt + step * 0.25 ? ' wa' : '');
+          if (z === 1) k += ' hz' + (b.l < bb - step * 0.25 ? ' wb' : '');
+          if (ht >= 2 * r) k += ' ht';
+          if (hb <= 2 * r + 2) k += ' hb';
+          g[r][i] = [' ', k];
+        }
+        else if (doji && (bt + bb) / 2 <= top && (bt + bb) / 2 > bot) g[r][i] = ['━', c];
+        else if (!hc && ov > 0) g[r][i] = [ov >= step * 0.55 ? '█' : bt >= top - step * 0.5 ? '▀' : '▄', c];
         else if (b.h > bot && b.l <= top) g[r][i] = ['│', c];
       }
     });
@@ -94,17 +115,22 @@
     var out = [];
     for (r = 0; r < rows; r++) {
       var line = '', cur = null, buf = '';
-      for (i = 0; i < W; i++) { var cell = g[r][i]; if (cell[1] !== cur) { line += span(cur, buf); buf = ''; cur = cell[1]; } buf += cell[0]; }
+      for (i = 0; i < W; i++) {
+        var cell = g[r][i];
+        if (cell[1].indexOf(' hc') > 0) { line += span(cur, buf) + span(cell[1], ' '); buf = ''; cur = null; continue; }  // 空心框每格单独一个 span
+        if (cell[1] !== cur) { line += span(cur, buf); buf = ''; cur = cell[1]; } buf += cell[0];
+      }
       line += span(cur, buf);
       var lab = marks[r] ? span(marks[r][1], ' ' + pad(px(marks[r][0]), 6, true)) : labels[r] != null ? span('dim', ' ' + pad(px(labels[r]), 6, true)) : '';
       out.push(line + lab);
     }
     var mv = Math.max.apply(null, bs.map(function (b) { return b.v || 0; })) || 1, vl = '', vc = null, vb = '';
-    bs.forEach(function (b) { var c = b.c >= b.o ? 'vu' : 'vd', ch = EIGHTHS[Math.max(1, Math.round((b.v || 0) / mv * 8))]; if (c !== vc) { vl += span(vc, vb); vb = ''; vc = c; } vb += ch; });
+    bs.forEach(function (b, i) { var c = 'v' + colr[i], ch = EIGHTHS[Math.max(1, Math.round((b.v || 0) / mv * 8))]; if (c !== vc) { vl += span(vc, vb); vb = ''; vc = c; } vb += ch; });
     vl += span(vc, vb) + span('dim', ' VOL');
     out.push(vl);
     var d0 = md(bs[0].d), d1 = md(bs[bs.length - 1].d);
-    out.push(span('dim', d0 + ' '.repeat(Math.max(1, W - d0.length - d1.length)) + d1));
+    out.push(span('dim', d0 + ' '.repeat(Math.max(1, W - d0.length - d1.length)) + d1) +
+      ' <button type="button" class="cndl" data-candle title="' + T('切换空心 / 实心K线 [k]') + '">' + (hollow ? T('空心') : T('实心')) + '</button>');
     return '<pre class="chart" role="img" aria-label="' + esc(opt.label || T('日线')) + T('，最近 ') + W + T(' 天">') + out.join('\n') + '</pre>';
   }
   // 多行方块图 (资金曲线 / 指数)：每栏一个点，最上面一格用 ▁▂▃ 表示零头
@@ -1073,6 +1099,7 @@
     var cbt = e.target.closest('[data-cb]'); if (cbt) { cbClick(cbt); return; }
     var ai = e.target.closest('[data-ai]'); if (ai) { aiClick(ai); return; }
     var ct = e.target.closest('[data-calg],[data-calw],[data-calm],[data-cald]'); if (ct) { calClick(ct); return; }
+    if (e.target.closest('[data-candle]')) { toggleCandle(); return; }
     var hbx = e.target.closest('[data-hb]'); if (hbx) { S.hb = S.hb === hbx.dataset.hb ? null : hbx.dataset.hb; render(); return; }
     var t = e.target.closest('[data-page],[data-q],[data-back],[data-flt],[data-sort],[data-more],[data-cat],[data-heat]');
     if (!t) return;
@@ -1117,6 +1144,7 @@
     if (e.key === 'q' && S.code) { go(S.page); return; }
     if (e.key === '/') { e.preventDefault(); go('pool'); var g = document.getElementById('grep'); if (g) g.focus(); return; }
     if (e.key === 't') { toggleTheme(); return; }
+    if (e.key === 'k') { toggleCandle(); return; }
     if (S.page === 'pool' && !S.code) {
       var f = FLT.filter(function (x) { return x[0] === e.key; })[0], s = SORT.filter(function (x) { return x[0] === e.key; })[0];
       if (f) { S.flt[f[1]] = !S.flt[f[1]]; S.limit = 50; render(); } else if (s) setSort(s[1]); else if (e.key === 'a') { S.flt = {}; render(); }
@@ -1141,7 +1169,7 @@
         location.replace(location.pathname + location.search.replace(/([?&])lang=(en|zh)&?/, '$1').replace(/[?&]$/, '') + location.hash); }); }
     if (LANG !== 'en') return;
     var set = function (id, txt) { var el = document.getElementById(id); if (el) el.textContent = txt; };
-    set('theme-btn', '[t] Theme'); set('keys-help', 'Keys 1–7 switch pages, / search, q back');
+    set('theme-btn', '[t] Theme'); set('keys-help', 'Keys 1–7 switch pages, / search, k hollow / solid candles, q back');
     set('disclaimer', 'For research only, not investment advice · Data: Yahoo Finance, Bursa (via KLSE Screener), Google News');
     set('full-report', '⚙ Standard view');
     set('legal-link', 'Terms of use & disclaimer');

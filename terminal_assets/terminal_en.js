@@ -409,5 +409,8 @@ window.TERM_EN = {
 "默认": "Default",
 "，最近 ": ", last ",
 "📌 重要事件": "📌 Notable",
-"上市天数": "Listed"
+"上市天数": "Listed",
+"切换空心 / 实心K线 [k]": "Switch hollow / solid candles [k]",
+"空心": "Hollow",
+"实心": "Solid"
 };

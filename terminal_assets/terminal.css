@@ -80,6 +80,18 @@ pre.chart, pre.txt { margin: 0; font-family: var(--font); font-size: 11.5px; lin
 pre.txt { line-height: 1.45; font-size: 12px; }
 pre::-webkit-scrollbar { display: none; }
 .e { color: var(--warn); } .g { color: var(--line); }
+/* 空心K线：一格一个框，四边用背景渐变画 (不靠字体的框线字符)。ha/hz = 实体从半格开始 / 在半格结束，ht/hb = 有上 / 下边，wa/wb = 半格里的影线 */
+/* 位置用长度不用 %：background-position 的 % 是按「剩下的空间」算的，半格会偏 1/4 格 */
+.hc { display: inline-block; width: 1ch; height: 1.05em; vertical-align: top; --H: 1.05em; --a: 0px; --z: var(--H); --t: 0px; --u: 0px; --wa: 0px; --wb: 0px; --s: 1.5px;
+  background:
+    linear-gradient(currentColor, currentColor) left 1px top var(--a) / var(--s) calc(var(--z) - var(--a)) no-repeat,
+    linear-gradient(currentColor, currentColor) right 1px top var(--a) / var(--s) calc(var(--z) - var(--a)) no-repeat,
+    linear-gradient(currentColor, currentColor) left 1px top var(--a) / calc(100% - 2px) var(--t) no-repeat,
+    linear-gradient(currentColor, currentColor) left 1px top calc(var(--z) - var(--u)) / calc(100% - 2px) var(--u) no-repeat,
+    linear-gradient(currentColor, currentColor) center top / 1px var(--wa) no-repeat,
+    linear-gradient(currentColor, currentColor) center bottom / 1px var(--wb) no-repeat; }
+.hc.ha { --a: calc(var(--H) / 2); } .hc.hz { --z: calc(var(--H) / 2); } .hc.ht { --t: var(--s); } .hc.hb { --u: var(--s); } .hc.wa { --wa: calc(var(--H) / 2); } .hc.wb { --wb: calc(var(--H) / 2); }
+.cndl { font: inherit; font-size: 10px; line-height: 1; padding: 0 3px; color: var(--mut); border: 1px solid var(--line); background: none; vertical-align: top; cursor: pointer; }
 .cell { display: inline-block; vertical-align: top; overflow: hidden; white-space: pre; }
 
 /* 键值 (两栏 / 四栏) */
