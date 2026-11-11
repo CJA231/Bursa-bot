@@ -34,7 +34,7 @@ export default {
     if (total > MAX_CHARS * 2) return new Response('too long', { status: 413, headers: c.h });
     const r = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.DEEPSEEK_KEY },
-      body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: SYSTEM }, ...msgs] }),
+      body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: SYSTEM + (body.lang === 'en' ? '\nThe user is reading the English version: answer in English (keep the same rules).' : '') }, ...msgs] }),
     });
     return new Response(r.body, { status: r.status, headers: { ...c.h, 'Content-Type': r.headers.get('Content-Type') || 'text/event-stream', 'Cache-Control': 'no-cache' } });
   },

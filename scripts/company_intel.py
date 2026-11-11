@@ -64,6 +64,7 @@ SYSTEM_PROMPT = """你是马来西亚上市公司的资料整理助手，帮投�
   type 只能是: agm (常年股东大会), egm (特别股东大会), ex_date (除权 / 除息日), entitlement (登记 / 截止过户日), payment (派发 / 付款日),
   results (业绩公布日), listing (新股、凭单 warrants、红股、附加股、私募新股的上市日), corporate (其他企业活动日期，例如认购截止、合并生效)。
   只能用内文里写明的日期，看不到就不要写；不要推算。
+另外每个文字字段都要附英文版 (意思一样、简洁的商业英文)：recent_en、notable_en、risks_en、earnings_en，tags 里加 "why_en"，events 里加 "what_en"。
 规则：只根据给你的资料，不要编造事件或数字；不要用「利好」「利空」「正面」「负面」「看好」之类的评价字眼；不要评价股价会涨会跌；不要给任何买入、卖出、持有、目标价之类的建议。
 公司名、产品名、机构名保留英文。只输出 JSON。"""
 
@@ -153,7 +154,7 @@ def ann_body(ann_id):
 
 
 def input_hash(c):
-    key = json.dumps([[a["id"] for a in c["ann"]], [n["title"] for n in c["news"]], (c["facts"] or {}).get("period"), 2], ensure_ascii=False)  # 2 = 加了日历之后的版本
+    key = json.dumps([[a["id"] for a in c["ann"]], [n["title"] for n in c["news"]], (c["facts"] or {}).get("period"), 3], ensure_ascii=False)  # 3 = 加了日历 + 英文版之后的版本
     return hashlib.sha1(key.encode()).hexdigest()[:16]
 
 
@@ -175,7 +176,7 @@ def ask(c):
         lines.append("财报 (程序算好的，单位 " + facts["currency"] + "): " + json.dumps(
             {k: v for k, v in facts.items() if k != "currency" and v is not None}, ensure_ascii=False))
     r = m.client.chat.completions.create(
-        model="deepseek-chat", temperature=0.1, max_tokens=1400, response_format={"type": "json_object"},
+        model="deepseek-chat", temperature=0.1, max_tokens=2400, response_format={"type": "json_object"},
         messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": "\n".join(lines)}])
     return json.loads(r.choices[0].message.content or "{}")
 
@@ -191,6 +192,15 @@ def clean(text):
     return t.strip().rstrip("，,；;")
 
 
+EN_JUDGE_RE = re.compile(r"\b(buy|sell|hold|accumulate|bullish|bearish|stop[- ]?loss|take[- ]?profit|target price|upside|positive news|negative news)\b", re.I)
+
+
+def clean_en(text):
+    """英文版：去掉含买卖建议 / 好坏评价字眼的句子"""
+    parts = re.split(r"(?<=[.;!?])\s+", str(text or "").strip())
+    return " ".join(p for p in parts if p and not EN_JUDGE_RE.search(p)).strip()
+
+
 def build_record(c, out, now, h):
     tags = {}
     for t in out.get("tags") or []:
@@ -199,9 +209,9 @@ def build_record(c, out, now, h):
         except (TypeError, ValueError):
             continue
         if 0 <= i < len(c["ann"]) and t.get("t") in TAGS:
-            tags[i] = (t["t"], clean(t.get("why")).rstrip("。")[:30])
+            tags[i] = (t["t"], clean(t.get("why")).rstrip("。")[:30], clean_en(t.get("why_en")).rstrip(".")[:40])
     ann = [{"id": a["id"], "date": a["date"], "title": a["title"], "link": a["link"], "cat": a["cat"],
-            "tag": tags.get(i, ("routine", ""))[0], "why": tags.get(i, ("", ""))[1]} for i, a in enumerate(c["ann"])]
+            "tag": tags.get(i, ("routine", "", ""))[0], "why": tags.get(i, ("", "", ""))[1], "why_en": tags.get(i, ("", "", ""))[2]} for i, a in enumerate(c["ann"])]
     events = []
     lo, hi = (now - timedelta(days=60)).strftime("%Y-%m-%d"), (now + timedelta(days=400)).strftime("%Y-%m-%d")
     for ev in out.get("events") or []:
@@ -212,7 +222,8 @@ def build_record(c, out, now, h):
             continue
         if 0 <= i < len(c["ann"]) and ev.get("type") in EVENT_TYPES and lo <= d <= hi:
             a = c["ann"][i]
-            events.append({"date": d, "type": ev["type"], "what": clean(ev.get("what")).rstrip("。")[:40], "ann": a["id"], "link": a["link"], "src": "ai"})
+            events.append({"date": d, "type": ev["type"], "what": clean(ev.get("what")).rstrip("。")[:40], "what_en": clean_en(ev.get("what_en")).rstrip(".")[:60],
+                           "ann": a["id"], "link": a["link"], "src": "ai"})
     due = results_due(c["facts"], now)
     if due:
         events.append(due)
@@ -221,7 +232,11 @@ def build_record(c, out, now, h):
             "hash": h, "recent": clean(out.get("recent")),
             "notable": [x for x in (clean(s) for s in (out.get("notable") or out.get("catalysts") or [])[:3]) if x],
             "risks": [x for x in (clean(s) for s in (out.get("risks") or [])[:3]) if x],
-            "earnings": clean(out.get("earnings")) if c["facts"] else "", "facts": c["facts"], "ann": ann, "news": c["news"], "events": events}
+            "earnings": clean(out.get("earnings")) if c["facts"] else "", "facts": c["facts"], "ann": ann, "news": c["news"], "events": events,
+            "recent_en": clean_en(out.get("recent_en")),
+            "notable_en": [x for x in (clean_en(s) for s in (out.get("notable_en") or [])[:3]) if x],
+            "risks_en": [x for x in (clean_en(s) for s in (out.get("risks_en") or [])[:3]) if x],
+            "earnings_en": clean_en(out.get("earnings_en")) if c["facts"] else ""}
 
 
 def results_due(facts, now):
@@ -236,7 +251,9 @@ def results_due(facts, now):
     if d < now.strftime("%Y-%m-%d"):
         return None
     q_end_m = (int(facts["period"][5:7]) + 2) % 12 + 1
-    return {"date": d, "type": "results_due", "what": f"下一季 ({q_end_m} 月底结束) 季报最迟公布日 · 交易所规定", "src": "rule"}
+    mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][q_end_m - 1]
+    return {"date": d, "type": "results_due", "what": f"下一季 ({q_end_m} 月底结束) 季报最迟公布日 · 交易所规定",
+            "what_en": f"Deadline for the quarter ending {mon} (Bursa rule)", "src": "rule"}
 
 
 def read_json(path, default):

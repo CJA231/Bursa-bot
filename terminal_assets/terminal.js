@@ -2,14 +2,27 @@
 // 页面: 1 信号 (+ 信号跟进) · 2 市场 · 3 观察列表 (自己的，分文件夹) · 4 回测 · 5 股票池 · 6 公告 · 7 日历 (企业活动)；#q-<代码> = 个股。图全部用字符画 (█ │ ▁▂▃ …)。
 (function () {
   'use strict';
+  // 语言：中文 (默认) / English，跟标准报告共用设置 (localStorage bursa_lang，网址 ?lang=en / ?lang=zh)。切换会重新载入页面
+  var LANG = (function () {
+    var q = /[?&]lang=(en|zh)/.exec(location.search); try { if (q) localStorage.setItem('bursa_lang', q[1]); return (q && q[1]) || localStorage.getItem('bursa_lang') || 'zh'; } catch (e) { return (q && q[1]) || 'zh'; }
+  })();
+  var EN = window.TERM_EN || {};
+  // 资料里自带的中文 (信号条件、趋势检查、风险线依据、指数名称)：English 模式下按规则换成英文
+  var TR = [[/SAR 下穿 当前价格/g, 'SAR crosses below price'], [/当前价格/g, 'Price'], [/价格/g, 'Price'], [/成交量/g, 'Volume'], [/ 或 /g, ' or '],
+    [/最近回调低点 \(收盘价\)/g, 'latest pullback low (close)'], [/最近回调低点/g, 'latest pullback low'], [/收盘价/g, 'close'], [/第 (\d+) 天/g, 'day $1'],
+    [/支撑/g, 'support'], [/放量抛售/g, 'heavy-volume drop'], [/趋势转坏/g, 'trend weak'], [/、/g, ', '], [/富时综合指数/g, 'FBM'], [/（/g, ' ('], [/）/g, ')']];
+  function tr(x) { if (LANG !== 'en' || x == null) return x; x = String(x); TR.forEach(function (r) { x = x.replace(r[0], r[1]); }); return x; }
+  function L(o, k) { return !o ? null : LANG === 'en' ? (o[k + '_en'] != null ? o[k + '_en'] : null) : o[k]; }  // AI 生成内容：English 模式用 *_en，没有就不显示
+  function T(zh) { return LANG === 'en' && Object.prototype.hasOwnProperty.call(EN, zh) ? EN[zh] : zh; }
+  document.documentElement.lang = LANG === 'en' ? 'en' : 'zh-CN'; document.documentElement.dataset.lang = LANG;
   var V = (document.currentScript && /v=([^&]+)/.exec(document.currentScript.src) || [])[1] || Date.now();
   var D = null, BARS = null, barsLoading = false;
   var main = document.getElementById('main');
-  var PAGES = [['sig', '信号'], ['mkt', '市场'], ['watch', '观察列表'], ['bt', '回测'], ['pool', '股票池'], ['ann', '公告'], ['cal', '日历']];
+  var PAGES = [['sig', T('信号')], ['mkt', T('市场')], ['watch', T('观察列表')], ['bt', T('回测')], ['pool', T('股票池')], ['ann', T('公告')], ['cal', T('日历')]];
   var S = { page: 'sig', code: null, flt: {}, sort: 'to', dir: -1, q: '', limit: 50, cat: 'all' };
-  var CAT = { results: '财报', dividend: '派息', corporate: '企业', holding: '持股', buyback: '回购', uma: '异常', people: '人事', meeting: '会议', other: '其他' };
-  var EXIT = { take: '涨幅达标', emab: 'EMA 破位', combo: '趋势转坏', time: '期满', swing: '跌破低点', stop: '跌破风险线', sar: 'SAR 转空', red: '回调红K', open: '跟踪中', high: '前高', res: '阻力' };
-  var STN = { hold: 'ACTIVE 跟踪中', near: 'NEAR 近风险线', out: 'ENDED 已结束' };
+  var CAT = { results: T('财报'), dividend: T('派息'), corporate: T('企业'), holding: T('持股'), buyback: T('回购'), uma: T('异常'), people: T('人事'), meeting: T('会议'), other: T('其他') };
+  var EXIT = { take: T('涨幅达标'), emab: T('EMA 破位'), combo: T('趋势转坏'), time: T('期满'), swing: T('跌破低点'), stop: T('跌破风险线'), sar: T('SAR 转空'), red: T('回调红K'), open: T('跟踪中'), high: T('前高'), res: T('阻力') };
+  var STN = { hold: T('ACTIVE 跟踪中'), near: T('NEAR 近风险线'), out: T('ENDED 已结束') };
 
   // ---------- 小工具 ----------
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -49,7 +62,7 @@
   function candleChart(bars, opt) {
     opt = opt || {};
     var rows = opt.rows || 12, axis = 7, W = Math.min(bars.length, (opt.cols || cols()) - axis);
-    if (W < 5) return '<p class="dim">日线不够</p>';
+    if (W < 5) return T('<p class="dim">日线不够</p>');
     var k = 2 / 21, e = null, ema = bars.map(function (b) { e = e == null ? b.c : b.c * k + e * (1 - k); return e; });
     var bs = bars.slice(-W), em = ema.slice(-W), off = bars.length - W;
     var lo = Infinity, hi = -Infinity;
@@ -92,13 +105,13 @@
     out.push(vl);
     var d0 = md(bs[0].d), d1 = md(bs[bs.length - 1].d);
     out.push(span('dim', d0 + ' '.repeat(Math.max(1, W - d0.length - d1.length)) + d1));
-    return '<pre class="chart" role="img" aria-label="' + esc(opt.label || '日线') + '，最近 ' + W + ' 天">' + out.join('\n') + '</pre>';
+    return '<pre class="chart" role="img" aria-label="' + esc(opt.label || T('日线')) + T('，最近 ') + W + T(' 天">') + out.join('\n') + '</pre>';
   }
   // 多行方块图 (资金曲线 / 指数)：每栏一个点，最上面一格用 ▁▂▃ 表示零头
   function blockChart(vals, opt) {
     opt = opt || {};
     var rows = opt.rows || 7, axis = 9, W = (opt.cols || cols()) - axis;
-    vals = vals.filter(isNum); if (vals.length < 2) return '<p class="dim">数据不够</p>';
+    vals = vals.filter(isNum); if (vals.length < 2) return T('<p class="dim">数据不够</p>');
     var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
     if (opt.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
     var r = hi - lo || 1, colv = [], coli = [];
@@ -116,7 +129,7 @@
       out.push(line + (lab ? span('dim', ' ' + pad(lab, axis - 1, true)) : ''));
     }
     if (opt.dates) out.push(span('dim', opt.dates[0] + ' '.repeat(Math.max(1, W - opt.dates[0].length - opt.dates[1].length)) + opt.dates[1]));
-    return '<pre class="chart" role="img" aria-label="' + esc(opt.label || '走势') + '">' + out.join('\n') + '</pre>';
+    return '<pre class="chart" role="img" aria-label="' + esc(opt.label || T('走势')) + '">' + out.join('\n') + '</pre>';
   }
 
   // ---------- 数据整理 ----------
@@ -153,7 +166,7 @@
   }
   function chartFor(code, opt) {
     var b = bars(code);
-    if (!b) return '<pre class="chart dim">' + (BARS ? '没有日线' : 'loading bars…') + '</pre>';
+    if (!b) return '<pre class="chart dim">' + (BARS ? T('没有日线') : 'loading bars…') + '</pre>';
     return candleChart(b, opt);
   }
   function sparkFor(code, n) { var b = bars(code); return b ? spark(b.slice(-30).map(function (x) { return x.c; }), n) : ''; }
@@ -167,34 +180,34 @@
 
   function pageSig() {
     var sigs = D.signals || [];
-    if (!sigs.length) return pn('SIGNALS 信号', md(D.date), '<p>今天没有股票符合「SAR 转多」的全部条件。</p><p class="dim">之前的信号还在跟进的列在下面；回测结果看 [4]。</p>') + pageTrack();
+    if (!sigs.length) return pn(T('SIGNALS 信号'), md(D.date), T('<p>今天没有股票符合「SAR 转多」的全部条件。</p><p class="dim">之前的信号还在跟进的列在下面；回测结果看 [4]。</p>')) + pageTrack();
     return sigs.map(function (x) {
       var risk = isNum(x.stop) ? (x.price - x.stop) / x.price * 100 : null;
-      var inner = '<p><button type="button" class="nm" data-q="' + esc(x.code) + '"><b>' + esc(x.name) + '</b> <span class="dim">' + esc(x.code) + '</span></button>　<b>' + px(x.price) + '</b> <span class="' + cls(x.chg) + '">' + pct(x.chg) + '</span>' + (D.state === 'live' ? '　<span class="warn">盘中</span>' : '') + '</p>' +
-        chartFor(x.code, { stop: x.stop, target: x.target, label: x.name + ' 日线' }) +
-        kv([['距风险线', risk == null ? '—' : pct(-risk, 1), 'dn'], ['参考涨幅', x.tp ? '+' + x.tp + '%' : '—', 'up'], ['R:R', isNum(x.rr) ? x.rr.toFixed(1) : '—'], ['相对量', isNum(x.rv) ? x.rv.toFixed(2) + '×' : '—']], true) +
-        (risk != null && x.tp ? '<pre class="txt">下行 ' + (function () { var k = Math.max(1, Math.round(risk / (risk + x.tp) * 24)); return span('cd', '█'.repeat(k)) + span('cu', '█'.repeat(24 - k)); })() + ' 上行\n' +
-          span('dim', '风险线 ' + px(x.stop) + (x.stop_by ? ' (' + esc(x.stop_by) + ')' : '') + '  ·  参考位 ' + px(x.target)) + '</pre>' : '') +
-        (x.digest ? '<p class="digest"><b>消息面&gt;</b> ' + esc(x.digest) + '</p>' : '') +
+      var inner = '<p><button type="button" class="nm" data-q="' + esc(x.code) + '"><b>' + esc(x.name) + '</b> <span class="dim">' + esc(x.code) + '</span></button>　<b>' + px(x.price) + '</b> <span class="' + cls(x.chg) + '">' + pct(x.chg) + '</span>' + (D.state === 'live' ? T('　<span class="warn">盘中</span>') : '') + '</p>' +
+        chartFor(x.code, { stop: x.stop, target: x.target, label: x.name + T(' 日线') }) +
+        kv([[T('距风险线'), risk == null ? '—' : pct(-risk, 1), 'dn'], [T('参考涨幅'), x.tp ? '+' + x.tp + '%' : '—', 'up'], ['R:R', isNum(x.rr) ? x.rr.toFixed(1) : '—'], [T('相对量'), isNum(x.rv) ? x.rv.toFixed(2) + '×' : '—']], true) +
+        (risk != null && x.tp ? T('<pre class="txt">下行 ') + (function () { var k = Math.max(1, Math.round(risk / (risk + x.tp) * 24)); return span('cd', '█'.repeat(k)) + span('cu', '█'.repeat(24 - k)); })() + T(' 上行\n') +
+          span('dim', T('风险线 ') + px(x.stop) + (x.stop_by ? ' (' + esc(tr(x.stop_by)) + ')' : '') + T('  ·  参考位 ') + px(x.target)) + '</pre>' : '') +
+        (L(x, 'digest') ? T('<p class="digest"><b>消息面&gt;</b> ') + esc(L(x, 'digest')) + '</p>' : '') +
         '<details class="info" data-code="' + esc(x.code) + '"' + (OPEN[x.code] ? ' open' : '') + '><summary>Info <span class="arw" aria-hidden="true">➡️</span></summary>' +
-        '<pre class="txt">' + (x.why || []).map(function (w) { return span('up', '[x]') + ' ' + esc(w); }).join('\n') + '</pre>' +
-        '<button type="button" class="more" data-q="' + esc(x.code) + '">个股详情 →</button></details>';
-      return pn('SIGNAL · SAR 转多', md(x.date || D.date), inner);
+        '<pre class="txt">' + (x.why || []).map(function (w) { return span('up', '[x]') + ' ' + esc(tr(w)); }).join('\n') + '</pre>' +
+        '<button type="button" class="more" data-q="' + esc(x.code) + T('">个股详情 →</button></details>');
+      return pn(T('SIGNAL · SAR 转多'), md(x.date || D.date), inner);
     }).join('') + pageTrack();
   }
   // 信号跟进 (系统自动)：最近的信号之后走势怎样 (接近风险线 / 跟踪中 / 刚结束)
   function pageTrack() {
     var f = D.follow || [];
-    if (!f.length) return pn('TRACKING 信号跟进', '', '<p class="dim">最近没有还在跟进的信号。</p>');
-    var groups = [['near', '接近风险线'], ['hold', '跟踪中'], ['out', '刚结束跟踪']];
+    if (!f.length) return pn(T('TRACKING 信号跟进'), '', T('<p class="dim">最近没有还在跟进的信号。</p>'));
+    var groups = [['near', T('接近风险线')], ['hold', T('跟踪中')], ['out', T('刚结束跟踪')]];
     return groups.map(function (gp) {
       var items = f.filter(function (x) { return x.status === gp[0]; });
       if (!items.length) return '';
-      return pn('TRACKING · ' + STN[gp[0]], gp[1] + ' · ' + items.length, '<div class="rows">' + items.map(function (x) {
+      return pn('TRACKING · ' + STN[gp[0]], LANG === 'en' ? items.length + ' stocks' : gp[1] + ' · ' + items.length, '<div class="rows">' + items.map(function (x) {
         var s = ST[x.code] || { code: x.code, name: x.name };
         var bar = isNum(x.dist) ? span(x.dist < 3 ? 'dn' : 'acc', meter(Math.max(0, x.dist) / 15, 10)) + ' ' + x.dist.toFixed(1) + '%' : '';
-        var sub = md(x.sig) + ' 信号 · ' + x.days + ' 天 · 信号价 ' + px(x.entry) + (x.status === 'out' ? ' · ' + (EXIT[x.reason] || x.reason) : ' · 风险线 ' + px(x.stop)) +
-          (x.hits && x.hits.length ? ' · <span class="warn">' + esc(x.hits.join('、')) + '</span>' : '');
+        var sub = md(x.sig) + T(' 信号 · ') + x.days + T(' 天 · 信号价 ') + px(x.entry) + (x.status === 'out' ? ' · ' + (EXIT[x.reason] || x.reason) : T(' · 风险线 ') + px(x.stop)) +
+          (x.hits && x.hits.length ? ' · <span class="warn">' + esc(tr(x.hits.join('、'))) + '</span>' : '');
         return stockBtn(s, '<span class="' + cls(x.ret) + ' b">' + pct(x.ret, 1) + '</span><br><span class="sub">' + (x.status === 'out' ? px(x.last) : bar) + '</span>', sub);
       }).join('') + '</div>');
     }).join('');
@@ -205,7 +218,7 @@
   var W = (function () {
     var j = null;
     try { j = JSON.parse(localStorage.getItem('bterm_watch') || 'null'); } catch (e) {}
-    if (!j || !Array.isArray(j.folders) || !j.folders.length) j = { folders: [{ id: 'f1', name: '默认', codes: [] }], cur: 'f1' };
+    if (!j || !Array.isArray(j.folders) || !j.folders.length) j = { folders: [{ id: 'f1', name: T('默认'), codes: [] }], cur: 'f1' };
     return j;
   })();
   function saveW() { try { localStorage.setItem('bterm_watch', JSON.stringify(W)); } catch (e) {} }
@@ -218,16 +231,16 @@
     var s = ST[c], right, sub;
     if (s) {
       right = '<span class="' + cls(s.c) + ' b">' + pct(s.c) + '</span><br><span class="sub">' + px(s.p) + '</span>';
-      sub = '<span class="' + cls(s.c) + '">' + sparkFor(c, 12) + '</span> RSI ' + (isNum(s.rsi) ? s.rsi.toFixed(0) : '—') + ' · 量比 ' + (isNum(s.rv) ? s.rv.toFixed(1) : '—') +
-        (s.sig ? ' · <span class="up">今天信号</span>' : '') + (s.pool ? '' : ' · <span class="dim">不在股票池</span>');
+      sub = '<span class="' + cls(s.c) + '">' + sparkFor(c, 12) + '</span> RSI ' + (isNum(s.rsi) ? s.rsi.toFixed(0) : '—') + T(' · 量比 ') + (isNum(s.rv) ? s.rv.toFixed(1) : '—') +
+        (s.sig ? T(' · <span class="up">今天信号</span>') : '') + (s.pool ? '' : T(' · <span class="dim">不在股票池</span>'));
     } else {
       var b = DAILY[c];
       if (b === undefined) loadDaily(c).then(function () { if (S.page === 'watch' && !S.code) render(); });
       var last = b && b.length ? b[b.length - 1] : null, prev = b && b.length > 1 ? b[b.length - 2] : null, ch = last && prev ? (last.c / prev.c - 1) * 100 : null;
       right = last ? '<span class="' + cls(ch) + ' b">' + pct(ch) + '</span><br><span class="sub">' + px(last.c) + '</span>' : '<span class="dim">—</span>';
-      sub = '<span class="dim">今天不在报告里 (成交量不够)' + (last ? ' · ' + md(last.d) + ' 收盘' : '') + '</span>';
+      sub = T('<span class="dim">今天不在报告里 (成交量不够)') + (last ? ' · ' + md(last.d) + T(' 收盘') : '') + '</span>';
     }
-    return '<div class="wrow">' + stockBtn(s || { code: c, name: nameOf(c) }, right, sub) + '<button type="button" class="wdel" data-wd="' + c + '" aria-label="从这个文件夹移除 ' + esc(nameOf(c)) + '">×</button></div>';
+    return '<div class="wrow">' + stockBtn(s || { code: c, name: nameOf(c) }, right, sub) + '<button type="button" class="wdel" data-wd="' + c + T('" aria-label="从这个文件夹移除 ') + esc(nameOf(c)) + '">×</button></div>';
   }
   // 文件夹操作都在页面里完成 (不用 prompt / confirm 弹窗：有些手机浏览器会把弹窗挡掉，按了没反应)
   // WF.mode: new 新文件夹 / ren 改名 / del 确认删除 / exp 导出 / imp 导入；WF.code = 在个股页新建时顺便把这支加进去；WF.msg = 提示
@@ -235,21 +248,21 @@
   function wForm(where) {
     var m = WF.mode, f = curFolder(), h = '';
     if (!m || (where === 'quote') !== !!WF.code) return WF.msg && where !== 'quote' ? '<p class="warn">' + esc(WF.msg) + '</p>' : '';
-    if (m === 'new' || m === 'ren') h = '<div class="wform"><input id="wf-name" type="text" maxlength="20" autocomplete="off" placeholder="' + (m === 'new' ? '新文件夹名称，例如 科技、银行' : '新的名称') + '" value="' + (m === 'ren' ? esc(f.name) : '') + '">' +
-      '<button type="button" class="ok" data-wa="ok">' + (m === 'new' ? '建立' : '改名') + '</button><button type="button" data-wa="cancel">取消</button></div>';
-    else if (m === 'del') h = '<div class="wform"><span class="dn">删除「' + esc(f.name) + '」和里面 ' + f.codes.length + ' 支？</span><button type="button" class="ok bad" data-wa="ok">确认删除</button><button type="button" data-wa="cancel">取消</button></div>';
-    else if (m === 'exp') h = '<div class="wform col"><span class="dim">长按全选、复制，存在备忘录里；以后在「导入」贴回来就能恢复。</span><textarea id="wf-text" rows="4" readonly>' + esc(JSON.stringify({ folders: W.folders })) + '</textarea><button type="button" data-wa="cancel">完成</button></div>';
-    else if (m === 'imp') h = '<div class="wform col"><span class="dim">贴上之前「导出备份」的整段文字，会取代现在的观察列表。</span><textarea id="wf-text" rows="4" placeholder="{&quot;folders&quot;: …}"></textarea><div><button type="button" class="ok" data-wa="ok">导入</button><button type="button" data-wa="cancel">取消</button></div></div>';
+    if (m === 'new' || m === 'ren') h = '<div class="wform"><input id="wf-name" type="text" maxlength="20" autocomplete="off" placeholder="' + (m === 'new' ? T('新文件夹名称，例如 科技、银行') : T('新的名称')) + '" value="' + (m === 'ren' ? esc(f.name) : '') + '">' +
+      '<button type="button" class="ok" data-wa="ok">' + (m === 'new' ? T('建立') : T('改名')) + T('</button><button type="button" data-wa="cancel">取消</button></div>');
+    else if (m === 'del') h = T('<div class="wform"><span class="dn">删除「') + esc(T(f.name)) + T('」和里面 ') + f.codes.length + T(' 支？</span><button type="button" class="ok bad" data-wa="ok">确认删除</button><button type="button" data-wa="cancel">取消</button></div>');
+    else if (m === 'exp') h = T('<div class="wform col"><span class="dim">长按全选、复制，存在备忘录里；以后在「导入」贴回来就能恢复。</span><textarea id="wf-text" rows="4" readonly>') + esc(JSON.stringify({ folders: W.folders })) + T('</textarea><button type="button" data-wa="cancel">完成</button></div>');
+    else if (m === 'imp') h = T('<div class="wform col"><span class="dim">贴上之前「导出备份」的整段文字，会取代现在的观察列表。</span><textarea id="wf-text" rows="4" placeholder="{&quot;folders&quot;: …}"></textarea><div><button type="button" class="ok" data-wa="ok">导入</button><button type="button" data-wa="cancel">取消</button></div></div>');
     return h + (WF.msg ? '<p class="warn">' + esc(WF.msg) + '</p>' : '');
   }
   function wSubmit() {
     var m = WF.mode, f = curFolder(), el = document.getElementById(m === 'imp' ? 'wf-text' : 'wf-name'), v = el ? el.value.trim() : '';
     WF.msg = '';
     if (m === 'new') {
-      if (!v) { WF.msg = '请先输入文件夹名称'; return; }
+      if (!v) { WF.msg = T('请先输入文件夹名称'); return; }
       var id = 'f' + Date.now().toString(36); W.folders.push({ id: id, name: v.slice(0, 20), codes: WF.code ? [WF.code] : [] });
       if (!WF.code) W.cur = id;
-    } else if (m === 'ren') { if (!v) { WF.msg = '名称不能是空的'; return; } f.name = v.slice(0, 20); }
+    } else if (m === 'ren') { if (!v) { WF.msg = T('名称不能是空的'); return; } f.name = v.slice(0, 20); }
     else if (m === 'del') { if (W.folders.length > 1) { W.folders = W.folders.filter(function (x) { return x.id !== f.id; }); W.cur = W.folders[0].id; } }
     else if (m === 'imp') {
       try {
@@ -257,30 +270,30 @@
           return { id: 'f' + i + Date.now().toString(36), name: String(x.name).slice(0, 20), codes: x.codes.map(String).filter(function (c) { return /^[0-9A-Z]{4,6}$/.test(c); }) }; });
         if (!fs.length) throw new Error('empty');
         W.folders = fs; W.cur = fs[0].id;
-      } catch (e) { WF.msg = '看不懂这段文字，请贴上完整的导出内容。'; return; }
+      } catch (e) { WF.msg = T('看不懂这段文字，请贴上完整的导出内容。'); return; }
     }
     WF.mode = null; WF.code = null; saveW();
   }
   function pageWatch() {
     var f = curFolder();
-    var tabs = '<div class="opts wtabs" role="group" aria-label="文件夹">' + W.folders.map(function (x) {
-      return '<button type="button" data-wf="' + x.id + '" aria-pressed="' + (x.id === f.id) + '">📁 ' + esc(x.name) + ' ' + x.codes.length + '</button>'; }).join('') +
-      '<button type="button" data-wa="new">＋ 新文件夹</button></div>';
-    var add = '<div class="grep"><label for="w-q">add&gt;</label><input id="w-q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="名称或代码，加进「' + esc(f.name) + '」" value="' + esc(WQ) + '"></div>' +
+    var tabs = T('<div class="opts wtabs" role="group" aria-label="文件夹">') + W.folders.map(function (x) {
+      return '<button type="button" data-wf="' + x.id + '" aria-pressed="' + (x.id === f.id) + '">📁 ' + esc(T(x.name)) + ' ' + x.codes.length + '</button>'; }).join('') +
+      T('<button type="button" data-wa="new">＋ 新文件夹</button></div>');
+    var add = T('<div class="grep"><label for="w-q">add&gt;</label><input id="w-q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="名称或代码，加进「') + esc(f.name) + '」" value="' + esc(WQ) + '"></div>' +
       '<div class="opts" id="w-sug">' + wSug() + '</div>';
-    var rows = f.codes.length ? '<div class="rows">' + f.codes.map(watchRow).join('') + '</div>' : '<p class="dim">这个文件夹还是空的。上面搜索加入，或在个股页点「☆ 文件夹名」。</p>';
-    var tools = '<div class="opts"><button type="button" data-wa="ren">改名</button>' + (W.folders.length > 1 ? '<button type="button" data-wa="del">删除文件夹</button>' : '') +
-      '<button type="button" data-wa="exp">导出备份</button><button type="button" data-wa="imp">导入</button></div>' +
-      '<p class="dim">观察列表只存在这台设备的浏览器里，换手机或清除网站资料会不见，记得「导出备份」。</p>';
+    var rows = f.codes.length ? '<div class="rows">' + f.codes.map(watchRow).join('') + '</div>' : T('<p class="dim">这个文件夹还是空的。上面搜索加入，或在个股页点「☆ 文件夹名」。</p>');
+    var tools = T('<div class="opts"><button type="button" data-wa="ren">改名</button>') + (W.folders.length > 1 ? T('<button type="button" data-wa="del">删除文件夹</button>') : '') +
+      T('<button type="button" data-wa="exp">导出备份</button><button type="button" data-wa="imp">导入</button></div>') +
+      T('<p class="dim">观察列表只存在这台设备的浏览器里，换手机或清除网站资料会不见，记得「导出备份」。</p>');
     var topForm = WF.mode === 'new' && !WF.code ? wForm('page') : '', botForm = WF.mode && WF.mode !== 'new' ? wForm('page') : '';
-    return pn('WATCHLIST 观察列表', W.folders.length + ' 个文件夹 · ' + watchCount() + ' 支', tabs + topForm) + pn('📁 ' + esc(f.name), f.codes.length + ' 支', add + rows + tools + botForm);
+    return pn(T('WATCHLIST 观察列表'), W.folders.length + T(' 个文件夹 · ') + watchCount() + T(' 支'), tabs + topForm) + pn('📁 ' + esc(f.name), f.codes.length + T(' 支'), add + rows + tools + botForm);
   }
   // 个股页上的「收藏到观察列表」：每个文件夹一个开关，可以直接在这里开新文件夹并放进去
   function watchToggles(code) {
-    return '<div class="opts wq" role="group" aria-label="收藏到观察列表"><span class="dim">收藏到</span>' + W.folders.map(function (f) {
+    return T('<div class="opts wq" role="group" aria-label="收藏到观察列表"><span class="dim">收藏到</span>') + W.folders.map(function (f) {
       var on = f.codes.indexOf(code) >= 0;
-      return '<button type="button" data-wt="' + f.id + '" data-v="' + code + '" aria-pressed="' + on + '">' + (on ? '★ ' : '☆ ') + esc(f.name) + '</button>'; }).join('') +
-      '<button type="button" data-wa="new" data-v="' + code + '">＋ 新文件夹</button></div>' + (WF.mode === 'new' && WF.code === code ? wForm('quote') : '');
+      return '<button type="button" data-wt="' + f.id + '" data-v="' + code + '" aria-pressed="' + on + '">' + (on ? '★ ' : '☆ ') + esc(T(f.name)) + '</button>'; }).join('') +
+      '<button type="button" data-wa="new" data-v="' + code + T('">＋ 新文件夹</button></div>') + (WF.mode === 'new' && WF.code === code ? wForm('quote') : '');
   }
   function watchClick(t) {
     var d = t.dataset, f = curFolder();
@@ -295,26 +308,26 @@
     if (WF.mode === 'new' || WF.mode === 'ren' || WF.mode === 'imp') { var el = document.getElementById(WF.mode === 'imp' ? 'wf-text' : 'wf-name'); if (el) el.focus(); }
   }
   function pageBtLedger() {
-    var b = D.bt; if (!b) return pn('BACKTEST 回测', '', '<p class="dim">这次没有回测数据。</p>');
+    var b = D.bt; if (!b) return pn(T('BACKTEST 回测'), '', T('<p class="dim">这次没有回测数据。</p>'));
     var a = b.acct, pos = b.position || 20000, R = function (v) { return isNum(v) ? v / 100 * pos : null; };
-    var h = pn('SIMULATION 模拟统计', esc(b.name || '') + ' · 同时最多 ' + (b.slots || '∞') + ' 笔 · 每笔模拟 RM' + (pos / 1000) + 'K',
-      kv([['胜率', isNum(a.win_rate) ? a.win_rate.toFixed(1) + '%' : '—'], ['期望值', pct(a.avg), cls(a.avg)], ['合计', rm(R(a.total)), cls(a.total)], ['最大回撤', rm(R(a.mdd)), 'dn']], true) +
-      kv([['已结束 / 进行中', a.closed + ' / ' + a.open], ['进行中浮动', pct(a.open_avg), cls(a.open_avg)], ['盈亏比', isNum(a.payoff) ? a.payoff.toFixed(2) : '—'], ['获利因子', isNum(a.pf) ? a.pf.toFixed(2) : '—'],
-        ['平均天数', isNum(a.avg_days) ? a.avg_days + ' 天' : '—'], ['最多连亏', a.max_streak != null ? a.max_streak + ' 笔' : '—'], ['最好', pct(a.best, 1), 'up'], ['最差', pct(a.worst, 1), 'dn']]));
-    if (b.curve && b.curve.length > 1) h += pn('EQUITY 模拟累计', '已结束的累计 · ' + md(b.curve[0][0]) + ' ~ ' + md(b.curve[b.curve.length - 1][0]),
-      blockChart([0].concat(b.curve.map(function (c) { return R(c[1]); })), { rows: 8, zero: true, label: '账户资金曲线', fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
+    var h = pn(T('SIMULATION 模拟统计'), esc(T(b.name || '')) + T(' · 同时最多 ') + (b.slots || '∞') + T(' 笔 · 每笔模拟 RM') + (pos / 1000) + 'K',
+      kv([[T('胜率'), isNum(a.win_rate) ? a.win_rate.toFixed(1) + '%' : '—'], [T('期望值'), pct(a.avg), cls(a.avg)], [T('合计'), rm(R(a.total)), cls(a.total)], [T('最大回撤'), rm(R(a.mdd)), 'dn']], true) +
+      kv([[T('已结束 / 进行中'), a.closed + ' / ' + a.open], [T('进行中浮动'), pct(a.open_avg), cls(a.open_avg)], [T('盈亏比'), isNum(a.payoff) ? a.payoff.toFixed(2) : '—'], [T('获利因子'), isNum(a.pf) ? a.pf.toFixed(2) : '—'],
+        [T('平均天数'), isNum(a.avg_days) ? a.avg_days + T(' 天') : '—'], [T('最多连亏'), a.max_streak != null ? a.max_streak + T(' 笔') : '—'], [T('最好'), pct(a.best, 1), 'up'], [T('最差'), pct(a.worst, 1), 'dn']]));
+    if (b.curve && b.curve.length > 1) h += pn(T('EQUITY 模拟累计'), T('已结束的累计 · ') + md(b.curve[0][0]) + ' ~ ' + md(b.curve[b.curve.length - 1][0]),
+      blockChart([0].concat(b.curve.map(function (c) { return R(c[1]); })), { rows: 8, zero: true, label: T('账户资金曲线'), fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
         color: function (v) { return v >= 0 ? 'acc' : 'dn'; }, dates: [md(b.curve[0][0]), md(b.curve[b.curve.length - 1][0])] }));
     var ex = a.exits || {}, tot = Object.keys(ex).reduce(function (s, k) { return s + ex[k]; }, 0) || 1;
-    h += pn('ENDS 结束原因', a.closed + ' 笔', '<pre class="txt">' + Object.keys(ex).sort(function (x, y) { return ex[y] - ex[x]; }).map(function (k) {
-      return cell(esc(EXIT[k] || k), 10) + span('acc', meter(ex[k] / tot, 20)) + ' ' + pad(ex[k], 3, true); }).join('\n') + '</pre>');
+    h += pn(T('ENDS 结束原因'), a.closed + T(' 笔'), '<pre class="txt">' + Object.keys(ex).sort(function (x, y) { return ex[y] - ex[x]; }).map(function (k) {
+      return cell(esc(EXIT[k] || k), LANG === 'en' ? 12 : 10) + span('acc', meter(ex[k] / tot, 20)) + ' ' + pad(ex[k], 3, true); }).join('\n') + '</pre>');
     var p = b.paper || {}, ps = p.stats || {};
-    if (p.trades && p.trades.length) h += pn('PAPER 模拟账户', md(p.start) + ' 起 · 胜率 ' + (isNum(ps.win_rate) ? ps.win_rate.toFixed(0) + '%' : '—'),
+    if (p.trades && p.trades.length) h += pn(T('PAPER 模拟账户'), md(p.start) + T(' 起 · 胜率 ') + (isNum(ps.win_rate) ? ps.win_rate.toFixed(0) + '%' : '—'),
       '<div class="rows">' + p.trades.slice().sort(function (x, y) { return (y.entry_date || '') < (x.entry_date || '') ? -1 : 1; }).map(function (t) {
         var v = t.reason === 'open' ? t.ret : t.net, s = ST[t.code] || { code: t.code, name: t.name };
         return stockBtn(s, '<span class="' + cls(v) + ' b">' + pct(v, 1) + '</span><br><span class="sub">' + rm(R(v)) + '</span>',
-          md(t.entry_date) + ' ' + px(t.entry) + ' → ' + px(t.exit) + ' · ' + (EXIT[t.reason] || t.reason) + ' · ' + t.days + ' 天');
+          md(t.entry_date) + ' ' + px(t.entry) + ' → ' + px(t.exit) + ' · ' + (EXIT[t.reason] || t.reason) + ' · ' + t.days + T(' 天'));
       }).join('') + '</div>');
-    if (b.monthly && b.monthly.length) h += pn('EVERY 每个信号都计入', (b.every && b.every.closed) + ' 笔 · 胜 ' + (b.every && isNum(b.every.win_rate) ? b.every.win_rate.toFixed(0) + '%' : '—') + ' · 均 ' + pct(b.every && b.every.avg),
+    if (b.monthly && b.monthly.length) h += pn(T('EVERY 每个信号都计入'), (b.every && b.every.closed) + T(' 笔 · 胜 ') + (b.every && isNum(b.every.win_rate) ? b.every.win_rate.toFixed(0) + '%' : '—') + T(' · 均 ') + pct(b.every && b.every.avg),
       '<pre class="txt">' + span('dim', 'MONTH    N    WIN               AVG') + '\n' + b.monthly.map(function (m) {
         return m[0] + ' ' + pad(m[1], 4, true) + '  ' + span(m[2] >= 50 ? 'up' : m[2] < 30 ? 'dn' : 'acc', meter(m[2] / 100, 10)) + ' ' + pad(m[2].toFixed(0) + '%', 4, true) + ' ' + span(cls(m[3]), pad(pct(m[3], 1), 7, true)); }).join('\n') + '</pre>');
     return h;
@@ -323,10 +336,10 @@
   // ---------- 自定义回测：自己选进场条件 / 股票 (一支或几支合计) / 时间，在浏览器里用个股 2 年日线 (../stock/<代码>.json) 重算 ----------
   // 结束条件是后台规则的简化版：涨幅达标、跌破 EMA20 连 2 天、趋势转坏 (Supertrend / SAR 转空 / 放量抛售 / EMA5<EMA20 坏 2 项)、跌幅 %、最长天数
   var CB_RULES = [
-    ['sar', 'SAR 转多 (当天翻多)', 1], ['ema20', '价格 > EMA20', 1], ['ema5x20', 'EMA5 > EMA20', 1], ['vol1m', '成交量 ≥ 1M', 1],
-    ['st', 'Supertrend(3,1.4) < 价格', 1], ['ema50', '价格 > EMA50 或 EMA5 > EMA50', 1],
-    ['cross', 'EMA5 上穿 EMA20 (当天)', 0], ['bbup', '收盘 > 布林上轨 (20,2)', 0], ['rv2', '相对量 ≥ 2', 0],
-    ['rsi50', 'RSI(14) > 50', 0], ['rsi30', 'RSI(14) < 30', 0], ['hi20', '收盘创 20 日新高', 0]];
+    ['sar', T('SAR 转多 (当天翻多)'), 1], ['ema20', T('价格 > EMA20'), 1], ['ema5x20', 'EMA5 > EMA20', 1], ['vol1m', T('成交量 ≥ 1M'), 1],
+    ['st', T('Supertrend(3,1.4) < 价格'), 1], ['ema50', T('价格 > EMA50 或 EMA5 > EMA50'), 1],
+    ['cross', T('EMA5 上穿 EMA20 (当天)'), 0], ['bbup', T('收盘 > 布林上轨 (20,2)'), 0], ['rv2', T('相对量 ≥ 2'), 0],
+    ['rsi50', 'RSI(14) > 50', 0], ['rsi30', 'RSI(14) < 30', 0], ['hi20', T('收盘创 20 日新高'), 0]];
   var CB = (function () {
     var d = { codes: [], from: '', to: '', rules: {}, take: 15, stop: 0, hold: 90, emab: 1, combo: 1, q: '' };
     CB_RULES.forEach(function (r) { d.rules[r[0]] = !!r[2]; });
@@ -447,8 +460,8 @@
       total: sum(cl), mdd: mdd, payoff: aw != null && al ? aw / -al : null, days: cl.length ? cl.reduce(function (s, t) { return s + t.days; }, 0) / cl.length : null };
   }
   function cbRun() {
-    if (!CB.codes.length) { CB.err = '先加至少一支股票'; render(); return; }
-    if (!CB_RULES.some(function (r) { return CB.rules[r[0]]; })) { CB.err = '至少勾一个信号条件'; render(); return; }
+    if (!CB.codes.length) { CB.err = T('先加至少一支股票'); render(); return; }
+    if (!CB_RULES.some(function (r) { return CB.rules[r[0]]; })) { CB.err = T('至少勾一个信号条件'); render(); return; }
     CB.busy = true; CB.err = ''; CB.res = null; render();
     var cost = (D.bt && isNum(D.bt.cost)) ? D.bt.cost : 0.5;
     Promise.all(CB.codes.map(loadDaily)).then(function (all) {
@@ -478,40 +491,40 @@
   function pageCustom() {
     var pos = (D.bt && D.bt.position) || 20000, R = function (v) { return isNum(v) ? v / 100 * pos : null; };
     var name = function (c) { return ST[c] ? ST[c].name : NAMES[c] || c; };
-    var stocks = '<div class="grep"><label for="cb-q">add&gt;</label><input id="cb-q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="名称或代码，例如 SUNVIEW" value="' + esc(CB.q) + '"></div>' +
+    var stocks = T('<div class="grep"><label for="cb-q">add&gt;</label><input id="cb-q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="名称或代码，例如 SUNVIEW" value="') + esc(CB.q) + '"></div>' +
       '<div class="opts" id="cb-sug">' + cbSug() + '</div>' +
-      '<div class="opts"><button type="button" data-cb="add-sig">+ 今天信号股</button><button type="button" data-cb="add-watch">+ 观察列表「' + esc(curFolder().name) + '」</button><button type="button" data-cb="add-top">+ 成交额前 10</button>' + (CB.codes.length ? '<button type="button" data-cb="clear">清空</button>' : '') + '</div>' +
-      (CB.codes.length ? '<div class="opts">' + CB.codes.map(function (c) { return '<button type="button" class="chip" data-cb="del" data-v="' + c + '" aria-label="移除 ' + esc(name(c)) + '">' + esc(name(c)) + ' ×</button>'; }).join('') + '</div>' : '<p class="dim">还没选股票。一支 = 单支回测，几支 = 合计 + 分别列出 (最多 30 支)。</p>');
-    var time = '<div class="opts">' + [['m3', '3 个月'], ['m6', '6 个月'], ['y1', '1 年'], ['all', '全部 (约 2 年)']].map(function (p) { return '<button type="button" data-cb="preset" data-v="' + p[0] + '">' + p[1] + '</button>'; }).join('') + '</div>' +
-      '<div class="cb-dates"><label>从 <input type="date" id="cb-from" value="' + esc(CB.from) + '"></label><label>到 <input type="date" id="cb-to" value="' + esc(CB.to) + '"></label></div>';
-    var rules = '<div class="cb-rules">' + CB_RULES.map(function (r) { return '<label><input type="checkbox" data-cbr="' + r[0] + '"' + (CB.rules[r[0]] ? ' checked' : '') + '> ' + esc(r[1]) + '</label>'; }).join('') + '</div><p class="dim">勾的条件全部同时成立的那天，以收盘价开始计算。默认勾的 6 个 = 后台策略。</p>';
-    var exit = '<div class="cb-exit">' + [['take', '涨幅达到 % 结束', CB.take], ['stop', '跌幅达到 % 结束 (0 = 不用)', CB.stop], ['hold', '最长天数', CB.hold]].map(function (x) {
+      T('<div class="opts"><button type="button" data-cb="add-sig">+ 今天信号股</button><button type="button" data-cb="add-watch">+ 观察列表「') + esc(curFolder().name) + T('」</button><button type="button" data-cb="add-top">+ 成交额前 10</button>') + (CB.codes.length ? T('<button type="button" data-cb="clear">清空</button>') : '') + '</div>' +
+      (CB.codes.length ? '<div class="opts">' + CB.codes.map(function (c) { return '<button type="button" class="chip" data-cb="del" data-v="' + c + T('" aria-label="移除 ') + esc(name(c)) + '">' + esc(name(c)) + ' ×</button>'; }).join('') + '</div>' : T('<p class="dim">还没选股票。一支 = 单支回测，几支 = 合计 + 分别列出 (最多 30 支)。</p>'));
+    var time = '<div class="opts">' + [['m3', T('3 个月')], ['m6', T('6 个月')], ['y1', T('1 年')], ['all', T('全部 (约 2 年)')]].map(function (p) { return '<button type="button" data-cb="preset" data-v="' + p[0] + '">' + p[1] + '</button>'; }).join('') + '</div>' +
+      T('<div class="cb-dates"><label>从 <input type="date" id="cb-from" value="') + esc(CB.from) + T('"></label><label>到 <input type="date" id="cb-to" value="') + esc(CB.to) + '"></label></div>';
+    var rules = '<div class="cb-rules">' + CB_RULES.map(function (r) { return '<label><input type="checkbox" data-cbr="' + r[0] + '"' + (CB.rules[r[0]] ? ' checked' : '') + '> ' + esc(r[1]) + '</label>'; }).join('') + T('</div><p class="dim">勾的条件全部同时成立的那天，以收盘价开始计算。默认勾的 6 个 = 后台策略。</p>');
+    var exit = '<div class="cb-exit">' + [['take', T('涨幅达到 % 结束'), CB.take], ['stop', T('跌幅达到 % 结束 (0 = 不用)'), CB.stop], ['hold', T('最长天数'), CB.hold]].map(function (x) {
       return '<label>' + x[1] + ' <input type="number" inputmode="decimal" min="0" step="1" data-cbn="' + x[0] + '" value="' + x[2] + '"></label>'; }).join('') +
-      '<label><input type="checkbox" data-cbx="emab"' + (CB.emab ? ' checked' : '') + '> 收盘跌破 EMA20 连 2 天</label><label><input type="checkbox" data-cbx="combo"' + (CB.combo ? ' checked' : '') + '> 趋势转坏 (Supertrend / SAR / 放量抛售 / EMA5&lt;EMA20 坏 2 项)</label></div>';
-    var h = pn('STOCKS 回测股票', CB.codes.length + ' 支', stocks) + pn('PERIOD 回测时间', (CB.from || '最早') + ' ~ ' + (CB.to || '最新'), time) +
-      pn('CONDITIONS 信号条件', CB_RULES.filter(function (r) { return CB.rules[r[0]]; }).length + ' 项', rules) + pn('END 结束条件', '', exit) +
-      '<button type="button" class="run" data-cb="run"' + (CB.busy ? ' disabled' : '') + '>' + (CB.busy ? '计算中…' : '▶ 运行回测') + '</button>' + (CB.err ? '<p class="dn">' + esc(CB.err) + '</p>' : '');
+      '<label><input type="checkbox" data-cbx="emab"' + (CB.emab ? ' checked' : '') + T('> 收盘跌破 EMA20 连 2 天</label><label><input type="checkbox" data-cbx="combo"') + (CB.combo ? ' checked' : '') + T('> 趋势转坏 (Supertrend / SAR / 放量抛售 / EMA5&lt;EMA20 坏 2 项)</label></div>');
+    var h = pn(T('STOCKS 回测股票'), CB.codes.length + T(' 支'), stocks) + pn(T('PERIOD 回测时间'), (CB.from || T('最早')) + ' ~ ' + (CB.to || T('最新')), time) +
+      pn(T('CONDITIONS 信号条件'), CB_RULES.filter(function (r) { return CB.rules[r[0]]; }).length + T(' 项'), rules) + pn(T('END 结束条件'), '', exit) +
+      '<button type="button" class="run" data-cb="run"' + (CB.busy ? ' disabled' : '') + '>' + (CB.busy ? T('计算中…') : T('▶ 运行回测')) + '</button>' + (CB.err ? '<p class="dn">' + esc(CB.err) + '</p>' : '');
     var r = CB.res;
     if (r) {
       var a = r.all;
-      h += pn('RESULT 结果', CB.codes.length + ' 支合计 · ' + md(CB.from || r.first) + ' ~ ' + md(CB.to || r.last) + ' · 成本 ' + r.cost + '%',
-        kv([['笔数', a.n + (a.open ? ' (进行中 ' + a.open + ')' : '')], ['胜率', isNum(a.win) ? a.win.toFixed(1) + '%' : '—'], ['期望值', pct(a.avg), cls(a.avg)], ['合计', rm(R(a.total)), cls(a.total)]], true) +
-        kv([['最大回撤', rm(R(a.mdd)), 'dn'], ['盈亏比', isNum(a.payoff) ? a.payoff.toFixed(2) : '—'], ['平均天数', isNum(a.days) ? a.days.toFixed(1) + ' 天' : '—'], ['每笔', 'RM' + (pos / 1000) + 'K']]) +
+      h += pn(T('RESULT 结果'), CB.codes.length + T(' 支合计 · ') + md(CB.from || r.first) + ' ~ ' + md(CB.to || r.last) + T(' · 成本 ') + r.cost + '%',
+        kv([[T('笔数'), a.n + (a.open ? T(' (进行中 ') + a.open + ')' : '')], [T('胜率'), isNum(a.win) ? a.win.toFixed(1) + '%' : '—'], [T('期望值'), pct(a.avg), cls(a.avg)], [T('合计'), rm(R(a.total)), cls(a.total)]], true) +
+        kv([[T('最大回撤'), rm(R(a.mdd)), 'dn'], [T('盈亏比'), isNum(a.payoff) ? a.payoff.toFixed(2) : '—'], [T('平均天数'), isNum(a.days) ? a.days.toFixed(1) + T(' 天') : '—'], [T('每笔'), 'RM' + (pos / 1000) + 'K']]) +
         (a.closed > 1 ? (function () { var cl = r.trades.filter(function (t) { return t.reason !== 'open'; }).sort(function (x, y) { return x.exit_date < y.exit_date ? -1 : 1; }), cum = 0;
-          return blockChart([0].concat(cl.map(function (t) { cum += t.net; return R(cum); })), { rows: 6, zero: true, label: '自定义回测资金曲线', fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
+          return blockChart([0].concat(cl.map(function (t) { cum += t.net; return R(cum); })), { rows: 6, zero: true, label: T('自定义回测资金曲线'), fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
             color: function (v) { return v >= 0 ? 'acc' : 'dn'; }, dates: [md(cl[0].exit_date), md(cl[cl.length - 1].exit_date)] }); })() : '') +
-        (a.n ? '' : '<p class="dim">这段时间没有任何一天同时满足勾的条件。少勾几个条件或拉长时间试试。</p>'));
-      if (r.per.length > 1) h += pn('BY STOCK 分别', '', '<pre class="txt">' + span('dim', cell('股票', 10) + cell('笔', 4, 1) + cell('胜率', 7, 1) + cell('合计 RM', 10, 1) + cell('同期涨跌', 10, 1)) + '\n' +
-        r.per.map(function (p) { return '<button type="button" class="nm" data-q="' + p.code + '">' + cell(esc(name(p.code)), 10) + '</button>' + (p.none ? span('dim', '没有日线') : pad(p.st.n, 4, true) + pad(isNum(p.st.win) ? p.st.win.toFixed(0) + '%' : '—', 7, true) + span(cls(p.st.total), pad(rm(R(p.st.total)).replace('RM ', ''), 10, true)) + span(cls(p.bh), pad(pct(p.bh, 1), 10, true))); }).join('\n') + '</pre>');
-      if (r.trades.length) h += pn('TRADES 逐笔', r.trades.length + ' 笔 (新到旧)', '<div class="rows">' + r.trades.slice(0, 60).map(function (t) {
+        (a.n ? '' : T('<p class="dim">这段时间没有任何一天同时满足勾的条件。少勾几个条件或拉长时间试试。</p>')));
+      if (r.per.length > 1) h += pn(T('BY STOCK 分别'), '', '<pre class="txt">' + span('dim', cell(T('股票'), 10) + cell(T('笔'), 4, 1) + cell(T('胜率'), 7, 1) + cell(T('合计 RM'), 10, 1) + cell(T('同期涨跌'), 10, 1)) + '\n' +
+        r.per.map(function (p) { return '<button type="button" class="nm" data-q="' + p.code + '">' + cell(esc(name(p.code)), 10) + '</button>' + (p.none ? span('dim', T('没有日线')) : pad(p.st.n, 4, true) + pad(isNum(p.st.win) ? p.st.win.toFixed(0) + '%' : '—', 7, true) + span(cls(p.st.total), pad(rm(R(p.st.total)).replace('RM ', ''), 10, true)) + span(cls(p.bh), pad(pct(p.bh, 1), 10, true))); }).join('\n') + '</pre>');
+      if (r.trades.length) h += pn(T('TRADES 逐笔'), r.trades.length + T(' 笔 (新到旧)'), '<div class="rows">' + r.trades.slice(0, 60).map(function (t) {
         var s = ST[t.code] || { code: t.code, name: name(t.code) };
-        return stockBtn(s, '<span class="' + cls(t.net) + ' b">' + pct(t.net, 1) + '</span><br><span class="sub">' + rm(R(t.net)) + '</span>', md(t.sig) + ' ' + px(t.entry) + ' → ' + px(t.exit) + ' · ' + (EXIT[t.reason] || t.reason) + ' · ' + t.days + ' 天');
+        return stockBtn(s, '<span class="' + cls(t.net) + ' b">' + pct(t.net, 1) + '</span><br><span class="sub">' + rm(R(t.net)) + '</span>', md(t.sig) + ' ' + px(t.entry) + ' → ' + px(t.exit) + ' · ' + (EXIT[t.reason] || t.reason) + ' · ' + t.days + T(' 天'));
       }).join('') + '</div>');
     }
     return h;
   }
   function pageBt() {
-    var seg = '<div class="opts seg" role="group" aria-label="回测"><button type="button" data-cb="mode" data-v="ledger" aria-pressed="' + (S.bt !== 'custom') + '">后台策略</button><button type="button" data-cb="mode" data-v="custom" aria-pressed="' + (S.bt === 'custom') + '">自定义回测</button></div>';
+    var seg = T('<div class="opts seg" role="group" aria-label="回测"><button type="button" data-cb="mode" data-v="ledger" aria-pressed="') + (S.bt !== 'custom') + T('">后台策略</button><button type="button" data-cb="mode" data-v="custom" aria-pressed="') + (S.bt === 'custom') + T('">自定义回测</button></div>');
     return seg + (S.bt === 'custom' ? pageCustom() : pageBtLedger());
   }
   function cbClick(t) {
@@ -529,9 +542,9 @@
   try { S.bt = localStorage.getItem('bterm_btmode') === 'custom' ? 'custom' : 'ledger'; } catch (e) { S.bt = 'ledger'; }
   var FLT = [['s', 'sar', 'SAR▲', function (s) { return s.sar === 1; }], ['e', 'ema', '>EMA20', function (s) { return isNum(s.ema) && s.p > s.ema; }],
     ['v', 'rv', 'RVOL≥2', function (s) { return s.rv >= 2; }], ['l', 'lo', 'RSI<30', function (s) { return isNum(s.rsi) && s.rsi < 30; }],
-    ['h', 'hi', 'RSI>70', function (s) { return s.rsi > 70; }], ['n', 'new', '今天新进', function (s) { return s.fresh === 1; }]];
-  var SORT = [['o', 'to', '成交额', function (s) { return s.to || 0; }], ['c', 'chg', '涨跌', function (s) { return s.c || 0; }],
-    ['r', 'rv', '相对量', function (s) { return s.rv || 0; }], ['i', 'rsi', 'RSI', function (s) { return s.rsi || 0; }]];
+    ['h', 'hi', 'RSI>70', function (s) { return s.rsi > 70; }], ['n', 'new', T('今天新进'), function (s) { return s.fresh === 1; }]];
+  var SORT = [['o', 'to', T('成交额'), function (s) { return s.to || 0; }], ['c', 'chg', T('涨跌'), function (s) { return s.c || 0; }],
+    ['r', 'rv', T('相对量'), function (s) { return s.rv || 0; }], ['i', 'rsi', 'RSI', function (s) { return s.rsi || 0; }]];
   function poolList() {
     var q = S.q.trim().toUpperCase(), fs = FLT.filter(function (f) { return S.flt[f[1]]; }), so = SORT.filter(function (x) { return x[1] === S.sort; })[0];
     return LIST.filter(function (s) { return (q ? (s.name.toUpperCase().indexOf(q) >= 0 || s.code.indexOf(q) >= 0) : s.pool === 1) && fs.every(function (f) { return f[3](s); }); })
@@ -540,9 +553,9 @@
   // 同一个排序再按一次 = 换方向 (高到低 ⇄ 低到高)
   function setSort(k) { if (S.sort === k) S.dir = -S.dir; else { S.sort = k; S.dir = -1; } render(); }
   function poolHead() {
-    return '<div class="grep"><label for="grep">grep&gt;</label><input id="grep" type="search" inputmode="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="名称或代码 (搜全部)" value="' + esc(S.q) + '"></div>' +
-      '<div class="opts" role="group" aria-label="筛选">' + FLT.map(function (f) { return '<button type="button" data-flt="' + f[1] + '" aria-pressed="' + !!S.flt[f[1]] + '">[' + f[0] + ']' + f[2] + '</button>'; }).join('') + '</div>' +
-      '<div class="opts" role="group" aria-label="排序">' + SORT.map(function (x) { return '<button type="button" data-sort="' + x[1] + '" aria-pressed="' + (S.sort === x[1]) + '" title="再按一次换方向">[' + x[0] + ']' + x[2] + (S.sort === x[1] ? (S.dir < 0 ? '↓' : '↑') : '') + '</button>'; }).join('') + '</div>';
+    return T('<div class="grep"><label for="grep">grep&gt;</label><input id="grep" type="search" inputmode="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="名称或代码 (搜全部)" value="') + esc(S.q) + '"></div>' +
+      T('<div class="opts" role="group" aria-label="筛选">') + FLT.map(function (f) { return '<button type="button" data-flt="' + f[1] + '" aria-pressed="' + !!S.flt[f[1]] + '">[' + f[0] + ']' + f[2] + '</button>'; }).join('') + '</div>' +
+      T('<div class="opts" role="group" aria-label="排序">') + SORT.map(function (x) { return '<button type="button" data-sort="' + x[1] + '" aria-pressed="' + (S.sort === x[1]) + T('" title="再按一次换方向">[') + x[0] + ']' + x[2] + (S.sort === x[1] ? (S.dir < 0 ? '↓' : '↑') : '') + '</button>'; }).join('') + '</div>';
   }
   function poolBody() {
     var l = poolList(), n = LIST.filter(function (s) { return s.pool === 1; }).length;
@@ -551,20 +564,20 @@
       l.slice(0, S.limit).map(function (s) {
         return '<button type="button" class="row" data-q="' + esc(s.code) + '" style="display:block"><span class="grid-pool"><span class="dim">' + esc(s.code) + '</span><span class="' + (s.pool ? '' : 'dim') + '">' + esc(s.name) + '</span><span class="num">' + px(s.p) + '</span>' +
           '<span class="num ' + cls(s.c) + '">' + pct(s.c, 1).replace('%', '') + '</span><span class="num' + (s.rv >= 2 ? ' warn' : '') + '">' + (isNum(s.rv) ? s.rv.toFixed(1) : '—') + '</span>' +
-          '<span class="num">' + (isNum(s.rsi) ? s.rsi.toFixed(0) : '—') + '</span><span class="' + cls(s.c) + '">' + sparkFor(s.code, 12) + (s.fresh ? ' <span class="acc">新</span>' : '') + (s.sig ? ' <span class="up">SIG</span>' : '') + '</span></span></button>';
-      }).join('') + (l.length > S.limit ? '<button type="button" class="more" data-more="1">→ 再显示 ' + Math.min(50, l.length - S.limit) + ' 支 (共 ' + l.length + ')</button>' : '');
-    return { rows: rows, n: (S.q ? '搜索 ' + l.length + ' 支' : l.length + ' / ' + n + ' 支 · 成交量 ≥ 1M') };
+          '<span class="num">' + (isNum(s.rsi) ? s.rsi.toFixed(0) : '—') + '</span><span class="' + cls(s.c) + '">' + sparkFor(s.code, 12) + (s.fresh ? T(' <span class="acc">新</span>') : '') + (s.sig ? ' <span class="up">SIG</span>' : '') + '</span></span></button>';
+      }).join('') + (l.length > S.limit ? T('<button type="button" class="more" data-more="1">→ 再显示 ') + Math.min(50, l.length - S.limit) + T(' 支 (共 ') + l.length + ')</button>' : '');
+    return { rows: rows, n: (S.q ? T('搜索 ') + l.length + T(' 支') : l.length + ' / ' + n + T(' 支 · 成交量 ≥ 1M')) };
   }
   function pagePool() {
     var b = poolBody();
-    return pn('POOL 股票池', '<span id="pool-n">' + b.n + '</span>', poolHead() + '<div class="rows pool-tbl" id="pool-body">' + b.rows + '</div>');
+    return pn(T('POOL 股票池'), '<span id="pool-n">' + b.n + '</span>', poolHead() + '<div class="rows pool-tbl" id="pool-body">' + b.rows + '</div>');
   }
   // 热力图：成交额最大的股票，一格一支，颜色深浅 = 涨跌幅 (░▒▓█ 四级)，点格子开个股
   // 热力图：成交额最大的 N 支，一格一支，颜色深浅 = 涨跌幅。支数多时格子自动变小，整张图尽量一屏看完 (不是拉成长长一列)
   // 下面的颜色对照可以点：只显示那一档涨跌幅的股票，再点一次取消
-  var HEAT_N = [[24, '前 24'], [50, '前 50'], [80, '前 80'], [0, '股票池全部']];
+  var HEAT_N = [[24, T('前 24')], [50, T('前 50')], [80, T('前 80')], [0, T('股票池全部')]];
   var HEAT_LG = [['d4', '≤-10'], ['d3', '-5'], ['d2', '-2'], ['d1', '-0.5'], ['z0', '0'], ['u1', '+0.5'], ['u2', '+2'], ['u3', '+5'], ['u4', '≥10']];
-  var HEAT_TXT = { d4: '跌 10% 以上', d3: '跌 5–10%', d2: '跌 2–5%', d1: '跌 0.5–2%', z0: '±0.5% 以内', u1: '涨 0.5–2%', u2: '涨 2–5%', u3: '涨 5–10%', u4: '涨 10% 以上' };
+  var HEAT_TXT = { d4: T('跌 10% 以上'), d3: T('跌 5–10%'), d2: T('跌 2–5%'), d1: T('跌 0.5–2%'), z0: T('±0.5% 以内'), u1: T('涨 0.5–2%'), u2: T('涨 2–5%'), u3: T('涨 5–10%'), u4: T('涨 10% 以上') };
   function heatLevel(c) { var a = Math.abs(c || 0); return a < 0.5 ? 0 : a < 2 ? 1 : a < 5 ? 2 : a < 10 ? 3 : 4; }
   function heatKey(c) { var lv = heatLevel(c); return lv ? (c > 0 ? 'u' : 'd') + lv : 'z0'; }
   function heatmap() {
@@ -575,43 +588,43 @@
     var cnt = {}; arr.forEach(function (s) { var k = heatKey(s.c); cnt[k] = (cnt[k] || 0) + 1; });
     var hb = S.hb && cnt[S.hb] ? S.hb : null, shown = hb ? arr.filter(function (s) { return heatKey(s.c) === hb; }) : arr;
     var up = arr.filter(function (s) { return s.c > 0; }).length, dn = arr.filter(function (s) { return s.c < 0; }).length;
-    var opts = '<div class="opts" role="group" aria-label="热力图范围">' + HEAT_N.map(function (x) {
+    var opts = T('<div class="opts" role="group" aria-label="热力图范围">') + HEAT_N.map(function (x) {
       return '<button type="button" data-heat="' + x[0] + '" aria-pressed="' + (n === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>';
     var dens = shown.length <= 30 ? 'hm-l' : shown.length <= 60 ? 'hm-m' : shown.length <= 100 ? 'hm-s' : 'hm-xs';
     var cells = shown.map(function (s) {
-      return '<button type="button" class="hm-c hm-' + heatKey(s.c) + '" data-q="' + esc(s.code) + '" title="' + esc(s.name) + ' ' + pct(s.c) + ' · 成交额 RM ' + big(s.to) + '">' +
+      return '<button type="button" class="hm-c hm-' + heatKey(s.c) + '" data-q="' + esc(s.code) + '" title="' + esc(s.name) + ' ' + pct(s.c) + T(' · 成交额 RM ') + big(s.to) + '">' +
         '<span class="hm-n">' + esc(s.name) + '</span><span class="hm-p">' + (s.c > 0 ? '+' : '') + s.c.toFixed(1) + '</span></button>';
     }).join('');
-    var legend = '<div class="hm-lg" role="group" aria-label="按涨跌幅筛选">' + HEAT_LG.map(function (x) {
-      return '<button type="button" class="hm-' + x[0] + '" data-hb="' + x[0] + '" aria-pressed="' + (hb === x[0]) + '" aria-label="' + HEAT_TXT[x[0]] + ' ' + (cnt[x[0]] || 0) + ' 支"' + (cnt[x[0]] ? '' : ' disabled') + '>' +
+    var legend = T('<div class="hm-lg" role="group" aria-label="按涨跌幅筛选">') + HEAT_LG.map(function (x) {
+      return '<button type="button" class="hm-' + x[0] + '" data-hb="' + x[0] + '" aria-pressed="' + (hb === x[0]) + '" aria-label="' + HEAT_TXT[x[0]] + ' ' + (cnt[x[0]] || 0) + T(' 支"') + (cnt[x[0]] ? '' : ' disabled') + '>' +
         x[1] + '<small>' + (cnt[x[0]] || 0) + '</small></button>'; }).join('') + '</div>' +
-      '<p class="dim hm-tip">' + (hb ? '只显示「' + HEAT_TXT[hb] + '」' + shown.length + ' 支 · 再点一次显示全部' : '点颜色格子 = 只看那一档涨跌幅的股票') + '</p>';
-    return pn('HEATMAP 热力图', '按成交额 · ▲' + up + ' ▼' + dn, opts + '<div class="hm ' + dens + '">' + cells + '</div>' + legend);
+      '<p class="dim hm-tip">' + (hb ? T('只显示「') + HEAT_TXT[hb] + '」' + shown.length + T(' 支 · 再点一次显示全部') : T('点颜色格子 = 只看那一档涨跌幅的股票')) + '</p>';
+    return pn(T('HEATMAP 热力图'), T('按成交额 · ▲') + up + ' ▼' + dn, opts + '<div class="hm ' + dens + '">' + cells + '</div>' + legend);
   }
   function pageMkt() {
     var m = D.market || {}, ix = m.index, b = m.breadth, h = '';
-    if (ix) h += pn('INDEX 大盘', esc(ix.label), '<p><b>' + ix.last.toLocaleString('en', { minimumFractionDigits: 2 }) + '</b> <span class="' + cls(ix.chg) + '">' + (ix.chg > 0 ? '+' : '') + ix.chg + ' (' + pct(ix.pct) + ')</span>' + (isNum(m.usd_myr) ? '　<span class="dim">USD/MYR ' + m.usd_myr.toFixed(4) + '</span>' : '') + '</p>' +
-      blockChart(ix.spark, { rows: 6, label: ix.label + ' 近 30 日', fmt: function (v) { return v.toFixed(0); }, color: function (v, j, a) { return j && a[j] < a[j - 1] ? 'cd' : 'cu'; } }));
+    if (ix) h += pn(T('INDEX 大盘'), esc(tr(ix.label)), '<p><b>' + ix.last.toLocaleString('en', { minimumFractionDigits: 2 }) + '</b> <span class="' + cls(ix.chg) + '">' + (ix.chg > 0 ? '+' : '') + ix.chg + ' (' + pct(ix.pct) + ')</span>' + (isNum(m.usd_myr) ? '　<span class="dim">USD/MYR ' + m.usd_myr.toFixed(4) + '</span>' : '') + '</p>' +
+      blockChart(ix.spark, { rows: 6, label: ix.label + T(' 近 30 日'), fmt: function (v) { return v.toFixed(0); }, color: function (v, j, a) { return j && a[j] < a[j - 1] ? 'cd' : 'cu'; } }));
     h += heatmap();
     if (b) { var t = b.total || (b.up + b.flat + b.down) || 1;
-      h += pn('BREADTH 涨跌家数', '全市场 ' + t + ' 支', '<pre class="txt">' + span('up', pad('ADV 涨', 7) + meter(b.up / t, 24)) + ' ' + b.up + '\n' + span('dim', pad('UNCH 平', 7) + meter(b.flat / t, 24)) + ' ' + b.flat + '\n' + span('dn', pad('DEC 跌', 7) + meter(b.down / t, 24)) + ' ' + b.down +
-        '\n' + span('dim', '52W HIGH ' + b.highs + ' · LOW ' + b.lows + (isNum(b.turnover) ? ' · 成交额 RM ' + big(b.turnover) : '')) + '</pre>'); }
+      h += pn(T('BREADTH 涨跌家数'), T('全市场 ') + t + T(' 支'), '<pre class="txt">' + span('up', pad(T('ADV 涨'), 7) + meter(b.up / t, 24)) + ' ' + b.up + '\n' + span('dim', pad(T('UNCH 平'), 7) + meter(b.flat / t, 24)) + ' ' + b.flat + '\n' + span('dn', pad(T('DEC 跌'), 7) + meter(b.down / t, 24)) + ' ' + b.down +
+        '\n' + span('dim', '52W HIGH ' + b.highs + ' · LOW ' + b.lows + (isNum(b.turnover) ? T(' · 成交额 RM ') + big(b.turnover) : '')) + '</pre>'); }
     var liq = LIST.filter(function (s) { return (s.to || 0) >= 1e6; });
     function top(arr, f, n) { return arr.slice().sort(f).slice(0, n); }
-    [['GAINERS 涨幅', top(liq.filter(function (s) { return s.c > 0; }), function (a, b) { return b.c - a.c; }, 5)],
-      ['LOSERS 跌幅', top(liq.filter(function (s) { return s.c < 0; }), function (a, b) { return a.c - b.c; }, 5)],
-      ['ACTIVE 成交额', top(LIST, function (a, b) { return (b.to || 0) - (a.to || 0); }, 5)]].forEach(function (g) {
-      h += pn(g[0], g[0].indexOf('ACTIVE') ? '成交额 ≥ RM1M' : '', '<div class="rows">' + g[1].map(function (s) { return stockBtn(s, '<span class="' + cls(s.c) + ' b">' + pct(s.c) + '</span><br><span class="sub">' + px(s.p) + '</span>', 'RM ' + big(s.to) + ' · 量比 ' + (isNum(s.rv) ? s.rv.toFixed(1) : '—')); }).join('') + '</div>');
+    [[T('GAINERS 涨幅'), top(liq.filter(function (s) { return s.c > 0; }), function (a, b) { return b.c - a.c; }, 5)],
+      [T('LOSERS 跌幅'), top(liq.filter(function (s) { return s.c < 0; }), function (a, b) { return a.c - b.c; }, 5)],
+      [T('ACTIVE 成交额'), top(LIST, function (a, b) { return (b.to || 0) - (a.to || 0); }, 5)]].forEach(function (g) {
+      h += pn(g[0], g[0].indexOf('ACTIVE') ? T('成交额 ≥ RM1M') : '', '<div class="rows">' + g[1].map(function (s) { return stockBtn(s, '<span class="' + cls(s.c) + ' b">' + pct(s.c) + '</span><br><span class="sub">' + px(s.p) + '</span>', 'RM ' + big(s.to) + T(' · 量比 ') + (isNum(s.rv) ? s.rv.toFixed(1) : '—')); }).join('') + '</div>');
     });
     var ch = D.changes || [];
-    if (ch.length) { var L = { 'new': '新上市', renamed: '改名', removed: '下市' };
-      h += pn('LISTING 名单变动', '近 14 天', '<pre class="txt">' + ch.map(function (e) { return md(e.date) + ' ' + span(e.type === 'removed' ? 'dn' : e.type === 'new' ? 'up' : 'warn', cell(L[e.type] || e.type, 7)) + ' ' + esc(e.symbol.replace('.KL', '')) + ' ' + (e.old ? esc(e.old) + ' → ' : '') + esc(e.name); }).join('\n') + '</pre>'); }
+    if (ch.length) { var L = { 'new': T('新上市'), renamed: T('改名'), removed: T('下市') };
+      h += pn(T('LISTING 名单变动'), T('近 14 天'), '<pre class="txt">' + ch.map(function (e) { return md(e.date) + ' ' + span(e.type === 'removed' ? 'dn' : e.type === 'new' ? 'up' : 'warn', cell(L[e.type] || e.type, 7)) + ' ' + esc(e.symbol.replace('.KL', '')) + ' ' + (e.old ? esc(e.old) + ' → ' : '') + esc(e.name); }).join('\n') + '</pre>'); }
     return h;
   }
   // 公告筛选只有一排：「全部」固定在左边，AI 标记 (📌 / ⚠) 和各分类在右边一条横向滑动；一次选一个 (S.af)
   function pageAnn() {
     var bd = D.board || [];
-    if (!bd.length) return pn('ANNOUNCEMENTS 公告', '', '<p class="dim">最近 14 天报告里的股票没有公告。</p>');
+    if (!bd.length) return pn(T('ANNOUNCEMENTS 公告'), '', T('<p class="dim">最近 14 天报告里的股票没有公告。</p>'));
     loadIntelIx();
     var tg = function (x) { var it = INTEL_IX && INTEL_IX[x.code]; var t = it && it.t ? it.t[annId(x.link)] : null; return t === 'catalyst' ? 'notable' : t; };
     var af = S.af || '';
@@ -621,59 +634,60 @@
       if (x.date !== last) { out += '<p class="dim" style="margin-top:6px">── ' + md(x.date) + ' ──</p>'; last = x.date; }
       out += '<p class="list-ann"><button type="button" data-q="' + esc(x.code) + '" class="' + (x.signal ? 'up' : 'acc') + '">' + esc(x.name) + '</button> <span class="tag dim">' + (CAT[x.cat] || x.cat) + '</span>' + tagChip(tg(x)) + '<a href="' + esc(x.link) + '" target="_blank" rel="noopener">' + esc(x.title) + '</a></p>';
     });
-    var chips = [['notable', '📌 重要事件'], ['risk', '⚠ 需留意']].concat(Object.keys(CAT).filter(function (c) { return bd.some(function (x) { return x.cat === c; }); }).map(function (c) { return [c, CAT[c]]; }));
+    var chips = [['notable', T('📌 重要事件')], ['risk', T('⚠ 需留意')]].concat(Object.keys(CAT).filter(function (c) { return bd.some(function (x) { return x.cat === c; }); }).map(function (c) { return [c, CAT[c]]; }));
     var btn = function (k, label) { return '<button type="button" data-af="' + k + '" aria-pressed="' + (af === k) + '">' + label + '</button>'; };
-    var bar = '<div class="fbar" role="group" aria-label="筛选公告">' + btn('', '全部') + '<div class="fscroll">' + chips.map(function (c) { return btn(c[0], c[1]); }).join('') + '</div></div>' +
-      (INTEL_IX ? '' : '<p class="dim" style="font-size:11px">AI 标记载入中…</p>');
-    return pn('ANNOUNCEMENTS 公告', '近 14 天 · ' + items.length + ' 条', bar + out);
+    var bar = T('<div class="fbar" role="group" aria-label="筛选公告">') + btn('', T('全部')) + '<div class="fscroll">' + chips.map(function (c) { return btn(c[0], c[1]); }).join('') + '</div></div>' +
+      (INTEL_IX ? '' : T('<p class="dim" style="font-size:11px">AI 标记载入中…</p>'));
+    return pn(T('ANNOUNCEMENTS 公告'), T('近 14 天 · ') + items.length + T(' 条'), bar + out);
   }
 
 
   // ---------- AI 分析 (scripts/company_intel.py 每天收盘后用 DeepSeek 逐家整理，写在 ../intel/)：近况、重要事件 / 留意事项、财报一句、公告标记 ----------
   // 只做中性标记 (📌 = 值得注意的事件，⚠ = 需要留意)，不写「利好」：避免被当成买入信号
   var INTEL = {}, INTEL_IX = null, ixLoading = false;
-  var TAG = { notable: ['📌', '', 'tg-note'], catalyst: ['📌', '', 'tg-note'], risk: ['⚠', '留意', 'tg-risk'] };
+  var TAG = { notable: ['📌', '', 'tg-note'], catalyst: ['📌', '', 'tg-note'], risk: ['⚠', T('留意'), 'tg-risk'] };
   function loadIntelIx() {
     if (INTEL_IX || ixLoading) return; ixLoading = true;
     fetch((D.report || '../') + 'intel/index.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
       .then(function (j) { INTEL_IX = (j && j.items) || {}; if (S.page === 'ann' && !S.code) render(); });
   }
   function annId(link) { var mm = /(\d+)\D*$/.exec(link || ''); return mm ? mm[1] : null; }
-  function tagChip(t) { var x = TAG[t]; return x ? '<span class="tag ' + x[2] + '" title="' + (x[1] || '重要事件') + '">' + x[0] + (x[1] ? ' ' + x[1] : '') + '</span>' : ''; }
+  function tagChip(t) { var x = TAG[t]; return x ? '<span class="tag ' + x[2] + '" title="' + (x[1] || T('重要事件')) + '">' + x[0] + (x[1] ? ' ' + x[1] : '') + '</span>' : ''; }
   function intelPanel(code) {
     if (!(code in INTEL)) {
       INTEL[code] = 'loading';
       fetch((D.report || '../') + 'intel/' + code + '.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
         .then(function (j) { INTEL[code] = j; if (S.code === code) render(); });
     }
-    var r = INTEL[code], title = 'AI 分析';
+    var r = INTEL[code], title = T('AI 分析');
     if (r === 'loading') return pn(title, '', '<p class="dim">loading…</p>');
-    if (!r) return pn(title, '', '<p class="dim">还没分析到这家公司 (每天收盘后陆续补上)。</p>');
+    if (!r) return pn(title, '', T('<p class="dim">还没分析到这家公司 (每天收盘后陆续补上)。</p>'));
     var f = r.facts, h = '';
-    if (r.recent) h += '<p>' + esc(r.recent) + '</p>';
-    var nt = r.notable || r.catalysts || [];
-    if (nt.length || (r.risks || []).length) h += '<ul class="intel-l">' +
+    if (L(r, 'recent')) h += '<p>' + esc(L(r, 'recent')) + '</p>';
+    var nt = L(r, 'notable') || (LANG === 'en' ? [] : r.catalysts) || [], rk = L(r, 'risks') || [];
+    if (nt.length || rk.length) h += '<ul class="intel-l">' +
       nt.map(function (x) { return '<li><b>📌</b> ' + esc(x) + '</li>'; }).join('') +
-      (r.risks || []).map(function (x) { return '<li class="tg-risk"><b>⚠</b> ' + esc(x) + '</li>'; }).join('') + '</ul>';
-    if (f) h += '<p class="dim intel-f">' + md(f.period) + ' 季：营收 ' + finNum(f.revenue) + (isNum(f.revenue_yoy) ? ' (按年 ' + pct(f.revenue_yoy, 1) + ')' : '') +
-      ' · 净利 ' + finNum(f.net_income) + (isNum(f.net_income_yoy) ? ' (按年 ' + pct(f.net_income_yoy, 1) + ')' : '') + (isNum(f.net_margin) ? ' · 净利率 ' + f.net_margin + '%' : '') + '</p>';
-    if (r.earnings) h += '<p>' + esc(r.earnings) + '</p>';
+      rk.map(function (x) { return '<li class="tg-risk"><b>⚠</b> ' + esc(x) + '</li>'; }).join('') + '</ul>';
+    if (f) h += '<p class="dim intel-f">' + md(f.period) + T(' 季：营收 ') + finNum(f.revenue) + (isNum(f.revenue_yoy) ? T(' (按年 ') + pct(f.revenue_yoy, 1) + ')' : '') +
+      T(' · 净利 ') + finNum(f.net_income) + (isNum(f.net_income_yoy) ? T(' (按年 ') + pct(f.net_income_yoy, 1) + ')' : '') + (isNum(f.net_margin) ? T(' · 净利率 ') + f.net_margin + '%' : '') + '</p>';
+    if (L(r, 'earnings')) h += '<p>' + esc(L(r, 'earnings')) + '</p>';
+    if (LANG === 'en' && r.recent && !r.recent_en) h += '<p class="dim">English version will appear after the next analysis run.</p>';
     var upc = (r.events || []).filter(function (e) { return e.date >= today(); });
-    if (upc.length) h += '<h3 class="fin-h">📅 即将到来</h3>' + upc.slice(0, 8).map(function (e) { var t = CAL_T[e.type] || ['corp', e.type];
-      return '<p class="list-ann"><span class="dim">' + md(e.date) + '</span> <span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> ' + esc(e.what || '') + (e.src === 'rule' ? ' <span class="dim">(推算)</span>' : '') + '</p>'; }).join('');
+    if (upc.length) h += T('<h3 class="fin-h">📅 即将到来</h3>') + upc.slice(0, 8).map(function (e) { var t = CAL_T[e.type] || ['corp', e.type];
+      return '<p class="list-ann"><span class="dim">' + md(e.date) + '</span> <span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> ' + esc(L(e, 'what') || '') + (e.src === 'rule' ? T(' <span class="dim">(推算)</span>') : '') + '</p>'; }).join('');
     var tagged = (r.ann || []).filter(function (a) { return a.tag !== 'routine'; });
-    if (tagged.length) h += '<h3 class="fin-h">标记的公告 <span class="dim">📌 重要事件 · ⚠ 需留意</span></h3>' + tagged.slice(0, 10).map(function (a) {
-      return '<p class="list-ann"><span class="dim">' + md(a.date) + '</span> ' + tagChip(a.tag) + '<a href="' + esc(a.link) + '" target="_blank" rel="noopener">' + esc(a.title) + '</a>' + (a.why ? ' <span class="dim">· ' + esc(a.why) + '</span>' : '') + '</p>'; }).join('');
-    h += '<p class="dim intel-note">AI 生成 (DeepSeek)，只整理公开的公告、新闻和财报，可能有错漏，不构成投资建议 · 更新 ' + esc(r.updated) + '</p>';
-    return pn(title, '公告 ' + (r.ann || []).length + ' · 新闻 ' + (r.news || []).length, h);
+    if (tagged.length) h += T('<h3 class="fin-h">标记的公告 <span class="dim">📌 重要事件 · ⚠ 需留意</span></h3>') + tagged.slice(0, 10).map(function (a) {
+      return '<p class="list-ann"><span class="dim">' + md(a.date) + '</span> ' + tagChip(a.tag) + '<a href="' + esc(a.link) + '" target="_blank" rel="noopener">' + esc(a.title) + '</a>' + (L(a, 'why') ? ' <span class="dim">· ' + esc(L(a, 'why')) + '</span>' : '') + '</p>'; }).join('');
+    h += T('<p class="dim intel-note">AI 生成 (DeepSeek)，只整理公开的公告、新闻和财报，可能有错漏，不构成投资建议 · 更新 ') + esc(r.updated) + '</p>';
+    return pn(title, T('公告 ') + (r.ann || []).length + T(' · 新闻 ') + (r.news || []).length, h);
   }
 
   // ---------- 日历：企业活动日期 (scripts/company_intel.py 用 DeepSeek 从公告内文找出的日期 + 程序按交易所规定算的季报最迟公布日) ----------
   // 分类跟公告页一样：会议 / 派息 / 财报 / 企业 / 新上市；月历上每天的小点 = 那天有哪些类别，点日期看那天的明细
   var CAL = null, calLoading = false;
-  var CAL_T = { agm: ['meet', '常年股东大会'], egm: ['meet', '特别股东大会'], ex_date: ['div', '除权 / 除息'], entitlement: ['div', '截止过户'], payment: ['div', '派发'],
-    results: ['res', '业绩公布'], results_due: ['res', '季报最迟公布'], listing: ['list', '上市'], corporate: ['corp', '企业活动'] };
-  var CAL_G = [['meet', '会议'], ['div', '派息'], ['res', '财报'], ['corp', '企业'], ['list', '新上市']];
+  var CAL_T = { agm: ['meet', T('常年股东大会')], egm: ['meet', T('特别股东大会')], ex_date: ['div', T('除权 / 除息')], entitlement: ['div', T('截止过户')], payment: ['div', T('派发')],
+    results: ['res', T('业绩公布')], results_due: ['res', T('季报最迟公布')], listing: ['list', T('上市')], corporate: ['corp', T('企业活动')] };
+  var CAL_G = [['meet', T('会议')], ['div', T('派息')], ['res', T('财报')], ['corp', T('企业')], ['list', T('新上市')]];
   function loadCal() {
     if (CAL || calLoading) return; calLoading = true;
     fetch((D.report || '../') + 'intel/calendar.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
@@ -683,43 +697,43 @@
   function calRow(e) {
     var t = CAL_T[e.type] || ['corp', e.type];
     return '<p class="list-ann cal-r"><span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> <button type="button" data-q="' + esc(e.code) + '" class="acc">' + esc(e.name || e.code) + '</button> ' +
-      esc(e.what || '') + (e.link ? ' <a href="' + esc(e.link) + '" target="_blank" rel="noopener" aria-label="公告原文">↗</a>' : '') + (e.src === 'rule' ? ' <span class="dim">(推算)</span>' : '') + '</p>';
+      esc(L(e, 'what') || '') + (e.link ? ' <a href="' + esc(e.link) + T('" target="_blank" rel="noopener" aria-label="公告原文">↗</a>') : '') + (e.src === 'rule' ? T(' <span class="dim">(推算)</span>') : '') + '</p>';
   }
   function pageCal() {
     loadCal();
-    if (!CAL) return pn('CALENDAR 日历', '', '<p class="dim">loading…</p>');
+    if (!CAL) return pn(T('CALENDAR 日历'), '', '<p class="dim">loading…</p>');
     var g = S.calG || '', mine = !!S.calW, wset = {};
     W.folders.forEach(function (f) { f.codes.forEach(function (c) { wset[c] = 1; }); });
     var ev = CAL.filter(function (e) { return (!g || (CAL_T[e.type] || [])[0] === g) && (!mine || wset[e.code]); });
     var btn = function (k, label, on, attr) { return '<button type="button" ' + attr + '="' + k + '" aria-pressed="' + on + '">' + label + '</button>'; };
-    var bar = '<div class="fbar" role="group" aria-label="筛选日历">' + btn('', '全部', !g, 'data-calg') + '<div class="fscroll">' +
+    var bar = T('<div class="fbar" role="group" aria-label="筛选日历">') + btn('', T('全部'), !g, 'data-calg') + '<div class="fscroll">' +
       CAL_G.map(function (x) { return btn(x[0], '<i class="cal-dot cg-' + x[0] + '"></i>' + x[1], g === x[0], 'data-calg'); }).join('') +
-      '<button type="button" data-calw="1" aria-pressed="' + mine + '">★ 只看观察列表</button></div></div>';
+      '<button type="button" data-calw="1" aria-pressed="' + mine + T('">★ 只看观察列表</button></div></div>');
     var td = today(), mon = S.calM || td.slice(0, 7), y = +mon.slice(0, 4), mo = +mon.slice(5, 7);
     var first = new Date(Date.UTC(y, mo - 1, 1)), days = new Date(Date.UTC(y, mo, 0)).getUTCDate(), lead = (first.getUTCDay() + 6) % 7;  // 星期一开头
     var byDay = {}; ev.forEach(function (e) { (byDay[e.date] = byDay[e.date] || []).push(e); });
-    var grid = '<div class="cal-h"><button type="button" data-calm="-1" aria-label="上个月">‹</button><b>' + y + ' 年 ' + mo + ' 月</b><button type="button" data-calm="1" aria-label="下个月">›</button></div>' +
-      '<div class="cal-g">' + ['一', '二', '三', '四', '五', '六', '日'].map(function (d) { return '<span class="cal-wd">' + d + '</span>'; }).join('') + '<span></span>'.repeat(lead);
+    var grid = T('<div class="cal-h"><button type="button" data-calm="-1" aria-label="上个月">‹</button><b>') + (LANG === 'en' ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][mo - 1] + ' ' + y : y + T(' 年 ') + mo) + T(' 月</b><button type="button" data-calm="1" aria-label="下个月">›</button></div>') +
+      '<div class="cal-g">' + [T('一'), T('二'), T('三'), T('四'), T('五'), T('六'), T('日')].map(function (d) { return '<span class="cal-wd">' + d + '</span>'; }).join('') + '<span></span>'.repeat(lead);
     for (var d = 1; d <= days; d++) {
       var ds = mon + '-' + (d < 10 ? '0' : '') + d, list = byDay[ds] || [], gs = {};
       list.forEach(function (e) { gs[(CAL_T[e.type] || ['corp'])[0]] = 1; });
       grid += '<button type="button" class="cal-d' + (ds === td ? ' today' : '') + (ds === S.calD ? ' sel' : '') + (list.length ? ' has' : '') + '" data-cald="' + ds + '"' + (list.length ? '' : ' tabindex="-1"') +
-        ' aria-label="' + mo + ' 月 ' + d + ' 日 ' + list.length + ' 项"><span>' + d + '</span><span class="cal-dots">' + CAL_G.filter(function (x) { return gs[x[0]]; }).map(function (x) { return '<i class="cal-dot cg-' + x[0] + '"></i>'; }).join('') + '</span>' +
+        ' aria-label="' + mo + T(' 月 ') + d + T(' 日 ') + list.length + T(' 项"><span>') + d + '</span><span class="cal-dots">' + CAL_G.filter(function (x) { return gs[x[0]]; }).map(function (x) { return '<i class="cal-dot cg-' + x[0] + '"></i>'; }).join('') + '</span>' +
         (list.length > 1 ? '<small>' + list.length + '</small>' : '') + '</button>';
     }
     grid += '</div>';
     var listH, sel = S.calD;
     if (sel) {
       var dl = byDay[sel] || [];
-      listH = '<h3 class="fin-h">' + md(sel) + ' · ' + dl.length + ' 项 <button type="button" class="more" data-cald="' + sel + '">× 看接下来 30 天</button></h3>' + (dl.length ? dl.map(calRow).join('') : '<p class="dim">这天没有记录。</p>');
+      listH = '<h3 class="fin-h">' + md(sel) + ' · ' + dl.length + T(' 项 <button type="button" class="more" data-cald="') + sel + T('">× 看接下来 30 天</button></h3>') + (dl.length ? dl.map(calRow).join('') : T('<p class="dim">这天没有记录。</p>'));
     } else {
       var end = new Date(Date.parse(td + 'T00:00:00Z') + 30 * 864e5).toISOString().slice(0, 10), up = ev.filter(function (e) { return e.date >= td && e.date <= end; }), last = null;
-      listH = '<h3 class="fin-h">接下来 30 天 · ' + up.length + ' 项</h3>' + (up.length ? up.map(function (e) {
-        var h = e.date !== last ? '<p class="dim cal-day">── ' + md(e.date) + ' 周' + '日一二三四五六'[new Date(e.date + 'T00:00:00Z').getUTCDay()] + ' ──</p>' : ''; last = e.date; return h + calRow(e); }).join('') :
-        '<p class="dim">接下来 30 天没有记录' + (mine ? ' (只看观察列表)' : '') + '。</p>');
+      listH = T('<h3 class="fin-h">接下来 30 天 · ') + up.length + T(' 项</h3>') + (up.length ? up.map(function (e) {
+        var h = e.date !== last ? '<p class="dim cal-day">── ' + md(e.date) + ' ' + (LANG === 'en' ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'])[new Date(e.date + 'T00:00:00Z').getUTCDay()] + ' ──</p>' : ''; last = e.date; return h + calRow(e); }).join('') :
+        T('<p class="dim">接下来 30 天没有记录') + (mine ? T(' (只看观察列表)') : '') + '。</p>');
     }
-    var note = '<p class="dim intel-note">日期由 AI (DeepSeek) 从公告原文整理，「季报最迟公布」是按交易所规定 (季末后 2 个月内) 推算的最迟日期，不是公司宣布的日期。以公告原文为准 · 更新 ' + esc(CAL.updated || '—') + '</p>';
-    return pn('CALENDAR 日历', ev.length + ' 项 · 过去 7 天到未来半年', bar + grid + listH + note);
+    var note = T('<p class="dim intel-note">日期由 AI (DeepSeek) 从公告原文整理，「季报最迟公布」是按交易所规定 (季末后 2 个月内) 推算的最迟日期，不是公司宣布的日期。以公告原文为准 · 更新 ') + esc(CAL.updated || '—') + '</p>';
+    return pn(T('CALENDAR 日历'), ev.length + T(' 项 · 过去 7 天到未来半年'), bar + grid + listH + note);
   }
   function calClick(t) {
     var d = t.dataset;
@@ -732,9 +746,9 @@
 
   // ---------- ✦ AI 问答：每一页右下角的按钮，问题 + 当前页面的资料一起送给 DeepSeek ----------
   // 两种连线方式 (⚙ 设置，只存在这台设备的浏览器)：Worker (worker/ai-proxy.js，密钥在 Cloudflare，推荐) / 自己的 DeepSeek 密钥 (浏览器直接连)
-  var AI_SYS = '你是 Bursa Bot 终端版里的 AI 助手，帮用户看懂马来西亚股票的公开资料。用户的问题后面会附上「当前页面资料」，回答要以这些资料为根据，资料里没有的就说没有，不要编造数字或事件。' +
-    '用简体中文回答，条理清楚、简短；需要时分点。可以解释指标、财报数字的变化、公告在说什么、有哪些需要留意的事项。' +
-    '绝对不要给买入、卖出、持有、加仓、止损、目标价或任何操作建议，也不要预测股价涨跌；用户问「该不该买」时，说明你不能给建议，改为整理相关事实和需要留意的地方。';
+  var AI_SYS = T('你是 Bursa Bot 终端版里的 AI 助手，帮用户看懂马来西亚股票的公开资料。用户的问题后面会附上「当前页面资料」，回答要以这些资料为根据，资料里没有的就说没有，不要编造数字或事件。') +
+    T('用简体中文回答，条理清楚、简短；需要时分点。可以解释指标、财报数字的变化、公告在说什么、有哪些需要留意的事项。') +
+    T('绝对不要给买入、卖出、持有、加仓、止损、目标价或任何操作建议，也不要预测股价涨跌；用户问「该不该买」时，说明你不能给建议，改为整理相关事实和需要留意的地方。');
   var AI = { open: false, busy: false, msgs: [], ctxKey: null, cfg: (function () { try { return JSON.parse(localStorage.getItem('bterm_ai') || '{}'); } catch (e) { return {}; } })(), setup: false };
   function aiSave() { try { localStorage.setItem('bterm_ai', JSON.stringify(AI.cfg)); } catch (e) {} }
   function aiReady() { return AI.cfg.mode === 'worker' ? !!(AI.cfg.url && AI.cfg.pass) : AI.cfg.mode === 'key' ? !!AI.cfg.key : false; }
@@ -763,7 +777,7 @@
       c.成交额最大 = liq.slice().sort(function (a, b) { return (b.to || 0) - (a.to || 0); }).slice(0, 12).map(brief);
       c.涨幅最大 = liq.filter(function (x) { return (x.to || 0) >= 1e6; }).sort(function (a, b) { return b.c - a.c; }).slice(0, 8).map(brief);
       c.跌幅最大 = liq.filter(function (x) { return (x.to || 0) >= 1e6; }).sort(function (a, b) { return a.c - b.c; }).slice(0, 8).map(brief);
-      c.今天信号 = (D.signals || []).map(function (x) { return x.name + ' ' + x.code + ' 条件: ' + (x.why || []).join('; '); });
+      c.今天信号 = (D.signals || []).map(function (x) { return x.name + ' ' + x.code + T(' 条件: ') + (x.why || []).join('; '); });
       c.当前页面 = (PAGES.filter(function (p) { return p[0] === S.page; })[0] || [])[1];
       if (S.page === 'ann') c.最近公告 = (D.board || []).slice(0, 25).map(function (x) { return x.date + ' ' + x.name + ': ' + x.title; });
       if (S.page === 'cal' && CAL) c.日历 = CAL.filter(function (e) { return e.date >= today(); }).slice(0, 30).map(function (e) { return e.date + ' ' + e.name + ' ' + (CAL_T[e.type] || [])[1] + ' ' + (e.what || ''); });
@@ -772,33 +786,33 @@
     return c;
   }
   function aiChips() {
-    if (S.code) return ['用几句话总结这家公司最近的情况', '解释最新一季的财报数字', '这些技术指标说明了什么', '最近的公告在说什么', '有哪些需要留意的地方'];
-    if (S.page === 'ann') return ['今天最值得留意的公告有哪些', '把这些公告按类型整理一下'];
-    if (S.page === 'cal') return ['接下来两周有哪些重要日期', '哪些公司快要除息'];
-    if (S.page === 'watch') return ['整理我观察列表里股票今天的表现'];
-    return ['今天大盘的情况怎么样', '成交额最大的几支股票在发生什么', '解释一下今天信号股符合的条件'];
+    if (S.code) return [T('用几句话总结这家公司最近的情况'), T('解释最新一季的财报数字'), T('这些技术指标说明了什么'), T('最近的公告在说什么'), T('有哪些需要留意的地方')];
+    if (S.page === 'ann') return [T('今天最值得留意的公告有哪些'), T('把这些公告按类型整理一下')];
+    if (S.page === 'cal') return [T('接下来两周有哪些重要日期'), T('哪些公司快要除息')];
+    if (S.page === 'watch') return [T('整理我观察列表里股票今天的表现')];
+    return [T('今天大盘的情况怎么样'), T('成交额最大的几支股票在发生什么'), T('解释一下今天信号股符合的条件')];
   }
   function aiFmt(t) { return esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^#{1,4}\s*(.+)$/gm, '<b>$1</b>').replace(/\n/g, '<br>'); }
   function aiRender() {
     var box = document.getElementById('ai-panel'); if (!box) return;
     box.hidden = !AI.open; document.getElementById('ai-fab').setAttribute('aria-expanded', String(AI.open));
     if (!AI.open) return;
-    var label = S.code ? nameOf(S.code) + ' ' + S.code : ((PAGES.filter(function (p) { return p[0] === S.page; })[0] || [])[1] || '') + ' · 今日市场';
-    var h = '<div class="ai-top"><b>✦ AI 问答</b><span class="dim">根据：' + esc(label) + '</span><button type="button" data-ai="setup">⚙ 设置</button><button type="button" data-ai="close" aria-label="关闭">×</button></div>';
+    var label = S.code ? nameOf(S.code) + ' ' + S.code : ((PAGES.filter(function (p) { return p[0] === S.page; })[0] || [])[1] || '') + T(' · 今日市场');
+    var h = T('<div class="ai-top"><b>✦ AI 问答</b><span class="dim">根据：') + esc(label) + T('</span><button type="button" data-ai="setup">⚙ 设置</button><button type="button" data-ai="close" aria-label="关闭">×</button></div>');
     if (AI.setup || !aiReady()) {
       var md0 = AI.cfg.mode || 'worker';
-      h += '<div class="ai-set"><p class="dim">选择连线方式 (只存在这台设备的浏览器)：</p>' +
-        '<div class="opts"><button type="button" data-ai="mode" data-v="worker" aria-pressed="' + (md0 === 'worker') + '">Worker (推荐)</button><button type="button" data-ai="mode" data-v="key" aria-pressed="' + (md0 === 'key') + '">自己的 DeepSeek 密钥</button></div>' +
-        (md0 === 'worker' ? '<label>Worker 网址<input id="ai-url" type="url" autocomplete="off" placeholder="https://bursa-ai.xxx.workers.dev" value="' + esc(AI.cfg.url || '') + '"></label>' +
-          '<label>通行码<input id="ai-pass" type="password" autocomplete="off" value="' + esc(AI.cfg.pass || '') + '"></label><p class="dim">设置方法见仓库 worker/README.md：密钥放在 Cloudflare，网页上看不到。</p>'
-          : '<label>DeepSeek API 密钥<input id="ai-key" type="password" autocomplete="off" placeholder="sk-…" value="' + esc(AI.cfg.key || '') + '"></label><p class="dim">密钥只存在这台手机，问问题时浏览器直接连 DeepSeek。建议用另外开的、设了用量上限的密钥。</p>') +
-        '<div class="opts"><button type="button" class="ok" data-ai="save">保存</button>' + (aiReady() ? '<button type="button" data-ai="setup">取消</button>' : '') + '</div></div>';
+      h += T('<div class="ai-set"><p class="dim">选择连线方式 (只存在这台设备的浏览器)：</p>') +
+        '<div class="opts"><button type="button" data-ai="mode" data-v="worker" aria-pressed="' + (md0 === 'worker') + T('">Worker (推荐)</button><button type="button" data-ai="mode" data-v="key" aria-pressed="') + (md0 === 'key') + T('">自己的 DeepSeek 密钥</button></div>') +
+        (md0 === 'worker' ? T('<label>Worker 网址<input id="ai-url" type="url" autocomplete="off" placeholder="https://bursa-ai.xxx.workers.dev" value="') + esc(AI.cfg.url || '') + '"></label>' +
+          T('<label>通行码<input id="ai-pass" type="password" autocomplete="off" value="') + esc(AI.cfg.pass || '') + T('"></label><p class="dim">设置方法见仓库 worker/README.md：密钥放在 Cloudflare，网页上看不到。</p>')
+          : T('<label>DeepSeek API 密钥<input id="ai-key" type="password" autocomplete="off" placeholder="sk-…" value="') + esc(AI.cfg.key || '') + T('"></label><p class="dim">密钥只存在这台手机，问问题时浏览器直接连 DeepSeek。建议用另外开的、设了用量上限的密钥。</p>')) +
+        T('<div class="opts"><button type="button" class="ok" data-ai="save">保存</button>') + (aiReady() ? T('<button type="button" data-ai="setup">取消</button>') : '') + '</div></div>';
     } else {
-      h += '<div class="ai-log" id="ai-log">' + (AI.msgs.length ? AI.msgs.map(function (m) { return '<div class="ai-m ai-' + m.role + '">' + (m.role === 'user' ? esc(m.show || m.content) : aiFmt(m.content) || '<span class="dim">思考中…</span>') + '</div>'; }).join('') :
-        '<p class="dim">会把这一页的资料 (价格、指标、财报、公告、AI 整理) 一起交给 AI。可以点下面的问题，或自己输入。</p>') + '</div>' +
+      h += '<div class="ai-log" id="ai-log">' + (AI.msgs.length ? AI.msgs.map(function (m) { return '<div class="ai-m ai-' + m.role + '">' + (m.role === 'user' ? esc(m.show || m.content) : aiFmt(m.content) || T('<span class="dim">思考中…</span>')) + '</div>'; }).join('') :
+        T('<p class="dim">会把这一页的资料 (价格、指标、财报、公告、AI 整理) 一起交给 AI。可以点下面的问题，或自己输入。</p>')) + '</div>' +
         '<div class="opts ai-chips">' + aiChips().map(function (q) { return '<button type="button" data-ai="ask" data-v="' + esc(q) + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
-        '<div class="ai-in"><textarea id="ai-q" rows="2" placeholder="问 AI… (例如：这家公司的负债高吗？)"></textarea><button type="button" class="ok" data-ai="send"' + (AI.busy ? ' disabled' : '') + '>' + (AI.busy ? '…' : '发送') + '</button></div>' +
-        '<p class="dim ai-note">AI 生成，只根据页面资料整理，可能有错漏；不构成投资建议。' + (AI.msgs.length ? ' <button type="button" class="more" data-ai="clear">清空对话</button>' : '') + '</p>';
+        T('<div class="ai-in"><textarea id="ai-q" rows="2" placeholder="问 AI… (例如：这家公司的负债高吗？)"></textarea><button type="button" class="ok" data-ai="send"') + (AI.busy ? ' disabled' : '') + '>' + (AI.busy ? '…' : T('发送')) + '</button></div>' +
+        T('<p class="dim ai-note">AI 生成，只根据页面资料整理，可能有错漏；不构成投资建议。') + (AI.msgs.length ? T(' <button type="button" class="more" data-ai="clear">清空对话</button>') : '') + '</p>';
     }
     box.innerHTML = h;
     var lg = document.getElementById('ai-log'); if (lg) lg.scrollTop = lg.scrollHeight;
@@ -806,15 +820,15 @@
   function aiAsk(q) {
     q = (q || '').trim(); if (!q || AI.busy) return;
     var key = S.code || S.page; if (AI.ctxKey !== key) { AI.msgs = []; AI.ctxKey = key; }  // 换了股票 / 页面就开新对话
-    var first = !AI.msgs.length, ctx = first ? '\n\n【当前页面资料】\n' + JSON.stringify(aiContext()) : '';
+    var first = !AI.msgs.length, ctx = first ? T('\n\n【当前页面资料】\n') + JSON.stringify(aiContext()) : '';
     AI.msgs.push({ role: 'user', content: q + ctx, show: q }, { role: 'assistant', content: '' });
     AI.busy = true; aiRender();
     var cur = AI.msgs[AI.msgs.length - 1], hist = AI.msgs.slice(0, -1).map(function (m) { return { role: m.role, content: m.content }; });
-    var req = AI.cfg.mode === 'worker' ? fetch(AI.cfg.url.replace(/\/$/, ''), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pass': AI.cfg.pass }, body: JSON.stringify({ messages: hist }) })
+    var req = AI.cfg.mode === 'worker' ? fetch(AI.cfg.url.replace(/\/$/, ''), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pass': AI.cfg.pass }, body: JSON.stringify({ messages: hist, lang: LANG }) })
       : fetch('https://api.deepseek.com/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + AI.cfg.key },
         body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: AI_SYS }].concat(hist) }) });
     req.then(function (r) {
-      if (!r.ok) return r.text().then(function (t) { throw new Error(r.status + (r.status === 401 ? ' 通行码 / 密钥不对' : r.status === 403 ? ' 网址不被允许 (检查 ALLOW_ORIGIN)' : r.status === 402 ? ' DeepSeek 额度不足' : '') + ' ' + t.slice(0, 120)); });
+      if (!r.ok) return r.text().then(function (t) { throw new Error(r.status + (r.status === 401 ? T(' 通行码 / 密钥不对') : r.status === 403 ? T(' 网址不被允许 (检查 ALLOW_ORIGIN)') : r.status === 402 ? T(' DeepSeek 额度不足') : '') + ' ' + t.slice(0, 120)); });
       var rd = r.body.getReader(), dec = new TextDecoder(), buf = '';
       function pump() {
         return rd.read().then(function (x) {
@@ -831,7 +845,7 @@
       }
       return pump();
     }).catch(function (e) {
-      cur.content = (cur.content ? cur.content + '\n\n' : '') + '⚠ 连线失败：' + e.message + (AI.cfg.mode === 'key' && /fetch|Load failed|NetworkError/i.test(e.message) ? '\n浏览器可能挡掉直接连线，请改用 Worker 方式 (worker/README.md)。' : '');
+      cur.content = (cur.content ? cur.content + '\n\n' : '') + T('⚠ 连线失败：') + e.message + (AI.cfg.mode === 'key' && /fetch|Load failed|NetworkError/i.test(e.message) ? T('\n浏览器可能挡掉直接连线，请改用 Worker 方式 (worker/README.md)。') : '');
     }).then(function () { AI.busy = false; aiRender(); });
   }
   function aiClick(t) {
@@ -851,7 +865,7 @@
   }
   (function () {
     var fab = document.createElement('button'); fab.type = 'button'; fab.id = 'ai-fab'; fab.dataset.ai = 'toggle'; fab.setAttribute('aria-controls', 'ai-panel'); fab.setAttribute('aria-expanded', 'false'); fab.innerHTML = '✦ AI';
-    var box = document.createElement('section'); box.id = 'ai-panel'; box.hidden = true; box.setAttribute('aria-label', 'AI 问答');
+    var box = document.createElement('section'); box.id = 'ai-panel'; box.hidden = true; box.setAttribute('aria-label', T('AI 问答'));
     document.body.appendChild(box); document.body.appendChild(fab);
   })();
   // 个股：字符 K 线 + 数字 + (信号 / 观察列表) + 公告和新闻
@@ -871,7 +885,7 @@
   function finTable(sec, idx, labs, rows) {
     rows = rows.filter(function (r) { return idx.some(function (i) { return isNum((sec[r[0]] || [])[i]); }); });
     if (!rows.length) return '';
-    var h = '<div class="ft" style="grid-template-columns: 5.5em repeat(' + idx.length + ', minmax(0, 1fr))"><span></span>' + labs.map(function (l, k) { return '<span class="ft-h"><i class="fc' + (k + 6 - idx.length) + '"></i>' + l + '</span>'; }).join('');
+    var h = '<div class="ft" style="grid-template-columns: ' + (LANG === 'en' ? '7.2em' : '5.5em') + ' repeat(' + idx.length + ', minmax(0, 1fr))"><span></span>' + labs.map(function (l, k) { return '<span class="ft-h"><i class="fc' + (k + 6 - idx.length) + '"></i>' + l + '</span>'; }).join('');
     rows.forEach(function (r) {
       var vals = idx.map(function (i) { return (sec[r[0]] || [])[i]; }), mx = Math.max.apply(null, vals.map(function (v) { return isNum(v) ? Math.abs(v) : 0; })) || 1;
       h += '<span class="ft-l' + (r[2] ? ' b' : '') + '">' + r[1] + '</span>' + vals.map(function (v, k) {
@@ -906,45 +920,50 @@
         '<rect x="' + x0 + '" y="' + (H - hl) + '" width="' + w + '" height="' + hl + '" style="fill:var(--fin-li)"/>' +
         '<text x="' + (x0 + w / 2) + '" y="' + (H - ha - 5) + '" text-anchor="middle" style="fill:var(--fg);font-size:10px">' + (L[k] / A[k] * 100).toFixed(0) + '%</text>';
     }).join('');
-    return '<p class="fin-sub">资产负债率 <span class="dim">= 总负债 ÷ 总资产</span>　<i class="sw" style="background:var(--fin-li)"></i>负债 <i class="sw" style="background:var(--fin-eq)"></i>股东权益</p>' +
-      '<svg class="bs" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="资产负债率 ' + idx.map(function (_, k) { return labs[k] + ' ' + (isNum(A[k]) && isNum(L[k]) ? (L[k] / A[k] * 100).toFixed(0) + '%' : '—'); }).join('，') + '">' + g + '</svg>' +
+    return T('<p class="fin-sub">资产负债率 <span class="dim">= 总负债 ÷ 总资产</span>　<i class="sw" style="background:var(--fin-li)"></i>负债 <i class="sw" style="background:var(--fin-eq)"></i>股东权益</p>') +
+      '<svg class="bs" viewBox="0 0 ' + W + ' ' + H + T('" role="img" aria-label="资产负债率 ') + idx.map(function (_, k) { return labs[k] + ' ' + (isNum(A[k]) && isNum(L[k]) ? (L[k] / A[k] * 100).toFixed(0) + '%' : '—'); }).join('，') + '">' + g + '</svg>' +
       '<div class="ft-x" style="grid-template-columns: repeat(' + idx.length + ', minmax(0, 1fr))">' + labs.map(function (l) { return '<span>' + l + '</span>'; }).join('') + '</div>';
   }
   function finPanel(code) {
     if (!(code in FIN)) return '';  // profilePanel 已经在载入同一个文件
     var f = FIN[code];
-    if (!f || !(f.quarterly || f.annual)) return pn('FINANCIALS 财报', '', '<p class="dim">Yahoo 没有这家公司的财报数据。</p>');
+    if (!f || !(f.quarterly || f.annual)) return pn(T('FINANCIALS 财报'), '', T('<p class="dim">Yahoo 没有这家公司的财报数据。</p>'));
     var mode = S.fin === 'a' && f.annual && f.annual.periods.length ? 'a' : (f.quarterly && f.quarterly.periods.length ? 'q' : 'a');
     var sec = mode === 'a' ? f.annual : f.quarterly, pp = finPeriods(sec, mode === 'a' ? 4 : 5), idx = pp.idx;
     var labs = pp.lab.map(function (d) { return mode === 'a' ? 'FY' + d.slice(2, 4) : d.slice(2, 4) + '/' + d.slice(5, 7); });
     var cur = f.currency === 'MYR' || !f.currency ? 'RM' : f.currency;
-    var seg = '<div class="opts" role="group" aria-label="财报期间"><button type="button" data-fin="q" aria-pressed="' + (mode === 'q') + '"' + (f.quarterly && f.quarterly.periods.length ? '' : ' disabled') + '>季报</button>' +
-      '<button type="button" data-fin="a" aria-pressed="' + (mode === 'a') + '"' + (f.annual && f.annual.periods.length ? '' : ' disabled') + '>年报</button></div>';
+    var seg = T('<div class="opts" role="group" aria-label="财报期间"><button type="button" data-fin="q" aria-pressed="') + (mode === 'q') + '"' + (f.quarterly && f.quarterly.periods.length ? '' : ' disabled') + T('>季报</button>') +
+      '<button type="button" data-fin="a" aria-pressed="' + (mode === 'a') + '"' + (f.annual && f.annual.periods.length ? '' : ' disabled') + T('>年报</button></div>');
     var mg = function (k) { return idx.map(function (i) { var r = (sec.revenue || [])[i], v = (sec[k] || [])[i]; return isNum(r) && r && isNum(v) ? v / r * 100 : null; }); };
-    var h = seg + '<h3 class="fin-h">【损益表】<span class="dim">单位 ' + cur + '</span></h3>' +
-      finTable(sec, idx, labs, [['revenue', '营收', 1], ['gross_profit', '毛利'], ['operating_income', '营业利润'], ['net_income', '净利润', 1], ['eps', 'EPS', 0, 1]]);
-    var sm = stepChart('毛利率', mg('gross_profit'), labs) + stepChart('营业利润率', mg('operating_income'), labs) + stepChart('净利率', mg('net_income'), labs);
-    if (sm) h += '<h3 class="fin-h">【盈利能力】<span class="dim">占营收 %</span></h3><div class="scs">' + sm + '</div>';
+    var h = seg + T('<h3 class="fin-h">【损益表】<span class="dim">单位 ') + cur + '</span></h3>' +
+      finTable(sec, idx, labs, [['revenue', T('营收'), 1], ['gross_profit', T('毛利')], ['operating_income', T('营业利润')], ['net_income', T('净利润'), 1], ['eps', 'EPS', 0, 1]]);
+    var sm = stepChart(T('毛利率'), mg('gross_profit'), labs) + stepChart(T('营业利润率'), mg('operating_income'), labs) + stepChart(T('净利率'), mg('net_income'), labs);
+    if (sm) h += T('<h3 class="fin-h">【盈利能力】<span class="dim">占营收 %</span></h3><div class="scs">') + sm + '</div>';
     var bs = bsChart(sec, idx, labs);
-    if (bs) h += '<h3 class="fin-h">【资产负债】</h3>' + bs + finTable(sec, idx, labs, [['total_assets', '总资产'], ['total_liabilities', '总负债'], ['equity', '股东权益'], ['cash', '现金'], ['total_debt', '总债务']]);
-    var cf = finTable(sec, idx, labs, [['operating_cf', '经营现金流', 1], ['capex', '资本支出'], ['free_cf', '自由现金流', 1]]);
-    if (cf) h += '<h3 class="fin-h">【现金流】</h3>' + cf;
-    return pn('FINANCIALS 财报', (mode === 'a' ? '年报' : '季报') + ' · Yahoo Finance', h + '<p class="dim fin-note">' + (mode === 'q' ? '季报每格 = 那一季 (月份 = 季末)。' : '') + '银行等金融股没有毛利 / 营业利润，会少几行。</p>');
+    if (bs) h += T('<h3 class="fin-h">【资产负债】</h3>') + bs + finTable(sec, idx, labs, [['total_assets', T('总资产')], ['total_liabilities', T('总负债')], ['equity', T('股东权益')], ['cash', T('现金')], ['total_debt', T('总债务')]]);
+    var cf = finTable(sec, idx, labs, [['operating_cf', T('经营现金流'), 1], ['capex', T('资本支出')], ['free_cf', T('自由现金流'), 1]]);
+    if (cf) h += T('<h3 class="fin-h">【现金流】</h3>') + cf;
+    return pn(T('FINANCIALS 财报'), (mode === 'a' ? T('年报') : T('季报')) + ' · Yahoo Finance', h + '<p class="dim fin-note">' + (mode === 'q' ? T('季报每格 = 那一季 (月份 = 季末)。') : '') + T('银行等金融股没有毛利 / 营业利润，会少几行。</p>'));
   }
   // 公司简介：官网、行业、员工、中文背景 + 业务线 (DeepSeek 按 Yahoo 英文介绍写的)，英文原文收在 ➡️ 里
   function profilePanel(code) {
-    if (!(code in PROF)) { loadDaily(code).then(function () { if (S.code === code) render(); }); return pn('PROFILE 公司简介', '', '<p class="dim">loading…</p>'); }
+    if (!(code in PROF)) { loadDaily(code).then(function () { if (S.code === code) render(); }); return pn(T('PROFILE 公司简介'), '', '<p class="dim">loading…</p>'); }
     var p = PROF[code];
-    if (!p) return pn('PROFILE 公司简介', '', '<p class="dim">还没有这家公司的资料 (每天会陆续补上)。</p>');
+    if (!p) return pn(T('PROFILE 公司简介'), '', T('<p class="dim">还没有这家公司的资料 (每天会陆续补上)。</p>'));
     var host = p.website ? p.website.replace(/^https?:\/\//i, '').replace(/\/$/, '') : '';
     var h = (PROF[code + '_name'] ? '<p><b>' + esc(PROF[code + '_name']) + '</b></p>' : '') +
-      (p.sector || p.industry ? '<p><span class="acc">行业</span> ' + esc([p.sector, p.industry].filter(Boolean).join(' / ')) + '</p>' : '') +
-      (p.website ? '<p><span class="acc">官网</span> <a href="' + esc(p.website) + '" target="_blank" rel="noopener">' + esc(host) + ' ↗</a></p>' : '') +
-      kv([['员工', isNum(p.employees) ? p.employees.toLocaleString('en') + ' 人' : '—'], ['所在地', esc(p.city || '—')]]);
-    if (p.zh) h += '<p>' + esc(p.zh) + '</p>' + (p.lines && p.lines.length ? '<ul class="prof-lines">' + p.lines.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '');
-    else if (p.summary) h += '<p class="dim">中文介绍还在生成，先看英文原文：</p>';
-    if (p.summary) h += '<details class="info"' + (p.zh ? '' : ' open') + '><summary>English <span class="arw" aria-hidden="true">➡️</span></summary><p class="dim prof-en">' + esc(p.summary) + '</p></details>';
-    return pn('PROFILE 公司简介', '来源 Yahoo Finance', h);
+      (p.sector || p.industry ? T('<p><span class="acc">行业</span> ') + esc([p.sector, p.industry].filter(Boolean).join(' / ')) + '</p>' : '') +
+      (p.website ? T('<p><span class="acc">官网</span> <a href="') + esc(p.website) + '" target="_blank" rel="noopener">' + esc(host) + ' ↗</a></p>' : '') +
+      kv([[T('员工'), isNum(p.employees) ? p.employees.toLocaleString('en') + T(' 人') : '—'], [T('所在地'), esc(p.city || '—')]]);
+    if (LANG === 'en') {
+      if (p.summary) h += '<p class="prof-en-main">' + esc(p.summary) + '</p>';
+      if (p.lines_en && p.lines_en.length) h += '<ul class="prof-lines">' + p.lines_en.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
+    } else {
+      if (p.zh) h += '<p>' + esc(p.zh) + '</p>' + (p.lines && p.lines.length ? '<ul class="prof-lines">' + p.lines.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '');
+      else if (p.summary) h += T('<p class="dim">中文介绍还在生成，先看英文原文：</p>');
+      if (p.summary) h += '<details class="info"' + (p.zh ? '' : ' open') + '><summary>English <span class="arw" aria-hidden="true">➡️</span></summary><p class="dim prof-en">' + esc(p.summary) + '</p></details>';
+    }
+    return pn(T('PROFILE 公司简介'), T('来源 Yahoo Finance'), h);
   }
   function pageQuote(code) {
     var s = ST[code];
@@ -952,24 +971,24 @@
       var bd = DAILY[code];
       if (bd === undefined) loadDaily(code).then(function () { if (S.code === code) render(); });
       var lst = bd && bd.length ? bd[bd.length - 1] : null, prv = bd && bd.length > 1 ? bd[bd.length - 2] : null, chg = lst && prv ? (lst.c / prv.c - 1) * 100 : null;
-      var hm = '<button type="button" class="back" data-back="1">← [q] 返回</button>' +
-        pn(esc(nameOf(code)), esc(code), (lst ? '<p><b style="font-size:18px">' + px(lst.c) + '</b> <span class="' + cls(chg) + '">' + pct(chg) + '</span>　<span class="dim">' + md(lst.d) + ' 收盘</span></p>' : '') +
-          watchToggles(code) + (bd && bd.length > 5 ? candleChart(bd.slice(-90), { rows: 14, label: nameOf(code) + ' 日线' }) : '<p class="dim">' + (bd === undefined ? 'loading…' : '没有日线') + '</p>') +
-          '<p class="dim">这支股票今天不在报告里 (成交量没达到门槛)，没有指标和信号。</p>');
+      var hm = T('<button type="button" class="back" data-back="1">← [q] 返回</button>') +
+        pn(esc(nameOf(code)), esc(code), (lst ? '<p><b style="font-size:18px">' + px(lst.c) + '</b> <span class="' + cls(chg) + '">' + pct(chg) + '</span>　<span class="dim">' + md(lst.d) + T(' 收盘</span></p>') : '') +
+          watchToggles(code) + (bd && bd.length > 5 ? candleChart(bd.slice(-90), { rows: 14, label: nameOf(code) + T(' 日线') }) : '<p class="dim">' + (bd === undefined ? 'loading…' : T('没有日线')) + '</p>') +
+          T('<p class="dim">这支股票今天不在报告里 (成交量没达到门槛)，没有指标和信号。</p>'));
       return hm + profilePanel(code) + intelPanel(code) + finPanel(code) + extraPanels(code);
     }
     var sig = (D.signals || []).filter(function (x) { return x.code === code; })[0], fol = (D.follow || []).filter(function (x) { return x.code === code; })[0];
-    var h = '<button type="button" class="back" data-back="1">← [q] 返回</button>';
-    h += pn(esc(s.name), esc(code), '<p><b style="font-size:18px">' + px(s.p) + '</b> <span class="' + cls(s.c) + '">' + pct(s.c) + '</span>' + (s.sig ? '　<span class="up">● SIGNAL</span>' : '') + (s.fresh ? '　<span class="acc">今天新进股票池</span>' : '') + '</p>' + watchToggles(code) +
-      chartFor(code, { rows: 14, stop: sig ? sig.stop : fol ? fol.stop : null, target: sig ? sig.target : null, label: s.name + ' 日线' }) +
-      kv([['成交量', big(s.vol)], ['成交额', 'RM ' + big(s.to)], ['相对量', isNum(s.rv) ? s.rv.toFixed(2) + '×' : '—', s.rv >= 2 ? 'warn' : ''], ['RSI(14)', isNum(s.rsi) ? s.rsi.toFixed(1) : '—'],
-        ['EMA20', px(s.ema), isNum(s.ema) ? (s.p > s.ema ? 'up' : 'dn') : ''], ['50日线', px(s.sma), isNum(s.sma) ? (s.p > s.sma ? 'up' : 'dn') : ''], ['SAR', s.sar == null ? '—' : s.sar ? '多头' : '空头', s.sar ? 'up' : 'dn'], ['ATR', isNum(s.atr) ? s.atr.toFixed(1) + '%' : '—'],
-        ['市值', isNum(s.mc) ? 'RM ' + big(s.mc) : '—'], ['股票池', s.sig ? '信号股' : s.pool ? (s.first ? md(s.first) + ' 起 · ' + s.streak + ' 天' : '在池') : '不在池'], ['上市', isNum(s.listed) ? s.listed + ' 天' : '> 90 天'], ['日期', md(D.date)]]));
-    if (sig) h += pn('LEVELS 信号参考位', 'SAR 转多', kv([['信号价', px(sig.price)], ['风险线', px(sig.stop), 'dn'], ['参考位', px(sig.target), 'up'], ['R:R', isNum(sig.rr) ? sig.rr.toFixed(1) : '—']]) +
-      '<pre class="txt">' + (sig.why || []).map(function (w) { return span('up', '[x]') + ' ' + esc(w); }).join('\n') + '</pre>' + (sig.digest ? '<p class="digest"><b>消息面&gt;</b> ' + esc(sig.digest) + '</p>' : ''));
-    else if (fol) h += pn('TRACKING 信号跟进', STN[fol.status], kv([['信号日', md(fol.sig)], ['信号价', px(fol.entry)], ['现价', px(fol.last)], ['之后涨跌', pct(fol.ret, 1), cls(fol.ret)],
-      ['天数', fol.days + ' 天'], ['风险线', px(fol.stop), 'dn'], ['距风险线', isNum(fol.dist) ? fol.dist.toFixed(1) + '%' : '—', fol.dist < 3 ? 'dn' : ''], ['状态', fol.status === 'out' ? (EXIT[fol.reason] || fol.reason) : STN[fol.status]]]) +
-      (fol.hits && fol.hits.length ? '<p class="warn">趋势检查: ' + esc(fol.hits.join('、')) + '</p>' : ''));
+    var h = T('<button type="button" class="back" data-back="1">← [q] 返回</button>');
+    h += pn(esc(s.name), esc(code), '<p><b style="font-size:18px">' + px(s.p) + '</b> <span class="' + cls(s.c) + '">' + pct(s.c) + '</span>' + (s.sig ? '　<span class="up">● SIGNAL</span>' : '') + (s.fresh ? T('　<span class="acc">今天新进股票池</span>') : '') + '</p>' + watchToggles(code) +
+      chartFor(code, { rows: 14, stop: sig ? sig.stop : fol ? fol.stop : null, target: sig ? sig.target : null, label: s.name + T(' 日线') }) +
+      kv([[T('成交量'), big(s.vol)], [T('成交额'), 'RM ' + big(s.to)], [T('相对量'), isNum(s.rv) ? s.rv.toFixed(2) + '×' : '—', s.rv >= 2 ? 'warn' : ''], ['RSI(14)', isNum(s.rsi) ? s.rsi.toFixed(1) : '—'],
+        ['EMA20', px(s.ema), isNum(s.ema) ? (s.p > s.ema ? 'up' : 'dn') : ''], [T('50日线'), px(s.sma), isNum(s.sma) ? (s.p > s.sma ? 'up' : 'dn') : ''], ['SAR', s.sar == null ? '—' : s.sar ? T('多头') : T('空头'), s.sar ? 'up' : 'dn'], ['ATR', isNum(s.atr) ? s.atr.toFixed(1) + '%' : '—'],
+        [T('市值'), isNum(s.mc) ? 'RM ' + big(s.mc) : '—'], [T('股票池'), s.sig ? T('信号股') : s.pool ? (s.first ? md(s.first) + T(' 起 · ') + s.streak + T(' 天') : T('在池')) : T('不在池')], [T('上市天数'), isNum(s.listed) ? s.listed + T(' 天') : T('> 90 天')], [T('日期'), md(D.date)]]));
+    if (sig) h += pn(T('LEVELS 信号参考位'), T('SAR 转多'), kv([[T('信号价'), px(sig.price)], [T('风险线'), px(sig.stop), 'dn'], [T('参考位'), px(sig.target), 'up'], ['R:R', isNum(sig.rr) ? sig.rr.toFixed(1) : '—']]) +
+      '<pre class="txt">' + (sig.why || []).map(function (w) { return span('up', '[x]') + ' ' + esc(tr(w)); }).join('\n') + '</pre>' + (L(sig, 'digest') ? T('<p class="digest"><b>消息面&gt;</b> ') + esc(L(sig, 'digest')) + '</p>' : ''));
+    else if (fol) h += pn(T('TRACKING 信号跟进'), STN[fol.status], kv([[T('信号日'), md(fol.sig)], [T('信号价'), px(fol.entry)], [T('现价'), px(fol.last)], [T('之后涨跌'), pct(fol.ret, 1), cls(fol.ret)],
+      [T('天数'), fol.days + T(' 天')], [T('风险线'), px(fol.stop), 'dn'], [T('距风险线'), isNum(fol.dist) ? fol.dist.toFixed(1) + '%' : '—', fol.dist < 3 ? 'dn' : ''], [T('状态'), fol.status === 'out' ? (EXIT[fol.reason] || fol.reason) : STN[fol.status]]]) +
+      (fol.hits && fol.hits.length ? T('<p class="warn">趋势检查: ') + esc(tr(fol.hits.join('、'))) + '</p>' : ''));
     h += profilePanel(code) + intelPanel(code) + finPanel(code) + extraPanels(code);
     return h;
   }
@@ -978,8 +997,8 @@
     var ex = EXTRA[code];
     if (!ex) { EXTRA[code] = 'loading'; fetchExtra(code); }
     var ann = ex && ex.ann || [], news = ex && ex.news || [];
-    h += pn('FILINGS 公告', ann.length ? ann.length + ' 条' : '', ex === 'loading' || !ex ? '<p class="dim">loading…</p>' : ann.length ? ann.slice(0, 10).map(function (a) { return '<p class="list-ann"><span class="dim">' + md(a.date) + '</span> <span class="tag dim">' + (CAT[a.cat] || a.cat) + '</span><a href="' + esc(a.link) + '" target="_blank" rel="noopener">' + esc(a.title) + '</a></p>'; }).join('') : '<p class="dim">没有抓到公告</p>');
-    h += pn('NEWS 新闻', '', ex === 'loading' || !ex ? '<p class="dim">loading…</p>' : news.length ? news.slice(0, 8).map(function (n) { return '<p class="list-ann"><span class="dim">' + (n.time ? md(new Date(n.time * 1000).toISOString().slice(0, 10)) : '') + '</span> <a href="' + esc(n.link) + '" target="_blank" rel="noopener">' + esc(n.title) + '</a> <span class="dim">' + esc(n.source || '') + '</span></p>'; }).join('') : '<p class="dim">最近没有新闻</p>');
+    h += pn(T('FILINGS 公告'), ann.length ? ann.length + T(' 条') : '', ex === 'loading' || !ex ? '<p class="dim">loading…</p>' : ann.length ? ann.slice(0, 10).map(function (a) { return '<p class="list-ann"><span class="dim">' + md(a.date) + '</span> <span class="tag dim">' + (CAT[a.cat] || a.cat) + '</span><a href="' + esc(a.link) + '" target="_blank" rel="noopener">' + esc(a.title) + '</a></p>'; }).join('') : T('<p class="dim">没有抓到公告</p>'));
+    h += pn(T('NEWS 新闻'), '', ex === 'loading' || !ex ? '<p class="dim">loading…</p>' : news.length ? news.slice(0, 8).map(function (n) { return '<p class="list-ann"><span class="dim">' + (n.time ? md(new Date(n.time * 1000).toISOString().slice(0, 10)) : '') + '</span> <a href="' + esc(n.link) + '" target="_blank" rel="noopener">' + esc(n.title) + '</a> <span class="dim">' + esc(n.source || '') + '</span></p>'; }).join('') : T('<p class="dim">最近没有新闻</p>'));
     return h;
   }
   function fetchExtra(code) {
@@ -994,15 +1013,15 @@
   // ---------- 外框 ----------
   // 顶部跑马灯：KLCI、涨 / 平 / 跌家数、USD/MYR、更新时间，后面接成交额前 10、成交量前 10 的涨跌 (不含仙股)；内容复制一份接在后面，无缝循环
   function status() {
-    var m = D.market || {}, ix = m.index, b = m.breadth, st = { live: '盘中 LIVE', pre: '开市前', closed: '收盘 CLOSED' }[D.state] || D.state, sep = ' <span class="g">│</span> ';
+    var m = D.market || {}, ix = m.index, b = m.breadth, st = { live: T('盘中 LIVE'), pre: T('开市前'), closed: T('收盘 CLOSED') }[D.state] || D.state, sep = ' <span class="g">│</span> ';
     var parts = [];
     if (ix) parts.push('<b>' + esc(ix.label.split(' ').pop()) + '</b> ' + ix.last.toLocaleString('en', { minimumFractionDigits: 2 }) + ' <span class="' + cls(ix.chg) + '">' + (ix.chg > 0 ? '▲' : ix.chg < 0 ? '▼' : '') + (ix.chg > 0 ? '+' : '') + ix.chg + ' ' + pct(ix.pct) + '</span>');
-    if (b) parts.push('<span class="up">涨 ▲' + b.up + '</span> <span class="dim">平 ■' + b.flat + '</span> <span class="dn">跌 ▼' + b.down + '</span>');
+    if (b) parts.push(T('<span class="up">涨 ▲') + b.up + T('</span> <span class="dim">平 ■') + b.flat + T('</span> <span class="dn">跌 ▼') + b.down + '</span>');
     if (isNum(m.usd_myr)) parts.push('<span class="dim">USD/MYR</span> ' + m.usd_myr.toFixed(4));
     parts.push('<span class="dim">' + esc(md(D.updated.slice(0, 10)) + D.updated.slice(10)) + ' ' + esc(D.tz || '') + '</span> <span class="' + (D.state === 'live' ? 'warn' : 'acc') + '">' + st + '</span>');
     // 成交额前 10、成交量前 10 (仙股不看：价格 < RM0.10 的剔除)
     var liq = LIST.filter(function (x) { return isNum(x.c) && isNum(x.p) && x.p >= 0.1; });
-    [['成交额 TOP10', 'to'], ['成交量 TOP10', 'vol']].forEach(function (g) {
+    [[T('成交额 TOP10'), 'to'], [T('成交量 TOP10'), 'vol']].forEach(function (g) {
       parts.push('<span class="tk-h">' + g[0] + '</span>');
       liq.slice().sort(function (x, y) { return (y[g[1]] || 0) - (x[g[1]] || 0); }).slice(0, 10).forEach(function (x) {
         parts.push('<b>' + esc(x.name) + '</b> ' + px(x.p) + ' <span class="' + cls(x.c) + '">' + (x.c > 0 ? '▲' : x.c < 0 ? '▼' : '') + pct(x.c, 1) + '</span>');
@@ -1016,7 +1035,7 @@
     var counts = { sig: (D.signals || []).length, watch: watchCount(), pool: LIST.filter(function (s) { return s.pool === 1; }).length, ann: (D.board || []).length };
     document.getElementById('keys').innerHTML = PAGES.map(function (p, i) {
       return '<button type="button" data-page="' + p[0] + '"' + (S.page === p[0] && !S.code ? ' aria-current="page"' : '') + '><span class="k">[' + (i + 1) + ']</span>' + p[1] + (counts[p[0]] ? ' ' + counts[p[0]] : '') + '</button>';
-    }).join('') + '<a class="ui-std" href="' + esc(stdUrl()) + '">⚙ 标准风格</a>';
+    }).join('') + '<a class="ui-std" href="' + esc(stdUrl()) + T('">⚙ 标准风格</a>');
   }
   function stdUrl() { return (D.report || '../') + '?ui=std'; }
   function render() {
@@ -1114,6 +1133,19 @@
   }
   try { var th = localStorage.getItem('bterm_theme'); if (th === 'dark' || th === 'light') document.documentElement.dataset.theme = th; } catch (e) {}
   document.getElementById('theme-btn').addEventListener('click', toggleTheme);
+  // 中文 ⇄ English：存进 bursa_lang (跟标准报告共用)，重新载入
+  (function () {
+    var lb = document.getElementById('lang-btn');
+    if (lb) { lb.textContent = LANG === 'en' ? '中文' : 'EN'; lb.setAttribute('aria-label', LANG === 'en' ? '切换到中文' : 'Switch to English');
+      lb.addEventListener('click', function () { try { localStorage.setItem('bursa_lang', LANG === 'en' ? 'zh' : 'en'); } catch (e) {}
+        location.replace(location.pathname + location.search.replace(/([?&])lang=(en|zh)&?/, '$1').replace(/[?&]$/, '') + location.hash); }); }
+    if (LANG !== 'en') return;
+    var set = function (id, txt) { var el = document.getElementById(id); if (el) el.textContent = txt; };
+    set('theme-btn', '[t] Theme'); set('keys-help', 'Keys 1–7 switch pages, / search, q back');
+    set('disclaimer', 'For research only, not investment advice · Data: Yahoo Finance, Bursa (via KLSE Screener), Google News');
+    set('full-report', '⚙ Standard view');
+    if (main.querySelector('.dim')) main.innerHTML = '<p class="dim">Loading data…</p>';
+  })();
 
   fetch('data.json?v=' + V).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function (j) {
     D = j; ingest(); fromHash();
@@ -1124,6 +1156,6 @@
     document.getElementById('full-report').href = stdUrl();
     render();
   }).catch(function (err) {
-    main.innerHTML = '<p class="dn">读取 data.json 失败 (' + esc(err.message) + ')。报告可能还在生成，稍后再刷新。</p>';
+    main.innerHTML = T('<p class="dn">读取 data.json 失败 (') + esc(err.message) + T(')。报告可能还在生成，稍后再刷新。</p>');
   });
 })();

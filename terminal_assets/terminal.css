@@ -290,3 +290,10 @@ pre.txt .nm { font: inherit; }
 .ai-set label { display: grid; gap: 4px; color: var(--mut); font-size: 12px; }
 .ai-note { font-size: 11px; }
 .foot { padding-bottom: 60px; }
+
+/* English 模式：英文比中文宽，几处放宽 / 收小一点，避免挤成两行 */
+html[data-lang="en"] .prof-en-main { font-size: 12.5px; line-height: 1.6; }
+html[data-lang="en"] .keys button { padding: 9px 8px; }
+html[data-lang="en"] .kv > div > span:first-child { font-size: 12px; }
+html[data-lang="en"] .ft { font-size: 10px; }
+#lang-btn { color: var(--acc2); }
