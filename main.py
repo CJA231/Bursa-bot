@@ -5493,6 +5493,12 @@ def main():
                     watchlist_path=WATCHLIST_PATH)
             if out_dir:
                 print(f"🖥️ 终端版已生成: {out_dir}/")
+                # 新股 IPO 日历 + 上市表现 (KLSE Screener IPO 页 + Yahoo 日线)：状态在 data/ipos.json，终端版读 docs/terminal/ipo.json
+                try:
+                    import ipo_calendar
+                    ipo_calendar.export(ipo_calendar.update(os.path.join("data", "ipos.json"), now_dt), os.path.join(out_dir, "ipo.json"))
+                except Exception as e:
+                    print(f"⚠️ IPO 日历更新失败 ({type(e).__name__}: {e})")
         except Exception as e:
             print(f"⚠️ 终端版生成失败 ({type(e).__name__}: {e})")
     report_secs = time.perf_counter() - t_report
