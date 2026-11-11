@@ -101,3 +101,30 @@ pre::-webkit-scrollbar { display: none; }
 .foot p { margin: 0 0 4px; }
 .foot button { color: var(--acc); }
 .back { color: var(--acc); padding: 4px 0; }
+
+/* 信号卡：股名按钮、Info ➡️ 折叠 (点开才看到符合的条件)、页签尾的风格切换 */
+.nm { text-align: left; }
+.info > summary { list-style: none; cursor: pointer; color: var(--acc); padding: 6px 0; display: inline-flex; gap: 6px; align-items: center; min-height: 36px; }
+.info > summary::-webkit-details-marker { display: none; }
+.info .arw { display: inline-block; transition: transform 0.15s; }
+.info[open] .arw { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .info .arw { transition: none; } }
+.info > pre { margin-top: 4px; }
+.keys .ui-std { flex: none; margin-left: auto; padding: 9px 9px; color: var(--acc); white-space: nowrap; text-decoration: none; min-height: 40px; display: inline-flex; align-items: center; }
+
+/* 自定义回测 */
+.seg { margin-bottom: -6px; }
+.chip { border: 1px solid var(--line) !important; }
+.cb-dates, .cb-exit { display: grid; gap: 6px; }
+.cb-dates { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cb-dates label, .cb-exit label { display: flex; align-items: center; gap: 6px; color: var(--mut); min-width: 0; }
+.cb-exit label input[type="checkbox"] + * { color: var(--fg); }
+.cb-rules { display: grid; gap: 2px; }
+.cb-rules label, .cb-exit label:has(input[type="checkbox"]) { color: var(--fg); min-height: 32px; display: flex; align-items: center; gap: 8px; }
+input[type="date"], input[type="number"] { font: inherit; color: var(--fg); background: var(--bg2); border: 1px solid var(--line); padding: 4px 6px; min-width: 0; width: 100%; border-radius: 0; }
+.cb-exit input[type="number"] { width: 7ch; flex: none; margin-left: auto; }
+input[type="checkbox"] { accent-color: var(--acc); width: 16px; height: 16px; flex: none; margin: 0; }
+.run { width: 100%; padding: 10px; border: 1px solid var(--acc); color: var(--acc); font-weight: 700; min-height: 44px; }
+.run:hover { background: var(--acc); color: var(--bg); }
+.run[disabled] { opacity: 0.6; cursor: wait; }
+pre.txt .nm { font: inherit; }
