@@ -1144,6 +1144,7 @@
     set('theme-btn', '[t] Theme'); set('keys-help', 'Keys 1–7 switch pages, / search, q back');
     set('disclaimer', 'For research only, not investment advice · Data: Yahoo Finance, Bursa (via KLSE Screener), Google News');
     set('full-report', '⚙ Standard view');
+    set('legal-link', 'Terms of use & disclaimer');
     if (main.querySelector('.dim')) main.innerHTML = '<p class="dim">Loading data…</p>';
   })();
 

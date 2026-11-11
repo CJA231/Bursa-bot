@@ -5053,6 +5053,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
     <p>行情数据来自公开渠道 (Yahoo Finance)，可能有延迟或错误，仅供个人研究参考，不构成投资建议。</p>
     <p>© {datetime.now(LOCAL_TZ).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
     <p>K 线图: TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · https://www.tradingview.com/ (Apache License 2.0)</p>
+    <p><a href="{ASSET_PREFIX}terminal/legal.html">完整的使用条款、免责声明与隐私说明 ↗</a> (非 SC 持牌投资顾问；AI 生成内容可能有错漏)</p>
   </details>
 </footer>
 

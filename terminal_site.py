@@ -15,7 +15,7 @@ TERM_DIR = os.environ.get("TERMINAL_SITE_DIR") or os.path.join("docs", "terminal
 BARS_DAYS = 90
 CHANGES_DAYS = 14
 BOARD_MAX = 80
-ASSETS = ("index.html", "terminal.css", "terminal.js", "terminal_en.js")
+ASSETS = ("index.html", "terminal.css", "terminal.js", "terminal_en.js", "legal.html")
 
 
 def _f(v, d=3):
@@ -141,7 +141,7 @@ def build(stocks, market, backtest, board, focus_new, state, updated, tz_label, 
     version = str(abs(hash(updated)) % 10 ** 8)
     for name in ASSETS:
         src = os.path.join(here, "terminal_assets", name)
-        if name == "index.html":
+        if name.endswith(".html"):
             with open(src, encoding="utf-8") as f:
                 page = f.read().replace("__V__", version)
             with open(os.path.join(out_dir, name), "w", encoding="utf-8") as f:

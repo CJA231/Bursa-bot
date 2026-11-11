@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>使用条款与免责声明 · Bursa Bot</title>
+<link rel="stylesheet" href="terminal.css?v=__V__">
+<style>
+  .legal { max-width: 760px; margin: 0 auto; padding: 20px 16px 60px; line-height: 1.7; }
+  .legal h1 { font-size: 18px; color: var(--acc); margin: 8px 0 4px; }
+  .legal h2 { font-size: 14px; color: var(--acc); margin: 22px 0 6px; }
+  .legal p, .legal li { font-size: 13px; }
+  .legal ul { padding-left: 1.2em; margin: 4px 0; }
+  .legal .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; position: static; }
+  .legal .top a, .legal .top button { color: var(--acc2); }
+  [data-l="en"] { display: none; }
+  html[data-lang="en"] [data-l="zh"] { display: none; }
+  html[data-lang="en"] [data-l="en"] { display: block; }
+</style>
+<script>
+  // 语言跟终端版 / 标准报告共用 (localStorage bursa_lang)
+  try { if (localStorage.getItem('bursa_lang') === 'en') { document.documentElement.dataset.lang = 'en'; document.documentElement.lang = 'en'; } } catch (e) {}
+</script>
+</head>
+<body>
+<div class="legal">
+  <div class="top"><a href="./">← bursa.term</a><button type="button" id="lb" onclick="try{localStorage.setItem('bursa_lang',document.documentElement.dataset.lang==='en'?'zh':'en')}catch(e){};location.reload()">EN / 中文</button></div>
+
+  <section data-l="zh">
+    <h1>使用条款与免责声明</h1>
+    <p class="dim">最后更新：2026 年 11 月 11 日。使用本网站 (标准报告、终端版及其下载文件) 即表示你同意以下条款。</p>
+
+    <h2>1. 不构成投资建议</h2>
+    <p>本网站的所有内容，包括信号、筛选结果、回测、热力图、日历、财报图表、公司简介和 AI 生成的文字，只是根据公开资料和固定规则整理出来的资讯，用于研究和学习。它们<b>不是</b>买入、卖出或持有任何证券的建议，也不考虑你的财务状况、投资目标或风险承受能力。</p>
+    <p>本网站及其作者<b>不是</b>马来西亚证券监督委员会 (Securities Commission Malaysia) 根据《2007 年资本市场与服务法令》(Capital Markets and Services Act 2007) 持牌的投资顾问或资本市场服务提供者。任何投资决定请自行判断，必要时咨询持牌专业人士。</p>
+
+    <h2>2. 风险</h2>
+    <p>股票投资有风险，价格可涨可跌，你可能损失全部本金。过去的表现 (包括回测和模拟结果) 不代表将来。回测是在简化假设下的模拟，未反映实际成交价、流动性、滑价和全部费用。</p>
+
+    <h2>3. 资料来源与准确性</h2>
+    <p>价格、财报和公司资料来自 Yahoo Finance；公司公告经 KLSE Screener 取得 (原始来源为 Bursa Malaysia)；新闻标题来自 Google News。这些资料可能延迟、不完整或有错误。本网站按「现状」提供，不保证资料准确、完整或及时，资料以各公司在 Bursa Malaysia 发布的原始公告为准。</p>
+
+    <h2>4. AI 生成内容</h2>
+    <p>「AI 分析」、企业活动日历、消息面摘要、公司中文介绍和「✦ AI」问答由 DeepSeek 等人工智能模型根据公开资料自动生成，可能出现错误、遗漏或误解。这些内容已尽量过滤买卖建议和好坏评价，但仍不应被当作专业意见。📌 / ⚠ 标记只表示「值得注意」，不代表利好或利空。</p>
+
+    <h2>5. 责任限制</h2>
+    <p>在法律允许的最大范围内，作者对任何人因使用或依赖本网站内容而直接或间接造成的任何损失 (包括投资亏损) 概不负责。</p>
+
+    <h2>6. 知识产权与使用限制</h2>
+    <p>本网站的程序、策略、版面设计和生成的报告受版权保护，保留所有权利 (All Rights Reserved)。未经书面许可，不得复制、转载、再发布、抓取 (scraping) 或用于商业用途。完整条款见仓库内的 LICENSE 文件。</p>
+    <p>Bursa Malaysia、FTSE Bursa Malaysia KLCI、Yahoo、TradingView、DeepSeek、KLSE Screener、Google 等名称和商标属于各自的拥有者；本网站与它们没有任何关联，也没有获得它们的认可。图表使用 TradingView Lightweight Charts™ (Apache License 2.0)。</p>
+
+    <h2>7. 隐私</h2>
+    <ul>
+      <li>本网站没有用户账户，不收集你的姓名、电邮或其他个人资料。</li>
+      <li>观察列表、语言、主题、自定义回测设定等只存在你这台设备的浏览器 (localStorage)，不会上传。</li>
+      <li>使用「✦ AI」时，你的问题和当前页面的股票资料会发送给 DeepSeek (经你自己设置的 Cloudflare Worker 或你自己的 API 密钥)。请不要在问题里输入个人资料。</li>
+      <li>页面会从 Google Fonts 载入字体，Google 因此会看到你的 IP 地址。</li>
+    </ul>
+
+    <h2>8. 条款变更与联系</h2>
+    <p>条款可能随时更新，更新后继续使用即表示接受。问题或授权请求请经 GitHub (@CJA231) 联系。</p>
+  </section>
+
+  <section data-l="en">
+    <h1>Terms of Use &amp; Disclaimer</h1>
+    <p class="dim">Last updated: 11 November 2026. By using this website (the standard report, the terminal and their downloads) you agree to these terms.</p>
+
+    <h2>1. Not investment advice</h2>
+    <p>Everything on this website, including signals, screens, backtests, heatmaps, calendars, financial charts, company profiles and AI-generated text, is information compiled from public sources using fixed rules, for research and education. It is <b>not</b> a recommendation to buy, sell or hold any security and does not take into account your financial situation, objectives or risk tolerance.</p>
+    <p>This website and its author are <b>not</b> licensed by the Securities Commission Malaysia as an investment adviser or capital markets services provider under the Capital Markets and Services Act 2007. Make your own decisions and consult a licensed professional where appropriate.</p>
+
+    <h2>2. Risk</h2>
+    <p>Investing in shares involves risk; prices can fall as well as rise and you may lose all of your capital. Past performance, including backtests and simulations, is not a guide to the future. Backtests use simplified assumptions and do not reflect actual fills, liquidity, slippage or all costs.</p>
+
+    <h2>3. Data sources and accuracy</h2>
+    <p>Prices, financials and company information come from Yahoo Finance; company announcements are obtained via KLSE Screener (originally published by Bursa Malaysia); news headlines come from Google News. This data may be delayed, incomplete or wrong. The website is provided “as is” without any warranty of accuracy, completeness or timeliness; the companies’ original announcements on Bursa Malaysia prevail.</p>
+
+    <h2>4. AI-generated content</h2>
+    <p>The AI summary, corporate-action calendar, news digest, company descriptions and the “✦ AI” assistant are generated automatically by AI models such as DeepSeek from public information and may contain errors, omissions or misreadings. They are filtered to avoid trading advice and good/bad judgements, but must not be treated as professional advice. The 📌 / ⚠ marks only mean “worth noticing”, not positive or negative.</p>
+
+    <h2>5. Limitation of liability</h2>
+    <p>To the fullest extent permitted by law, the author accepts no liability for any loss, including investment losses, arising directly or indirectly from the use of or reliance on this website.</p>
+
+    <h2>6. Intellectual property and permitted use</h2>
+    <p>The software, strategies, design and generated reports are protected by copyright; all rights reserved. Copying, republishing, redistributing, scraping or commercial use without written permission is not allowed. See the LICENSE file in the repository for the full terms.</p>
+    <p>Bursa Malaysia, FTSE Bursa Malaysia KLCI, Yahoo, TradingView, DeepSeek, KLSE Screener, Google and other names and marks belong to their respective owners; this website is not affiliated with or endorsed by them. Charts use TradingView Lightweight Charts™ (Apache License 2.0).</p>
+
+    <h2>7. Privacy</h2>
+    <ul>
+      <li>There are no user accounts; no name, email or other personal data is collected.</li>
+      <li>Your watchlist, language, theme and custom-backtest settings stay in this device’s browser (localStorage) and are never uploaded.</li>
+      <li>When you use “✦ AI”, your question and the stock data on the page are sent to DeepSeek (through the Cloudflare Worker you set up or your own API key). Do not include personal information in questions.</li>
+      <li>Fonts are loaded from Google Fonts, so Google can see your IP address.</li>
+    </ul>
+
+    <h2>8. Changes and contact</h2>
+    <p>These terms may be updated at any time; continued use means you accept the updated terms. For questions or permission requests, contact @CJA231 on GitHub.</p>
+  </section>
+</div>
+</body>
+</html>
