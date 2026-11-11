@@ -76,7 +76,63 @@ def dump_lists():
             print(f"[{label}] ERROR {type(e).__name__}: {e}")
 
 
+def dump_views():
+    """公告内文 (KLSE Screener /v2/announcements/view/<id>) 去掉标签后长什么样；新上市 / IPO 页面在不在"""
+    import os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    os.environ.setdefault("DEEPSEEK_KEY", "unused")
+    import main as m
+    rows = m.klse_announcements()
+    want = [r for r in rows if re.search(r"book closure|entitlement|dividend|general meeting|AGM|EGM|listing|warrant|bonus|rights|IPO|prospectus", r["title"], re.I)][:4]
+    print(f"[list] {len(rows)} rows; picked", [(r["id"], r["title"][:60]) for r in want])
+    for r in want:
+        h = requests.get(m.KLSE_ANN_VIEW.format(r["id"]), headers=UA, timeout=20).text
+        body = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", h)
+        txt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body))
+        k = txt.find(r["title"][:25])
+        links = re.findall(r'href="([^"]*(?:bursamalaysia|disclosure)[^"]*)"', h)[:3]
+        print(f"---- view {r['id']} len={len(h)} title_at={k} links={links}")
+        print("    " + txt[max(0, k):k + 1800] if k >= 0 else "    " + txt[:1800])
+    for label, url in (("klse ipo", "https://www.klsescreener.com/v2/ipo"), ("klse new listing", "https://www.klsescreener.com/v2/stocks/new-listing"),
+                       ("klse warrants", "https://www.klsescreener.com/v2/warrants"), ("i3 ipo", "https://klse.i3investor.com/web/ipo"),
+                       ("i3 entitlement 1155", "https://klse.i3investor.com/web/stock/entitlement/1155"), ("msb ipo", "https://www.malaysiastock.biz/Listed-Companies.aspx?type=I")):
+        try:
+            rr = requests.get(url, headers=UA, timeout=20)
+            t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", rr.text)))
+            print(f"[{label}] {rr.status_code} len={len(rr.text)} dtdata={'dtdata' in rr.text}\n    {t[:700]}")
+        except Exception as e:
+            print(f"[{label}] ERROR {type(e).__name__}: {e}")
+
+
+def dump_nav():
+    """KLSE Screener / i3investor 菜单里 IPO、Entitlements、Meeting Calendar、Additional Listing 的真正网址，以及那些页面的结构"""
+    pages = {}
+    for site, url in (("klse", "https://www.klsescreener.com/v2/announcements"), ("i3", "https://klse.i3investor.com/web/stock/entitlement/1155")):
+        h = requests.get(url, headers=UA, timeout=20).text
+        for href, label in re.findall(r'<a[^>]+href="([^"#]+)"[^>]*>\s*([^<]{2,40}?)\s*</a>', h):
+            if re.search(r"ipo|entitle|dividend|meeting|additional|listing|warrant|share issued", label + href, re.I):
+                full = href if href.startswith("http") else ("https://www.klsescreener.com" if site == "klse" else "https://klse.i3investor.com") + href
+                pages.setdefault(full, label.strip())
+    print("[nav]", pages)
+    for url, label in list(pages.items())[:9]:
+        try:
+            rr = requests.get(url, headers=UA, timeout=20)
+            body = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", rr.text)
+            t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body))
+            k = max(t.find("Date"), 0)
+            dt = re.search(r"const dtdata = (\[.{0,700})", rr.text, re.S)
+            print(f"[{label}] {rr.status_code} {url} len={len(rr.text)} tables={rr.text.count('<tr')}\n    text: {t[k:k + 900]}\n    dtdata: {dt.group(1) if dt else None}")
+        except Exception as e:
+            print(f"[{label}] ERROR {e}")
+
+
 def main():
+    if "--nav" in sys.argv:
+        dump_nav()
+        return
+    if "--views" in sys.argv:
+        dump_views()
+        return
     if "--lists" in sys.argv:
         dump_lists()
         return

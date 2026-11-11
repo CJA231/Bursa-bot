@@ -1653,14 +1653,17 @@ def keep_profile_zh(detail, code):
         return
     if old.get("zh") and old.get("summary") == prof.get("summary"):
         prof["zh"], prof["lines"] = old["zh"], old.get("lines") or []
+        if "lines_en" in old:
+            prof["lines_en"] = old["lines_en"]
 
 
 PROFILE_ZH_PER_RUN = 15  # 每次最多帮几家公司写中文介绍 (写过就存在 stock/<代码>.json，不会重复写)
 PROFILE_SYSTEM_PROMPT = """你帮投资者看懂一家上市公司是做什么的。根据给你的英文公司介绍，用简体中文写：
 - intro: 2~3 句公司背景 (成立 / 总部 / 规模 / 在行业里的位置，介绍里有的才写)
 - lines: 主要业务线 2~5 条，每条「业务名称：具体做什么 / 卖什么 / 客户是谁」，一句话
+- lines_en: 同样的业务线，用简洁的英文写 (给英文版页面用)
 只根据介绍内容，不要编造数字，不要评价好坏，不要给任何投资建议。公司名、品牌名保留英文。
-只输出 JSON: {"intro": "...", "lines": ["...", "..."]}"""
+只输出 JSON: {"intro": "...", "lines": ["...", "..."], "lines_en": ["...", "..."]}"""
 
 
 def add_profile_zh(stocks):
@@ -1676,14 +1679,14 @@ def add_profile_zh(stocks):
         except Exception:
             continue
         prof = d.get("profile") or {}
-        if not prof.get("summary") or prof.get("zh"):
-            continue
+        if not prof.get("summary") or (prof.get("zh") and "lines_en" in prof):
+            continue  # 中文介绍和英文业务线都有了
         try:
             r = client.chat.completions.create(
                 model="deepseek-chat",
                 messages=[{"role": "system", "content": PROFILE_SYSTEM_PROMPT},
                           {"role": "user", "content": f"公司: {d.get('long_name') or s['name']}\n行业: {prof.get('sector')} / {prof.get('industry')}\n介绍:\n{prof['summary'][:3000]}"}],
-                temperature=0.1, max_tokens=500, response_format={"type": "json_object"})
+                temperature=0.1, max_tokens=800, response_format={"type": "json_object"})
             out = json.loads(r.choices[0].message.content or "{}")
         except Exception as e:
             print(f"⚠️ DeepSeek 公司介绍失败 {s['symbol']} ({type(e).__name__}: {e})")
@@ -1693,6 +1696,7 @@ def add_profile_zh(stocks):
             continue
         prof["zh"] = intro
         prof["lines"] = [strip_trade_advice(str(x).strip()) for x in (out.get("lines") or []) if str(x).strip()][:6]
+        prof["lines_en"] = [str(x).strip() for x in (out.get("lines_en") or []) if str(x).strip() and not EN_ADVICE_RE.search(str(x))][:6]
         d["profile"] = prof
         with open(path, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False, separators=(",", ":"))
@@ -5049,6 +5053,7 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
     <p>行情数据来自公开渠道 (Yahoo Finance)，可能有延迟或错误，仅供个人研究参考，不构成投资建议。</p>
     <p>© {datetime.now(LOCAL_TZ).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
     <p>K 线图: TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · https://www.tradingview.com/ (Apache License 2.0)</p>
+    <p><a href="{ASSET_PREFIX}terminal/legal.html">完整的使用条款、免责声明与隐私说明 ↗</a> (非 SC 持牌投资顾问；AI 生成内容可能有错漏)</p>
   </details>
 </footer>
 

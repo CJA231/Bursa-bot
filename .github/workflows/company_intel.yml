@@ -1,0 +1,58 @@
+# 公司情报 (AI 分析)：DeepSeek 逐家整理「最近发生什么事」，写到 docs/intel/。跟每日筛选完全分开 (cron-job.org 只触发 daily.yml)。
+# 每天收盘后自动跑一次 (GitHub 的定时可能晚一点，没关系)，也可以在 Actions 手动跑。一次最多 limit 家，没变的不重复问 DeepSeek。
+name: Company intel (DeepSeek)
+
+on:
+  schedule:
+    - cron: "17 11 * * 1-5"   # 马来西亚时间 19:17 (收盘后)，周一到周五
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: '这次最多处理几家 (约 1,100 家，每家 1 次 DeepSeek)'
+        default: '120'
+      codes:
+        description: '只做这几家 (逗号分隔的代码，例如 5335,1155；留空 = 按顺序补)'
+        default: ''
+      force:
+        description: '资料没变也重新分析'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# 跟每日报告同一组：轮流跑，不会同时 git push 撞在一起
+concurrency:
+  group: publish-report
+  cancel-in-progress: false
+
+jobs:
+  intel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Analyse companies
+        env:
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+          PYTHONUNBUFFERED: '1'
+          LIMIT: ${{ github.event.inputs.limit || '120' }}
+          CODES: ${{ github.event.inputs.codes || '' }}
+          FORCE: ${{ github.event.inputs.force == 'true' && '--force' || '' }}
+        run: |
+          python scripts/company_intel.py --limit "$LIMIT" --codes "$CODES" $FORCE | tee intel_log.txt
+          { echo '### 公司情报'; echo '```'; tail -n 40 intel_log.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A docs/intel
+          git diff --staged --quiet && exit 0
+          git commit -m "Update company intel"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push

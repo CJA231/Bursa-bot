@@ -18,6 +18,7 @@
   // ---------- 1. 整段一样 ----------
   var EXACT = {
     // 页面框架
+    '完整的使用条款、免责声明与隐私说明 ↗': 'Full terms of use, disclaimer and privacy ↗', '(非 SC 持牌投资顾问；AI 生成内容可能有错漏)': '(not an SC-licensed investment adviser; AI-generated content may contain errors)',
     '马股自动分析报告': 'Bursa Malaysia · Auto Report', '美股自动分析报告': 'US Market · Auto Report', 'Bursa Bot 收纳版样板': 'Bursa Bot',
     '盘中': 'Live', '开市前': 'Pre-open', '已收盘': 'Closed',
     '今天': 'Today', '市场': 'Market', '筛选器': 'Screener', '信号': 'Signals', '回测': 'Backtest', '公告': 'Filings', '股票': 'Stocks',
