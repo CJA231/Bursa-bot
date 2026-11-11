@@ -1,4 +1,4 @@
-// bursa.term — 马股终端版 (纯文字 / Nord)。数据: data.json (今天的结果) + bars.json (日线，打开后在背景下载)
+// bursa.term — 马股终端版 (纯文字 / ASCII 终端配色)。数据: data.json (今天的结果) + bars.json (日线，打开后在背景下载)
 // 页面: 1 信号 · 2 持仓 · 3 回测 · 4 股票池 · 5 市场 · 6 公告；#q-<代码> = 个股。图全部用字符画 (█ │ ▁▂▃ …)。
 (function () {
   'use strict';
@@ -21,7 +21,9 @@
   function rm(v) { return !isNum(v) ? '—' : (v > 0 ? '+' : v < 0 ? '-' : '') + 'RM ' + Math.round(Math.abs(v)).toLocaleString('en'); }
   function md(d) { return d ? d.slice(5).replace('-', '/') : '—'; }
   function pad(s, n, right) { s = String(s); return s.length >= n ? s.slice(0, n) : right ? ' '.repeat(n - s.length) + s : s + ' '.repeat(n - s.length); }
-  function meter(f, n) { var k = Math.max(0, Math.min(n, Math.round(f * n))); return '█'.repeat(k) + '░'.repeat(n - k); }
+  function meter(f, n) { var k = Math.max(0, Math.min(n, Math.round(f * n))); return '█'.repeat(k) + span('g', '░'.repeat(n - k)); }  // 空的部分用暗灰，满的部分颜色更跳
+  // 中文字比一格宽：标签放进固定宽度的格子里，后面的条才对得齐
+  function cell(t, n) { return '<span class="cell" style="width:' + n + 'ch">' + t + '</span>'; }
   function span(c, t) { return c ? '<span class="' + c + '">' + t + '</span>' : t; }
   var EIGHTHS = ' ▁▂▃▄▅▆▇█';
   function spark(vals, n) {
@@ -60,7 +62,7 @@
     var g = [];
     for (var r = 0; r < rows; r++) { g.push([]); for (var i = 0; i < W; i++) g[r].push([' ', '']); }
     bs.forEach(function (b, i) {
-      var c = b.c >= b.o ? 'up' : 'dn', bt = Math.max(b.o, b.c), bb = Math.min(b.o, b.c);
+      var c = b.c >= b.o ? 'cu' : 'cd', bt = Math.max(b.o, b.c), bb = Math.min(b.o, b.c);
       for (var r = 0; r < rows; r++) {
         var top = hi - r * step, bot = top - step, ov = Math.min(bt, top) - Math.max(bb, bot);
         if (bt - bb < step * 0.25 && (bt + bb) / 2 <= top && (bt + bb) / 2 > bot) g[r][i] = ['━', c];
@@ -70,7 +72,7 @@
     });
     em.forEach(function (v, i) { if (i + off >= 19) { var r = rowOf(v); if (g[r][i][0] === ' ') g[r][i] = ['·', 'e']; } });
     var marks = {};
-    [[opt.stop, 'dn', 'STOP'], [opt.target, 'up', 'TGT ']].forEach(function (m) {
+    [[opt.stop, 'cd', 'STOP'], [opt.target, 'cu', 'TGT ']].forEach(function (m) {
       if (!isNum(m[0]) || m[0] < lo || m[0] > hi) return;
       var r = rowOf(m[0]); marks[r] = m;
       for (var i = 0; i < W; i++) if (g[r][i][0] === ' ') g[r][i] = ['╌', m[1]];
@@ -85,7 +87,7 @@
       out.push(line + lab);
     }
     var mv = Math.max.apply(null, bs.map(function (b) { return b.v || 0; })) || 1, vl = '', vc = null, vb = '';
-    bs.forEach(function (b) { var c = b.c >= b.o ? 'up' : 'dn', ch = EIGHTHS[Math.max(1, Math.round((b.v || 0) / mv * 8))]; if (c !== vc) { vl += span(vc, vb); vb = ''; vc = c; } vb += ch; });
+    bs.forEach(function (b) { var c = b.c >= b.o ? 'vu' : 'vd', ch = EIGHTHS[Math.max(1, Math.round((b.v || 0) / mv * 8))]; if (c !== vc) { vl += span(vc, vb); vb = ''; vc = c; } vb += ch; });
     vl += span(vc, vb) + span('dim', ' VOL');
     out.push(vl);
     var d0 = md(bs[0].d), d1 = md(bs[bs.length - 1].d);
@@ -99,13 +101,13 @@
     vals = vals.filter(isNum); if (vals.length < 2) return '<p class="dim">数据不够</p>';
     var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
     if (opt.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
-    var r = hi - lo || 1, colv = [];
-    for (var i = 0; i < W; i++) colv.push(vals[Math.min(vals.length - 1, Math.floor(i * vals.length / W))]);
+    var r = hi - lo || 1, colv = [], coli = [];
+    for (var i = 0; i < W; i++) { var j = Math.min(vals.length - 1, Math.floor(i * vals.length / W)); colv.push(vals[j]); coli.push(j); }
     var zr = opt.zero ? (0 - lo) / r * rows : null, out = [];
     for (var y = rows - 1; y >= 0; y--) {
       var line = '', cur = null, buf = '';
-      colv.forEach(function (v) {
-        var h = (v - lo) / r * rows, f = Math.max(y === 0 && zr == null ? 0.5 : 0, Math.min(1, h - y)), ch = f >= 0.75 ? '█' : f >= 0.25 ? '▄' : ' ', c = opt.color ? opt.color(v) : 'acc';
+      colv.forEach(function (v, i) {
+        var h = (v - lo) / r * rows, f = Math.max(y === 0 && zr == null ? 0.5 : 0, Math.min(1, h - y)), ch = f >= 0.75 ? '█' : f >= 0.25 ? '▄' : ' ', c = opt.color ? opt.color(v, coli[i], vals) : 'acc';
         if (ch === ' ' && zr != null && Math.floor(zr) === y) { ch = '┄'; c = 'g'; }
         if (c !== cur) { line += span(cur, buf); buf = ''; cur = c; } buf += ch;
       });
@@ -142,7 +144,7 @@
   function sparkFor(code, n) { var b = bars(code); return b ? spark(b.slice(-30).map(function (x) { return x.c; }), n) : ''; }
 
   // ---------- 页面 ----------
-  function pn(title, sub, inner) { return '<section class="pn"><h2>' + title + (sub ? ' <small>' + sub + '</small>' : '') + '</h2><div class="stack">' + inner + '</div></section>'; }
+  function pn(title, sub, inner) { return '<section class="pn"><h2><span class="tt">' + title + '</span>' + (sub ? '<small>' + sub + '</small>' : '') + '</h2><div class="stack">' + inner + '</div></section>'; }
   function kv(items, four) { return '<div class="kv' + (four ? ' k4' : '') + '">' + items.map(function (x) { return '<div><span>' + x[0] + '</span><span class="' + (x[2] || '') + '">' + x[1] + '</span></div>'; }).join('') + '</div>'; }
   function stockBtn(s, right, sub) {
     return '<button type="button" class="row" data-q="' + esc(s.code) + '"><span><b>' + esc(s.name) + '</b> <span class="dim">' + esc(s.code) + '</span>' + (sub ? '<br><span class="sub">' + sub + '</span>' : '') + '</span><span class="r">' + right + '</span></button>';
@@ -156,7 +158,7 @@
       var inner = '<p><b>' + esc(x.name) + '</b> <span class="dim">' + esc(x.code) + '</span>　<b>' + px(x.price) + '</b> <span class="' + cls(x.chg) + '">' + pct(x.chg) + '</span>' + (D.state === 'live' ? '　<span class="warn">盘中</span>' : '') + '</p>' +
         chartFor(x.code, { stop: x.stop, target: x.target, label: x.name + ' 日线' }) +
         kv([['风险 RISK', risk == null ? '—' : pct(-risk, 1), 'dn'], ['目标 TGT', x.tp ? '+' + x.tp + '%' : '—', 'up'], ['R:R', isNum(x.rr) ? x.rr.toFixed(1) : '—'], ['相对量', isNum(x.rv) ? x.rv.toFixed(2) + '×' : '—']], true) +
-        (risk != null && x.tp ? '<pre class="txt">RISK ' + (function () { var k = Math.max(1, Math.round(risk / (risk + x.tp) * 24)); return span('dn', '█'.repeat(k)) + span('up', '█'.repeat(24 - k)); })() + ' REWARD\n' +
+        (risk != null && x.tp ? '<pre class="txt">RISK ' + (function () { var k = Math.max(1, Math.round(risk / (risk + x.tp) * 24)); return span('cd', '█'.repeat(k)) + span('cu', '█'.repeat(24 - k)); })() + ' REWARD\n' +
           span('dim', 'STOP ' + px(x.stop) + (x.stop_by ? ' (' + esc(x.stop_by) + ')' : '') + '  ·  TGT ' + px(x.target)) + '</pre>' : '') +
         '<pre class="txt">' + (x.why || []).map(function (w) { return span('up', '[x]') + ' ' + esc(w); }).join('\n') + '</pre>' +
         (x.digest ? '<p class="digest"><b>消息面&gt;</b> ' + esc(x.digest) + '</p>' : '') +
@@ -189,10 +191,10 @@
         ['平均持有', isNum(a.avg_days) ? a.avg_days + ' 天' : '—'], ['最多连亏', a.max_streak != null ? a.max_streak + ' 笔' : '—'], ['最好', pct(a.best, 1), 'up'], ['最差', pct(a.worst, 1), 'dn']]));
     if (b.curve && b.curve.length > 1) h += pn('EQUITY 资金曲线', '已平仓累计 · ' + md(b.curve[0][0]) + ' ~ ' + md(b.curve[b.curve.length - 1][0]),
       blockChart([0].concat(b.curve.map(function (c) { return R(c[1]); })), { rows: 8, zero: true, label: '账户资金曲线', fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
-        color: function (v) { return v >= 0 ? 'acc' : 'dn'; }, dates: [md(b.curve[0][0]), md(b.curve[b.curve.length - 1][0])] }));
+        color: function (v) { return v >= 0 ? 'cu' : 'cd'; }, dates: [md(b.curve[0][0]), md(b.curve[b.curve.length - 1][0])] }));
     var ex = a.exits || {}, tot = Object.keys(ex).reduce(function (s, k) { return s + ex[k]; }, 0) || 1;
     h += pn('EXITS 离场原因', a.closed + ' 笔', '<pre class="txt">' + Object.keys(ex).sort(function (x, y) { return ex[y] - ex[x]; }).map(function (k) {
-      return pad(EXIT[k] || k, 8) + ' ' + span('acc', meter(ex[k] / tot, 20)) + ' ' + pad(ex[k], 3, true); }).join('\n') + '</pre>');
+      return cell(esc(EXIT[k] || k), 10) + span('acc', meter(ex[k] / tot, 20)) + ' ' + pad(ex[k], 3, true); }).join('\n') + '</pre>');
     var p = b.paper || {}, ps = p.stats || {};
     if (p.trades && p.trades.length) h += pn('PAPER 模拟账户', md(p.start) + ' 起 · 胜率 ' + (isNum(ps.win_rate) ? ps.win_rate.toFixed(0) + '%' : '—'),
       '<div class="rows">' + p.trades.slice().sort(function (x, y) { return (y.entry_date || '') < (x.entry_date || '') ? -1 : 1; }).map(function (t) {
@@ -231,7 +233,7 @@
   function pageMkt() {
     var m = D.market || {}, ix = m.index, b = m.breadth, h = '';
     if (ix) h += pn('INDEX 大盘', esc(ix.label), '<p><b>' + ix.last.toLocaleString('en', { minimumFractionDigits: 2 }) + '</b> <span class="' + cls(ix.chg) + '">' + (ix.chg > 0 ? '+' : '') + ix.chg + ' (' + pct(ix.pct) + ')</span>' + (isNum(m.usd_myr) ? '　<span class="dim">USD/MYR ' + m.usd_myr.toFixed(4) + '</span>' : '') + '</p>' +
-      blockChart(ix.spark, { rows: 6, label: ix.label + ' 近 30 日', fmt: function (v) { return v.toFixed(0); }, color: function () { return ix.chg >= 0 ? 'up' : 'dn'; } }));
+      blockChart(ix.spark, { rows: 6, label: ix.label + ' 近 30 日', fmt: function (v) { return v.toFixed(0); }, color: function (v, j, a) { return j && a[j] < a[j - 1] ? 'cd' : 'cu'; } }));
     if (b) { var t = b.total || (b.up + b.flat + b.down) || 1;
       h += pn('BREADTH 涨跌家数', '全市场 ' + t + ' 支', '<pre class="txt">' + span('up', pad('ADV 涨', 7) + meter(b.up / t, 24)) + ' ' + b.up + '\n' + span('dim', pad('UNCH 平', 7) + meter(b.flat / t, 24)) + ' ' + b.flat + '\n' + span('dn', pad('DEC 跌', 7) + meter(b.down / t, 24)) + ' ' + b.down +
         '\n' + span('dim', '52W HIGH ' + b.highs + ' · LOW ' + b.lows + (isNum(b.turnover) ? ' · 成交额 RM ' + big(b.turnover) : '')) + '</pre>'); }
@@ -244,7 +246,7 @@
     });
     var ch = D.changes || [];
     if (ch.length) { var L = { 'new': '新上市', renamed: '改名', removed: '下市' };
-      h += pn('LISTING 名单变动', '近 14 天', '<pre class="txt">' + ch.map(function (e) { return md(e.date) + ' ' + span(e.type === 'removed' ? 'dn' : e.type === 'new' ? 'up' : 'warn', pad(L[e.type] || e.type, 4)) + ' ' + esc(e.symbol.replace('.KL', '')) + ' ' + (e.old ? esc(e.old) + ' → ' : '') + esc(e.name); }).join('\n') + '</pre>'); }
+      h += pn('LISTING 名单变动', '近 14 天', '<pre class="txt">' + ch.map(function (e) { return md(e.date) + ' ' + span(e.type === 'removed' ? 'dn' : e.type === 'new' ? 'up' : 'warn', cell(L[e.type] || e.type, 7)) + ' ' + esc(e.symbol.replace('.KL', '')) + ' ' + (e.old ? esc(e.old) + ' → ' : '') + esc(e.name); }).join('\n') + '</pre>'); }
     return h;
   }
   function pageAnn() {
@@ -357,12 +359,16 @@
   window.addEventListener('hashchange', function () { fromHash(); render(); });
   var resizeT = null;
   window.addEventListener('resize', function () { clearTimeout(resizeT); resizeT = setTimeout(render, 150); });
-  function toggleTheme() {
-    var root = document.documentElement, dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-    root.dataset.theme = dark ? 'light' : 'dark';
-    try { localStorage.setItem('bterm_theme', root.dataset.theme); } catch (e) {}
+  function setTheme(th) {
+    document.documentElement.dataset.theme = th;
+    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = th === 'light' ? '#ffffff' : '#000000';
   }
-  try { var th = localStorage.getItem('bterm_theme'); if (th === 'dark' || th === 'light') document.documentElement.dataset.theme = th; } catch (e) {}
+  function toggleTheme() {
+    var th = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    setTheme(th);
+    try { localStorage.setItem('bterm_theme2', th); } catch (e) {}
+  }
+  try { var th = localStorage.getItem('bterm_theme2'); if (th === 'dark' || th === 'light') setTheme(th); } catch (e) {}
   document.getElementById('theme-btn').addEventListener('click', toggleTheme);
 
   fetch('data.json?v=' + V).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function (j) {
