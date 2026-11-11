@@ -184,16 +184,19 @@ def update(path=STATE_PATH, now=None, force=False, log=print):
         del old[k]
 
     # 超额认购倍数 (截止认购之后才会有)
-    opened = 0
-    for rec in sorted(old.values(), key=lambda v: v.get("listing") or ""):
-        if rec.get("oversub") is not None or rec.get("under") or opened >= SUB_PER_RUN:
-            continue
+    # 先找最近上市 / 待上市的 (新闻还在个股页上)，有剩余名额才补找更早的
+    def todo(rec):
         ref = rec.get("listing") or rec.get("close")
-        if not rec.get("close") or rec["close"] > today or not ref:
-            continue
+        if rec.get("oversub") is not None or rec.get("under") or not rec.get("close") or rec["close"] > today or not ref:
+            return None
         days = (datetime.strptime(ref, "%Y-%m-%d") - now).days
-        if rec.get("sub_tries", 0) >= (SUB_MAX_TRIES if SUB_WINDOW[0] <= days <= SUB_WINDOW[1] else SUB_OLD_TRIES):
-            continue
+        recent = SUB_WINDOW[0] <= days <= SUB_WINDOW[1]
+        return None if rec.get("sub_tries", 0) >= (SUB_MAX_TRIES if recent else SUB_OLD_TRIES) else ((0, abs(days)) if recent else (1, -days))  # 近期的按离今天远近，更早的从新到旧
+    cands = sorted(((k, rec) for rec in old.values() for k in [todo(rec)] if k is not None), key=lambda x: x[0])
+    opened = 0
+    for _, rec in cands:
+        if opened >= SUB_PER_RUN:
+            break
         opened += 1
         rec["sub_tries"] = rec.get("sub_tries", 0) + 1
         try:
