@@ -1559,7 +1559,19 @@ def fetch_detail(symbol, today):
     fin = None
     if q["periods"] or a["periods"]:
         fin = {"quarterly": q, "annual": a, "currency": info.get("financialCurrency")}
-    return {"v": 1, "symbol": symbol, "fetched_at": today, "long_name": info.get("longName"), "fin": fin, "bars": bars}
+    return {"v": 1, "symbol": symbol, "fetched_at": today, "long_name": info.get("longName"), "fin": fin, "bars": bars,
+            "profile": company_profile(info)}
+
+
+def company_profile(info):
+    """公司简介 (Yahoo info)：官网、行业、员工数、所在城市、英文业务介绍。中文介绍 (zh) 由 add_profile_zh 另外补上"""
+    site = (info.get("website") or "").strip()
+    if site and not re.match(r"https?://", site, re.I):
+        site = "https://" + site
+    out = {"website": site or None, "sector": info.get("sector") or None, "industry": info.get("industry") or None,
+           "employees": info.get("fullTimeEmployees") or None, "city": info.get("city") or None,
+           "summary": (info.get("longBusinessSummary") or "").strip() or None}
+    return out if any(out.values()) else None
 
 
 def read_detail_date(code):
@@ -1567,7 +1579,7 @@ def read_detail_date(code):
     try:
         with open(os.path.join(DETAIL_DIR, f"{code}.json"), encoding="utf-8") as f:
             d = json.load(f)
-        if "long_name" not in d:  # 9/24 之前的旧格式没有公司全名 (搜新闻要用)，当成过期重抓
+        if "long_name" not in d or "profile" not in d:  # 旧格式没有公司全名 (搜新闻要用) / 公司简介 (11/11 加的)，当成过期重抓
             return None, False
         return datetime.strptime(d["fetched_at"], "%Y-%m-%d"), bool(d.get("fin"))
     except Exception:
@@ -1619,6 +1631,7 @@ def refresh_details(stocks, today):
             for symbol, detail in zip(todo, pool.map(safe_fetch, todo)):
                 if detail is None:
                     continue  # 这次没拿到，下次运行再试
+                keep_profile_zh(detail, symbol.split(".")[0])
                 with open(os.path.join(DETAIL_DIR, f"{symbol.split('.')[0]}.json"), "w", encoding="utf-8") as f:
                     json.dump(detail, f, ensure_ascii=False, separators=(",", ":"))
                 written += 1
@@ -1626,6 +1639,66 @@ def refresh_details(stocks, today):
     pruned = prune_details({s["symbol"].split(".")[0] for s in stocks if s["data"]}, today)
     return len(todo), written, with_fin, pruned
 
+
+
+def keep_profile_zh(detail, code):
+    """重抓个股资料时，英文介绍没变就沿用旧文件里的中文介绍 (不用再问 DeepSeek)"""
+    prof = detail.get("profile")
+    if not prof:
+        return
+    try:
+        with open(os.path.join(DETAIL_DIR, f"{code}.json"), encoding="utf-8") as f:
+            old = (json.load(f).get("profile") or {})
+    except Exception:
+        return
+    if old.get("zh") and old.get("summary") == prof.get("summary"):
+        prof["zh"], prof["lines"] = old["zh"], old.get("lines") or []
+
+
+PROFILE_ZH_PER_RUN = 15  # 每次最多帮几家公司写中文介绍 (写过就存在 stock/<代码>.json，不会重复写)
+PROFILE_SYSTEM_PROMPT = """你帮投资者看懂一家上市公司是做什么的。根据给你的英文公司介绍，用简体中文写：
+- intro: 2~3 句公司背景 (成立 / 总部 / 规模 / 在行业里的位置，介绍里有的才写)
+- lines: 主要业务线 2~5 条，每条「业务名称：具体做什么 / 卖什么 / 客户是谁」，一句话
+只根据介绍内容，不要编造数字，不要评价好坏，不要给任何投资建议。公司名、品牌名保留英文。
+只输出 JSON: {"intro": "...", "lines": ["...", "..."]}"""
+
+
+def add_profile_zh(stocks):
+    """报告里的股票 (信号在前，其余按成交量)，有英文介绍、还没有中文介绍的，这次最多补 PROFILE_ZH_PER_RUN 家。返回补了几家"""
+    done = 0
+    for s in sorted((s for s in stocks if s["data"]), key=lambda s: (not s["matched"], -s["data"]["volume"])):
+        if done >= PROFILE_ZH_PER_RUN:
+            break
+        path = os.path.join(DETAIL_DIR, f"{s['symbol'].split('.')[0]}.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                d = json.load(f)
+        except Exception:
+            continue
+        prof = d.get("profile") or {}
+        if not prof.get("summary") or prof.get("zh"):
+            continue
+        try:
+            r = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "system", "content": PROFILE_SYSTEM_PROMPT},
+                          {"role": "user", "content": f"公司: {d.get('long_name') or s['name']}\n行业: {prof.get('sector')} / {prof.get('industry')}\n介绍:\n{prof['summary'][:3000]}"}],
+                temperature=0.1, max_tokens=500, response_format={"type": "json_object"})
+            out = json.loads(r.choices[0].message.content or "{}")
+        except Exception as e:
+            print(f"⚠️ DeepSeek 公司介绍失败 {s['symbol']} ({type(e).__name__}: {e})")
+            break  # 多半是限流 / 额度问题，这次先停
+        intro = strip_trade_advice((out.get("intro") or "").strip())
+        if not intro:
+            continue
+        prof["zh"] = intro
+        prof["lines"] = [strip_trade_advice(str(x).strip()) for x in (out.get("lines") or []) if str(x).strip()][:6]
+        d["profile"] = prof
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, separators=(",", ":"))
+        done += 1
+        time.sleep(1)  # DeepSeek 限频
+    return done
 
 
 # ---- 个股新闻: 最近的新闻标题 + 链接，存在 <市场目录>/news/<代码>.json，每支半天更新一次 ----
@@ -5314,6 +5387,12 @@ def main():
                   + (f"，删掉 {pruned} 个过期文件" if pruned else ""))
     except Exception as e:
         print(f"⚠️ 更新个股资料失败 ({type(e).__name__}: {e})")
+    try:
+        n = add_profile_zh(stocks)
+        if n:
+            print(f"🏢 公司中文介绍: 这次补了 {n} 家")
+    except Exception as e:
+        print(f"⚠️ 公司中文介绍失败 ({type(e).__name__}: {e})")
     try:
         tried, written, with_items, pruned = refresh_news(stocks, datetime.now(LOCAL_TZ))
         if tried or pruned:
