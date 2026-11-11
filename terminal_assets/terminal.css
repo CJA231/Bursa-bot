@@ -1,8 +1,8 @@
-/* bursa.term — 纯文字终端界面。配色 = 夜幕蓝 #162A46 · 香槟银 #D8D0C1 · 珍珠白 #F8F6F2：
-   深色 = 夜幕蓝底 + 珍珠白字 + 香槟银标题；浅色 = 珍珠白底 + 夜幕蓝字；跑马灯两种模式都用香槟银底衬托。跟系统，按 t 可切换 */
+/* bursa.term — 纯文字终端界面。深色 = 中性灰底 #303030 + 珍珠白 #F8F6F2 字 + 香槟银 #D8D0C1 标题；
+   浅色 = 珍珠白底 + 夜幕蓝 #162A46 字；跑马灯两种模式都用卡其色 #C3B091 高亮。跟系统，按 t 可切换 */
 :root {
-  --bg: #162A46; --bg2: #1D3354; --fg: #F8F6F2; --mut: #A9B4C4; --line: #3A5174;
-  --acc: #D8D0C1; --acc2: #C9D6E8; --up: #8FD19E; --dn: #F2949A; --warn: #E8C77D; --sel: #20385C;
+  --bg: #303030; --bg2: #3A3A3A; --fg: #F8F6F2; --mut: #B3B0AA; --line: #575757;
+  --acc: #D8D0C1; --acc2: #E2DCCF; --up: #8FD19E; --dn: #F2949A; --warn: #E8C77D; --sel: #424242;
   /* 财报图：各期颜色 (旧 → 新)、利润率面积 / 线、负债 / 股东权益 */
   --fc1: #4A607F; --fc2: #6B7F9C; --fc3: #8E8C88; --fc4: #B3AA9A; --fc5: #D8D0C1;
   --fin-area: rgba(216, 208, 193, 0.28); --fin-line: #D8D0C1; --fin-li: #8E8C88; --fin-eq: #D8D0C1;
@@ -44,8 +44,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 1px solid 
 @keyframes blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cur { animation: none; } }
 .status { margin: 4px 0 8px; white-space: nowrap; overflow: hidden; position: relative; padding: 4px 0; background: var(--tk-bg); color: var(--tk-fg); border: 1px solid var(--tk-bd); font-weight: 500; }
-/* 跑马灯：香槟银高亮底 + 夜幕蓝字 (深浅模式一样)，里面的涨跌色换成在香槟银上看得清的深绿 / 深红 */
-:root { --tk-bg: #D8D0C1; --tk-fg: #162A46; --tk-bd: #C4B9A4; --tk-up: #1E5A2E; --tk-dn: #8E2230; --tk-mut: #4A5568; }
+/* 跑马灯：卡其色高亮底 + 深色字 (深浅模式一样)，里面的涨跌色换成在卡其色上看得清的深绿 / 深红 */
+:root { --tk-bg: #C3B091; --tk-fg: #1F1F1F; --tk-bd: #A8956F; --tk-up: #164622; --tk-dn: #7A1C26; --tk-mut: #4A4436; }
 .status b { color: inherit; }
 .status .up { color: var(--tk-up); } .status .dn { color: var(--tk-dn); } .status .dim, .status .g { color: var(--tk-mut); }
 .status .acc, .status .warn { color: inherit; font-weight: 700; }
