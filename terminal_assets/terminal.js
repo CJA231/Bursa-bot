@@ -1,11 +1,11 @@
 // bursa.term — 马股终端版 (纯文字 / Nord)。数据: data.json (今天的结果) + bars.json (日线，打开后在背景下载)
-// 页面: 1 信号 (+ 信号跟进) · 2 市场 · 3 观察列表 (自己的，分文件夹) · 4 回测 · 5 股票池 · 6 公告；#q-<代码> = 个股。图全部用字符画 (█ │ ▁▂▃ …)。
+// 页面: 1 信号 (+ 信号跟进) · 2 市场 · 3 观察列表 (自己的，分文件夹) · 4 回测 · 5 股票池 · 6 公告 · 7 日历 (企业活动)；#q-<代码> = 个股。图全部用字符画 (█ │ ▁▂▃ …)。
 (function () {
   'use strict';
   var V = (document.currentScript && /v=([^&]+)/.exec(document.currentScript.src) || [])[1] || Date.now();
   var D = null, BARS = null, barsLoading = false;
   var main = document.getElementById('main');
-  var PAGES = [['sig', '信号'], ['mkt', '市场'], ['watch', '观察列表'], ['bt', '回测'], ['pool', '股票池'], ['ann', '公告']];
+  var PAGES = [['sig', '信号'], ['mkt', '市场'], ['watch', '观察列表'], ['bt', '回测'], ['pool', '股票池'], ['ann', '公告'], ['cal', '日历']];
   var S = { page: 'sig', code: null, flt: {}, sort: 'to', dir: -1, q: '', limit: 50, cat: 'all' };
   var CAT = { results: '财报', dividend: '派息', corporate: '企业', holding: '持股', buyback: '回购', uma: '异常', people: '人事', meeting: '会议', other: '其他' };
   var EXIT = { take: '涨幅达标', emab: 'EMA 破位', combo: '趋势转坏', time: '期满', swing: '跌破低点', stop: '跌破风险线', sar: 'SAR 转空', red: '回调红K', open: '跟踪中', high: '前高', res: '阻力' };
@@ -658,11 +658,76 @@
     if (f) h += '<p class="dim intel-f">' + md(f.period) + ' 季：营收 ' + finNum(f.revenue) + (isNum(f.revenue_yoy) ? ' (按年 ' + pct(f.revenue_yoy, 1) + ')' : '') +
       ' · 净利 ' + finNum(f.net_income) + (isNum(f.net_income_yoy) ? ' (按年 ' + pct(f.net_income_yoy, 1) + ')' : '') + (isNum(f.net_margin) ? ' · 净利率 ' + f.net_margin + '%' : '') + '</p>';
     if (r.earnings) h += '<p>' + esc(r.earnings) + '</p>';
+    var upc = (r.events || []).filter(function (e) { return e.date >= today(); });
+    if (upc.length) h += '<h3 class="fin-h">📅 即将到来</h3>' + upc.slice(0, 8).map(function (e) { var t = CAL_T[e.type] || ['corp', e.type];
+      return '<p class="list-ann"><span class="dim">' + md(e.date) + '</span> <span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> ' + esc(e.what || '') + (e.src === 'rule' ? ' <span class="dim">(推算)</span>' : '') + '</p>'; }).join('');
     var tagged = (r.ann || []).filter(function (a) { return a.tag !== 'routine'; });
     if (tagged.length) h += '<h3 class="fin-h">标记的公告 <span class="dim">📌 重要事件 · ⚠ 需留意</span></h3>' + tagged.slice(0, 10).map(function (a) {
       return '<p class="list-ann"><span class="dim">' + md(a.date) + '</span> ' + tagChip(a.tag) + '<a href="' + esc(a.link) + '" target="_blank" rel="noopener">' + esc(a.title) + '</a>' + (a.why ? ' <span class="dim">· ' + esc(a.why) + '</span>' : '') + '</p>'; }).join('');
     h += '<p class="dim intel-note">AI 生成 (DeepSeek)，只整理公开的公告、新闻和财报，可能有错漏，不构成投资建议 · 更新 ' + esc(r.updated) + '</p>';
     return pn(title, '公告 ' + (r.ann || []).length + ' · 新闻 ' + (r.news || []).length, h);
+  }
+
+  // ---------- 日历：企业活动日期 (scripts/company_intel.py 用 DeepSeek 从公告内文找出的日期 + 程序按交易所规定算的季报最迟公布日) ----------
+  // 分类跟公告页一样：会议 / 派息 / 财报 / 企业 / 新上市；月历上每天的小点 = 那天有哪些类别，点日期看那天的明细
+  var CAL = null, calLoading = false;
+  var CAL_T = { agm: ['meet', '常年股东大会'], egm: ['meet', '特别股东大会'], ex_date: ['div', '除权 / 除息'], entitlement: ['div', '截止过户'], payment: ['div', '派发'],
+    results: ['res', '业绩公布'], results_due: ['res', '季报最迟公布'], listing: ['list', '上市'], corporate: ['corp', '企业活动'] };
+  var CAL_G = [['meet', '会议'], ['div', '派息'], ['res', '财报'], ['corp', '企业'], ['list', '新上市']];
+  function loadCal() {
+    if (CAL || calLoading) return; calLoading = true;
+    fetch((D.report || '../') + 'intel/calendar.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
+      .then(function (j) { CAL = (j && j.events) || []; CAL.updated = j && j.updated; if (S.page === 'cal' && !S.code) render(); });
+  }
+  function today() { var d = new Date(Date.now() + 8 * 3600e3); return d.toISOString().slice(0, 10); }  // 马来西亚日期
+  function calRow(e) {
+    var t = CAL_T[e.type] || ['corp', e.type];
+    return '<p class="list-ann cal-r"><span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> <button type="button" data-q="' + esc(e.code) + '" class="acc">' + esc(e.name || e.code) + '</button> ' +
+      esc(e.what || '') + (e.link ? ' <a href="' + esc(e.link) + '" target="_blank" rel="noopener" aria-label="公告原文">↗</a>' : '') + (e.src === 'rule' ? ' <span class="dim">(推算)</span>' : '') + '</p>';
+  }
+  function pageCal() {
+    loadCal();
+    if (!CAL) return pn('CALENDAR 日历', '', '<p class="dim">loading…</p>');
+    var g = S.calG || '', mine = !!S.calW, wset = {};
+    W.folders.forEach(function (f) { f.codes.forEach(function (c) { wset[c] = 1; }); });
+    var ev = CAL.filter(function (e) { return (!g || (CAL_T[e.type] || [])[0] === g) && (!mine || wset[e.code]); });
+    var btn = function (k, label, on, attr) { return '<button type="button" ' + attr + '="' + k + '" aria-pressed="' + on + '">' + label + '</button>'; };
+    var bar = '<div class="fbar" role="group" aria-label="筛选日历">' + btn('', '全部', !g, 'data-calg') + '<div class="fscroll">' +
+      CAL_G.map(function (x) { return btn(x[0], '<i class="cal-dot cg-' + x[0] + '"></i>' + x[1], g === x[0], 'data-calg'); }).join('') +
+      '<button type="button" data-calw="1" aria-pressed="' + mine + '">★ 只看观察列表</button></div></div>';
+    var td = today(), mon = S.calM || td.slice(0, 7), y = +mon.slice(0, 4), mo = +mon.slice(5, 7);
+    var first = new Date(Date.UTC(y, mo - 1, 1)), days = new Date(Date.UTC(y, mo, 0)).getUTCDate(), lead = (first.getUTCDay() + 6) % 7;  // 星期一开头
+    var byDay = {}; ev.forEach(function (e) { (byDay[e.date] = byDay[e.date] || []).push(e); });
+    var grid = '<div class="cal-h"><button type="button" data-calm="-1" aria-label="上个月">‹</button><b>' + y + ' 年 ' + mo + ' 月</b><button type="button" data-calm="1" aria-label="下个月">›</button></div>' +
+      '<div class="cal-g">' + ['一', '二', '三', '四', '五', '六', '日'].map(function (d) { return '<span class="cal-wd">' + d + '</span>'; }).join('') + '<span></span>'.repeat(lead);
+    for (var d = 1; d <= days; d++) {
+      var ds = mon + '-' + (d < 10 ? '0' : '') + d, list = byDay[ds] || [], gs = {};
+      list.forEach(function (e) { gs[(CAL_T[e.type] || ['corp'])[0]] = 1; });
+      grid += '<button type="button" class="cal-d' + (ds === td ? ' today' : '') + (ds === S.calD ? ' sel' : '') + (list.length ? ' has' : '') + '" data-cald="' + ds + '"' + (list.length ? '' : ' tabindex="-1"') +
+        ' aria-label="' + mo + ' 月 ' + d + ' 日 ' + list.length + ' 项"><span>' + d + '</span><span class="cal-dots">' + CAL_G.filter(function (x) { return gs[x[0]]; }).map(function (x) { return '<i class="cal-dot cg-' + x[0] + '"></i>'; }).join('') + '</span>' +
+        (list.length > 1 ? '<small>' + list.length + '</small>' : '') + '</button>';
+    }
+    grid += '</div>';
+    var listH, sel = S.calD;
+    if (sel) {
+      var dl = byDay[sel] || [];
+      listH = '<h3 class="fin-h">' + md(sel) + ' · ' + dl.length + ' 项 <button type="button" class="more" data-cald="' + sel + '">× 看接下来 30 天</button></h3>' + (dl.length ? dl.map(calRow).join('') : '<p class="dim">这天没有记录。</p>');
+    } else {
+      var end = new Date(Date.parse(td + 'T00:00:00Z') + 30 * 864e5).toISOString().slice(0, 10), up = ev.filter(function (e) { return e.date >= td && e.date <= end; }), last = null;
+      listH = '<h3 class="fin-h">接下来 30 天 · ' + up.length + ' 项</h3>' + (up.length ? up.map(function (e) {
+        var h = e.date !== last ? '<p class="dim cal-day">── ' + md(e.date) + ' 周' + '日一二三四五六'[new Date(e.date + 'T00:00:00Z').getUTCDay()] + ' ──</p>' : ''; last = e.date; return h + calRow(e); }).join('') :
+        '<p class="dim">接下来 30 天没有记录' + (mine ? ' (只看观察列表)' : '') + '。</p>');
+    }
+    var note = '<p class="dim intel-note">日期由 AI (DeepSeek) 从公告原文整理，「季报最迟公布」是按交易所规定 (季末后 2 个月内) 推算的最迟日期，不是公司宣布的日期。以公告原文为准 · 更新 ' + esc(CAL.updated || '—') + '</p>';
+    return pn('CALENDAR 日历', ev.length + ' 项 · 过去 7 天到未来半年', bar + grid + listH + note);
+  }
+  function calClick(t) {
+    var d = t.dataset;
+    if (d.calg !== undefined) S.calG = d.calg || '';
+    else if (d.calw) S.calW = !S.calW;
+    else if (d.calm) { var m0 = S.calM || today().slice(0, 7), y = +m0.slice(0, 4), mo = +m0.slice(5, 7) + (+d.calm); if (mo < 1) { mo = 12; y--; } if (mo > 12) { mo = 1; y++; } S.calM = y + '-' + (mo < 10 ? '0' : '') + mo; S.calD = null; }
+    else if (d.cald) S.calD = S.calD === d.cald ? null : d.cald;
+    render();
   }
   // 个股：字符 K 线 + 数字 + (信号 / 观察列表) + 公告和新闻
   var EXTRA = {};
@@ -833,7 +898,7 @@
     if (!D) return;
     keys();
     document.getElementById('prompt-arg').textContent = S.code ? 'quote ' + S.code : '--' + S.page;
-    var fn = { sig: pageSig, watch: pageWatch, bt: pageBt, pool: pagePool, mkt: pageMkt, ann: pageAnn }[S.page] || pageSig;
+    var fn = { cal: pageCal, sig: pageSig, watch: pageWatch, bt: pageBt, pool: pagePool, mkt: pageMkt, ann: pageAnn }[S.page] || pageSig;
     var focusId = document.activeElement && /^(grep|cb-q)$/.test(document.activeElement.id) ? document.activeElement.id : null, focusGrep = !!focusId, pos = focusGrep ? document.activeElement.selectionStart : null;
     main.innerHTML = S.code ? pageQuote(S.code) : fn();
     if (focusGrep) { var g = document.getElementById(focusId); if (g) { g.focus(); try { g.setSelectionRange(pos, pos); } catch (e) {} } }
@@ -861,6 +926,7 @@
       var sl2 = document.querySelector('.fscroll'); if (sl2) { sl2.scrollLeft = x; var on = sl2.querySelector('[aria-pressed="true"]'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
       return; }
     var cbt = e.target.closest('[data-cb]'); if (cbt) { cbClick(cbt); return; }
+    var ct = e.target.closest('[data-calg],[data-calw],[data-calm],[data-cald]'); if (ct) { calClick(ct); return; }
     var hbx = e.target.closest('[data-hb]'); if (hbx) { S.hb = S.hb === hbx.dataset.hb ? null : hbx.dataset.hb; render(); return; }
     var t = e.target.closest('[data-page],[data-q],[data-back],[data-flt],[data-sort],[data-more],[data-cat],[data-heat]');
     if (!t) return;

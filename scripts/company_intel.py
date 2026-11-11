@@ -43,6 +43,13 @@ NEWS_MAX = 8
 INDEX_TAG_DAYS = 45       # index.json 只放最近 45 天公告的标签 (控制文件大小)
 FETCH_WORKERS = 4
 TAGS = ("notable", "risk", "routine")
+# 企业活动日历：标题像这些的公告，去抓内文给 DeepSeek 找日期 (每家最多 EVENT_MAX 条)
+EVENT_RE = re.compile(r"book closure|entitlement|dividend|general meeting|\bAGM\b|\bEGM\b|bonus|rights issue|subdivision|consolidation|share split|"
+                      r"listing|warrant|private placement|\bIPO\b|prospectus|special issue|capital repayment|distribution", re.I)
+EVENT_MAX, EVENT_BODY = 6, 2200
+EVENT_TYPES = ("agm", "egm", "ex_date", "entitlement", "payment", "results", "listing", "corporate")
+CAL_PATH = os.path.join(INTEL_DIR, "calendar.json")
+CAL_BACK, CAL_AHEAD = 7, 180  # 日历放过去 7 天到未来 180 天
 
 SYSTEM_PROMPT = """你是马来西亚上市公司的资料整理助手，帮投资者快速看懂一家公司最近发生了什么。
 你会拿到：公司名称和简介、最近的公告标题 (有编号)、最近的新闻标题、程序算好的财报变化。
@@ -53,6 +60,10 @@ SYSTEM_PROMPT = """你是马来西亚上市公司的资料整理助手，帮投�
 - earnings: 1~2 句描述财报变化，只能用给你的数字，不能自己推算新数字；没有财报资料就留空字符串。
 - tags: 每条公告一个对象 {"i": 公告编号, "t": "notable" 或 "risk" 或 "routine", "why": "10 个字以内，说明是什么事件 (例如「合约 RM50M」「私募 10%」)"}。
   股东大会通知、董事持股例行申报、更正、季度报告本身归 routine (财报内容另外写在 earnings)。
+- events: 从「公告内文」里找出明确写着的日期，每个日期一个对象 {"i": 公告编号, "type": 类型, "date": "YYYY-MM-DD", "what": "20 字以内中文，例如 第 2 次中期股息每股 5 仙"}。
+  type 只能是: agm (常年股东大会), egm (特别股东大会), ex_date (除权 / 除息日), entitlement (登记 / 截止过户日), payment (派发 / 付款日),
+  results (业绩公布日), listing (新股、凭单 warrants、红股、附加股、私募新股的上市日), corporate (其他企业活动日期，例如认购截止、合并生效)。
+  只能用内文里写明的日期，看不到就不要写；不要推算。
 规则：只根据给你的资料，不要编造事件或数字；不要用「利好」「利空」「正面」「负面」「看好」之类的评价字眼；不要评价股价会涨会跌；不要给任何买入、卖出、持有、目标价之类的建议。
 公司名、产品名、机构名保留英文。只输出 JSON。"""
 
@@ -114,14 +125,35 @@ def collect(code, name, now):
     items = [{"title": n["title"], "source": n.get("source"), "link": n.get("link"),
               "date": datetime.fromtimestamp(n["time"], m.LOCAL_TZ).strftime("%Y-%m-%d") if n.get("time") else None}
              for n in ((news or {}).get("items") or [])[:NEWS_MAX]]
+    bodies = {}
+    for i, a in enumerate(ann):
+        if len(bodies) >= EVENT_MAX:
+            break
+        if EVENT_RE.search(a["title"]):
+            try:
+                bodies[i] = ann_body(a["id"])
+            except Exception as e:
+                print(f"⚠️ {code} 公告内文抓取失败 {a['id']} ({type(e).__name__})")
     prof = detail.get("profile") or {}
-    return {"code": code, "name": name, "long_name": long_name, "ann": ann, "news": items,
+    return {"code": code, "name": name, "long_name": long_name, "ann": ann, "news": items, "bodies": bodies,
             "facts": fin_facts(detail.get("fin")), "profile": prof.get("zh") or (prof.get("summary") or "")[:600],
             "industry": " / ".join(x for x in (prof.get("sector"), prof.get("industry")) if x)}
 
 
+def ann_body(ann_id):
+    """KLSE Screener 公告页的正文 (Bursa 原文的字段：日期、金额、股数…)，去掉网站菜单和页尾"""
+    r = m.requests.get(m.KLSE_ANN_VIEW.format(ann_id), headers=m.KLSE_HEADERS, timeout=20)
+    r.raise_for_status()
+    body = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", r.text)
+    t = re.sub(r"\s+", " ", m.html.unescape(re.sub(r"<[^>]+>", " ", body)))
+    k = t.find("disabling or pausing your ad blocker.")
+    t = t[k + 38:] if k >= 0 else t
+    end = t.find("View original announcement")
+    return t[:end if end > 0 else len(t)].strip()[:EVENT_BODY]
+
+
 def input_hash(c):
-    key = json.dumps([[a["id"] for a in c["ann"]], [n["title"] for n in c["news"]], (c["facts"] or {}).get("period")], ensure_ascii=False)
+    key = json.dumps([[a["id"] for a in c["ann"]], [n["title"] for n in c["news"]], (c["facts"] or {}).get("period"), 2], ensure_ascii=False)  # 2 = 加了日历之后的版本
     return hashlib.sha1(key.encode()).hexdigest()[:16]
 
 
@@ -136,11 +168,14 @@ def ask(c):
     lines += [f"{i}. {a['date']} {a['title']}" for i, a in enumerate(c["ann"])]
     lines.append("新闻:" if c["news"] else "新闻: 最近没有")
     lines += [f"- {n['date'] or ''} [{n['source'] or ''}] {n['title']}" for n in c["news"]]
+    if c.get("bodies"):
+        lines.append("公告内文 (找日期用):")
+        lines += [f"[{i}] {txt}" for i, txt in c["bodies"].items()]
     if facts:
         lines.append("财报 (程序算好的，单位 " + facts["currency"] + "): " + json.dumps(
             {k: v for k, v in facts.items() if k != "currency" and v is not None}, ensure_ascii=False))
     r = m.client.chat.completions.create(
-        model="deepseek-chat", temperature=0.1, max_tokens=900, response_format={"type": "json_object"},
+        model="deepseek-chat", temperature=0.1, max_tokens=1400, response_format={"type": "json_object"},
         messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": "\n".join(lines)}])
     return json.loads(r.choices[0].message.content or "{}")
 
@@ -167,11 +202,41 @@ def build_record(c, out, now, h):
             tags[i] = (t["t"], clean(t.get("why")).rstrip("。")[:30])
     ann = [{"id": a["id"], "date": a["date"], "title": a["title"], "link": a["link"], "cat": a["cat"],
             "tag": tags.get(i, ("routine", ""))[0], "why": tags.get(i, ("", ""))[1]} for i, a in enumerate(c["ann"])]
+    events = []
+    lo, hi = (now - timedelta(days=60)).strftime("%Y-%m-%d"), (now + timedelta(days=400)).strftime("%Y-%m-%d")
+    for ev in out.get("events") or []:
+        try:
+            i, d = int(ev.get("i")), str(ev.get("date") or "")
+            datetime.strptime(d, "%Y-%m-%d")
+        except (TypeError, ValueError):
+            continue
+        if 0 <= i < len(c["ann"]) and ev.get("type") in EVENT_TYPES and lo <= d <= hi:
+            a = c["ann"][i]
+            events.append({"date": d, "type": ev["type"], "what": clean(ev.get("what")).rstrip("。")[:40], "ann": a["id"], "link": a["link"], "src": "ai"})
+    due = results_due(c["facts"], now)
+    if due:
+        events.append(due)
+    events.sort(key=lambda e: e["date"])
     return {"v": 1, "code": c["code"], "name": c["name"], "long_name": c["long_name"], "updated": now.strftime("%Y-%m-%d %H:%M"),
             "hash": h, "recent": clean(out.get("recent")),
             "notable": [x for x in (clean(s) for s in (out.get("notable") or out.get("catalysts") or [])[:3]) if x],
             "risks": [x for x in (clean(s) for s in (out.get("risks") or [])[:3]) if x],
-            "earnings": clean(out.get("earnings")) if c["facts"] else "", "facts": c["facts"], "ann": ann, "news": c["news"]}
+            "earnings": clean(out.get("earnings")) if c["facts"] else "", "facts": c["facts"], "ann": ann, "news": c["news"], "events": events}
+
+
+def results_due(facts, now):
+    """下一份季报的最迟公布日：Bursa 规定季末后 2 个月内公布 → 最新已公布那季 + 3 个月 = 下一季末，再 + 2 个月 (程序算，不是公司宣布的日期)"""
+    if not facts or not facts.get("period"):
+        return None
+    y, mth = int(facts["period"][:4]), int(facts["period"][5:7])
+    mth += 5
+    y, mth = y + (mth - 1) // 12, (mth - 1) % 12 + 1
+    nxt = datetime(y + (mth == 12), mth % 12 + 1, 1) - timedelta(days=1)  # 那个月最后一天
+    d = nxt.strftime("%Y-%m-%d")
+    if d < now.strftime("%Y-%m-%d"):
+        return None
+    q_end_m = (int(facts["period"][5:7]) + 2) % 12 + 1
+    return {"date": d, "type": "results_due", "what": f"下一季 ({q_end_m} 月底结束) 季报最迟公布日 · 交易所规定", "src": "rule"}
 
 
 def read_json(path, default):
@@ -198,16 +263,34 @@ def write_index(now):
     since = (now - timedelta(days=INDEX_TAG_DAYS)).strftime("%Y-%m-%d")
     items = {}
     for fn in sorted(os.listdir(INTEL_DIR)):
-        if not fn.endswith(".json") or fn == "index.json":
+        if not fn.endswith(".json") or fn in ("index.json", "calendar.json"):
             continue
         rec = read_json(os.path.join(INTEL_DIR, fn), None)
         if not rec:
             continue
         items[rec["code"]] = {"u": rec["updated"][:10], "c": len(rec.get("notable") or []), "r": len(rec.get("risks") or []),
                               "t": {a["id"]: a["tag"] for a in rec.get("ann") or [] if a["date"] >= since and a["tag"] != "routine"}}
+    write_calendar(now)
     with open(INDEX_PATH, "w", encoding="utf-8") as f:
         json.dump({"v": 1, "updated": now.strftime("%Y-%m-%d %H:%M"), "items": items}, f, ensure_ascii=False, separators=(",", ":"))
     return len(items)
+
+
+def write_calendar(now):
+    """全部公司的企业活动日期汇总成 docs/intel/calendar.json (终端版「日历」页用)"""
+    lo, hi = (now - timedelta(days=CAL_BACK)).strftime("%Y-%m-%d"), (now + timedelta(days=CAL_AHEAD)).strftime("%Y-%m-%d")
+    out = []
+    for fn in sorted(os.listdir(INTEL_DIR)):
+        if not fn.endswith(".json") or fn in ("index.json", "calendar.json"):
+            continue
+        rec = read_json(os.path.join(INTEL_DIR, fn), None) or {}
+        for e in rec.get("events") or []:
+            if lo <= e.get("date", "") <= hi:
+                out.append(dict(e, code=rec.get("code"), name=rec.get("name")))
+    out.sort(key=lambda e: (e["date"], e["code"] or ""))
+    with open(CAL_PATH, "w", encoding="utf-8") as f:
+        json.dump({"v": 1, "updated": now.strftime("%Y-%m-%d %H:%M"), "events": out}, f, ensure_ascii=False, separators=(",", ":"))
+    return len(out)
 
 
 def main():
@@ -238,6 +321,8 @@ def main():
         h, old = input_hash(c), read_json(path, None)
         if old and old.get("hash") == h and not a.force:
             old["updated"] = now.strftime("%Y-%m-%d %H:%M")  # 资料没变：不再问 DeepSeek，只更新检查时间
+            due = results_due(old.get("facts"), now)
+            old["events"] = [e for e in old.get("events") or [] if e.get("type") != "results_due"] + ([due] if due else [])
             rec = old
             same += 1
         elif a.dry_run:
