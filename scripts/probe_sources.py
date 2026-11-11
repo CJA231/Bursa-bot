@@ -178,7 +178,51 @@ def dump_ipo():
         print("detail ERR", e)
 
 
+def dump_ipo2():
+    """IPO 第二轮：一张完整卡片的文字、个股页里有没有板块 / 业务 / 认购资料、公告里有没有超额认购"""
+    import os
+    from datetime import datetime
+    h = requests.get("https://www.klsescreener.com/v2/ipos", headers=UA, timeout=30).text
+    body = re.sub(r"<script.*?</script>|<style.*?</style>", " ", h, flags=re.S | re.I)
+    cards = re.split(r'<div class="card mb-3 p-0">', body)[1:]
+    print("cards:", len(cards))
+    years = re.findall(r'<option[^>]*value="(\d{4})"', h)
+    print("year options:", years[:15])
+    for c in cards[:2] + cards[-2:]:
+        print("---- card:", re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " | ", c))[:1500])
+    codes = []
+    for c in cards:
+        m = re.search(r'href="/v2/stocks/view/(\w+)"', c)
+        if m: codes.append(m.group(1))
+    print("codes:", codes[:30])
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import main as m
+    for code in codes[2:5]:
+        r = requests.get(f"https://www.klsescreener.com/v2/stocks/view/{code}", headers=UA, timeout=30)
+        t = re.sub(r"\s+", " ", re.sub(r"<script.*?</script>|<style.*?</style>", " ", r.text, flags=re.S | re.I))
+        print(f"==== stock view {code} -> {r.status_code} len={len(r.text)}")
+        for kw in ("Market", "Sector", "Board", "IPO", "Listing", "ubscri", "Business", "Shariah", "Category"):
+            for k in [x.start() for x in re.finditer(kw, t)][:2]:
+                print(f"  [{kw}]", re.sub(r"<[^>]+>", " | ", t[max(0, k - 200):k + 400]))
+        try:
+            ann = m.fetch_announcements(code + ".KL", datetime.now(m.LOCAL_TZ))
+            items = ann["items"]
+            print(f"  ann {len(items)}:", *(f"\n    {x['date']} [{x['cat']}] {x['title'][:110]} id={x.get('id')}" for x in items[:12]))
+            sub = [x for x in items if re.search(r"subscri|ballot|listing|prospectus", x["title"], re.I)]
+            for x in sub[:2]:
+                if x.get("id"):
+                    v = requests.get(f"https://www.klsescreener.com/v2/announcements/view/{x['id']}", headers=UA, timeout=30).text
+                    vt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", re.sub(r"<script.*?</script>|<style.*?</style>", " ", v, flags=re.S | re.I)))
+                    k = max(vt.find("subscri"), 0)
+                    print(f"  ---- view {x['id']}:", vt[max(0, k - 1200):k + 1800])
+        except Exception as e:
+            print("  ann ERR", e)
+
+
 def main():
+    if "--ipo2" in sys.argv:
+        dump_ipo2()
+        return
     if "--ipo" in sys.argv:
         dump_ipo()
         return
