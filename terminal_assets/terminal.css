@@ -35,7 +35,14 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 1px solid 
 .cur { display: inline-block; width: 0.6em; height: 1.05em; background: var(--acc); vertical-align: -0.15em; margin-left: 2px; animation: blink 1.1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cur { animation: none; } }
-.status { margin: 2px 0 8px; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+.status { margin: 2px 0 8px; white-space: nowrap; overflow: hidden; position: relative; }
+/* 跑马灯：两份一样的内容并排，往左移一半刚好接回开头；手指按住 / 鼠标停上去会暂停；系统设了「减少动态效果」就不动，可左右滑 */
+.tick { display: inline-flex; animation: tick 60s linear infinite; will-change: transform; }
+.tick > span { flex: none; padding-right: 0; }
+.status:hover .tick, .status:active .tick { animation-play-state: paused; }
+@keyframes tick { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .status { overflow-x: auto; scrollbar-width: none; } .tick { animation: none; } .tick > span + span { display: none; } }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .status::-webkit-scrollbar { display: none; }
 .keys { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .keys::-webkit-scrollbar { display: none; }

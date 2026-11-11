@@ -539,11 +539,20 @@
   }
 
   // ---------- 外框 ----------
+  // 顶部跑马灯：KLCI、涨 / 平 / 跌家数、USD/MYR、更新时间，后面接成交额最大的 10 支股票的涨跌；内容复制一份接在后面，无缝循环
   function status() {
-    var m = D.market || {}, ix = m.index, b = m.breadth, st = { live: '盘中 LIVE', pre: '开市前', closed: '收盘 CLOSED' }[D.state] || D.state;
-    return (ix ? '<b>' + esc(ix.label.split(' ').pop()) + '</b> ' + ix.last.toLocaleString('en', { minimumFractionDigits: 2 }) + ' <span class="' + cls(ix.chg) + '">' + pct(ix.pct) + '</span> <span class="g">│</span> ' : '') +
-      (b ? '<span class="up">▲' + b.up + '</span> <span class="dim">■' + b.flat + '</span> <span class="dn">▼' + b.down + '</span> <span class="g">│</span> ' : '') +
-      '<span class="dim">' + esc(md(D.updated.slice(0, 10)) + D.updated.slice(10)) + ' ' + esc(D.tz || '') + '</span> <span class="' + (D.state === 'live' ? 'warn' : 'acc') + '">' + st + '</span>';
+    var m = D.market || {}, ix = m.index, b = m.breadth, st = { live: '盘中 LIVE', pre: '开市前', closed: '收盘 CLOSED' }[D.state] || D.state, sep = ' <span class="g">│</span> ';
+    var parts = [];
+    if (ix) parts.push('<b>' + esc(ix.label.split(' ').pop()) + '</b> ' + ix.last.toLocaleString('en', { minimumFractionDigits: 2 }) + ' <span class="' + cls(ix.chg) + '">' + (ix.chg > 0 ? '▲' : ix.chg < 0 ? '▼' : '') + (ix.chg > 0 ? '+' : '') + ix.chg + ' ' + pct(ix.pct) + '</span>');
+    if (b) parts.push('<span class="up">涨 ▲' + b.up + '</span> <span class="dim">平 ■' + b.flat + '</span> <span class="dn">跌 ▼' + b.down + '</span>');
+    if (isNum(m.usd_myr)) parts.push('<span class="dim">USD/MYR</span> ' + m.usd_myr.toFixed(4));
+    parts.push('<span class="dim">' + esc(md(D.updated.slice(0, 10)) + D.updated.slice(10)) + ' ' + esc(D.tz || '') + '</span> <span class="' + (D.state === 'live' ? 'warn' : 'acc') + '">' + st + '</span>');
+    LIST.filter(function (x) { return x.pool === 1 && isNum(x.c); }).sort(function (x, y) { return (y.to || 0) - (x.to || 0); }).slice(0, 10).forEach(function (x) {
+      parts.push('<b>' + esc(x.name) + '</b> ' + px(x.p) + ' <span class="' + cls(x.c) + '">' + (x.c > 0 ? '▲' : x.c < 0 ? '▼' : '') + pct(x.c, 1) + '</span>');
+    });
+    var one = parts.join(sep) + sep;
+    return '<span class="tick" aria-hidden="true"><span>' + one + '</span><span>' + one + '</span></span>' +
+      '<span class="sr-only">' + esc(parts.join(' · ').replace(/<[^>]+>/g, '')) + '</span>';
   }
   function keys() {
     var counts = { sig: (D.signals || []).length, hold: (D.follow || []).filter(function (x) { return x.status !== 'out'; }).length, pool: LIST.filter(function (s) { return s.pool === 1; }).length, ann: (D.board || []).length };
@@ -629,6 +638,8 @@
     D = j; ingest(); fromHash();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { CW = null; render(); });  // 网页字体到了再量一次字宽
     document.getElementById('status').innerHTML = status();
+    var tk = document.querySelector('#status .tick > span');  // 速度固定约每秒 40px，内容长短不影响快慢
+    if (tk) document.querySelector('#status .tick').style.animationDuration = Math.max(20, tk.getBoundingClientRect().width / 40) + 's';
     document.getElementById('full-report').href = stdUrl();
     render();
   }).catch(function (err) {
