@@ -153,9 +153,14 @@ input[type="checkbox"] { accent-color: var(--acc); width: 16px; height: 16px; fl
 .run[disabled] { opacity: 0.6; cursor: wait; }
 pre.txt .nm { font: inherit; }
 
-/* 热力图：一格一支，背景 = 涨跌色按幅度混进底色 (0 = 平盘灰) */
-.hm { display: grid; grid-template-columns: repeat(auto-fill, minmax(10ch, 1fr)); gap: 2px; font-size: 11px; }
+/* 热力图：一格一支，背景 = 涨跌色按幅度混进底色 (0 = 平盘灰)；支数越多格子越小 (hm-l / m / s / xs)，尽量一屏看完 */
+.hm { display: grid; gap: 2px; }
+.hm.hm-l { grid-template-columns: repeat(auto-fill, minmax(10ch, 1fr)); font-size: 11px; }
+.hm.hm-m { grid-template-columns: repeat(auto-fill, minmax(8.5ch, 1fr)); font-size: 10px; }
+.hm.hm-s { grid-template-columns: repeat(auto-fill, minmax(7ch, 1fr)); font-size: 9px; }
+.hm.hm-xs { grid-template-columns: repeat(auto-fill, minmax(5.6ch, 1fr)); font-size: 8px; gap: 1px; }
 .hm-c { display: grid; padding: 4px 4px 3px; min-height: 40px; text-align: left; line-height: 1.25; color: var(--fg); background: var(--bg2); min-width: 0; }
+.hm-m .hm-c { min-height: 32px; padding: 3px; } .hm-s .hm-c { min-height: 27px; padding: 2px 3px; } .hm-xs .hm-c { min-height: 22px; padding: 1px 2px; line-height: 1.15; }
 .hm-c:hover, .hm-c:focus-visible { outline: 1px solid var(--fg); outline-offset: -1px; }
 .hm-n { white-space: nowrap; overflow: hidden; text-overflow: clip; font-weight: 700; }
 .hm-p { font-variant-numeric: tabular-nums; }
@@ -165,7 +170,11 @@ pre.txt .nm { font: inherit; }
 .hm-u4 { background: var(--up); color: var(--bg); } .hm-d4 { background: var(--dn); color: var(--bg); }
 .hm-u0, .hm-d0, .hm-z0 { background: var(--bg2); color: var(--mut); }
 .hm-lg { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 2px; margin-top: 6px; font-size: 10px; text-align: center; }
-.hm-lg > span { padding: 2px 0; white-space: nowrap; }
+.hm-lg > button { padding: 3px 0 2px; white-space: nowrap; display: grid; line-height: 1.2; min-height: 34px; border: 1px solid transparent; }
+.hm-lg > button small { font-size: 9px; opacity: 0.8; }
+.hm-lg > button[aria-pressed="true"] { border-color: var(--fg); outline: 1px solid var(--fg); font-weight: 700; }
+.hm-lg > button[disabled] { opacity: 0.35; cursor: default; }
+.hm-tip { font-size: 11px; margin-top: 4px; }
 
 /* 公司简介 */
 .prof-lines { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }

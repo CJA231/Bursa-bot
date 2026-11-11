@@ -560,24 +560,33 @@
     return pn('POOL 股票池', '<span id="pool-n">' + b.n + '</span>', poolHead() + '<div class="rows pool-tbl" id="pool-body">' + b.rows + '</div>');
   }
   // 热力图：成交额最大的股票，一格一支，颜色深浅 = 涨跌幅 (░▒▓█ 四级)，点格子开个股
-  var HEAT_N = { 40: '前 40', 80: '前 80', 0: '股票池全部' };
+  // 热力图：成交额最大的 N 支，一格一支，颜色深浅 = 涨跌幅。支数多时格子自动变小，整张图尽量一屏看完 (不是拉成长长一列)
+  // 下面的颜色对照可以点：只显示那一档涨跌幅的股票，再点一次取消
+  var HEAT_N = [[24, '前 24'], [50, '前 50'], [80, '前 80'], [0, '股票池全部']];
+  var HEAT_LG = [['d4', '≤-10'], ['d3', '-5'], ['d2', '-2'], ['d1', '-0.5'], ['z0', '0'], ['u1', '+0.5'], ['u2', '+2'], ['u3', '+5'], ['u4', '≥10']];
+  var HEAT_TXT = { d4: '跌 10% 以上', d3: '跌 5–10%', d2: '跌 2–5%', d1: '跌 0.5–2%', z0: '±0.5% 以内', u1: '涨 0.5–2%', u2: '涨 2–5%', u3: '涨 5–10%', u4: '涨 10% 以上' };
   function heatLevel(c) { var a = Math.abs(c || 0); return a < 0.5 ? 0 : a < 2 ? 1 : a < 5 ? 2 : a < 10 ? 3 : 4; }
+  function heatKey(c) { var lv = heatLevel(c); return lv ? (c > 0 ? 'u' : 'd') + lv : 'z0'; }
   function heatmap() {
-    var n = S.heat == null ? 40 : S.heat;
+    var n = S.heat == null ? 50 : S.heat;
     var src = LIST.filter(function (s) { return s.pool === 1 && isNum(s.c); }).sort(function (a, b) { return (b.to || 0) - (a.to || 0); });
     var arr = n ? src.slice(0, n) : src;
     if (!arr.length) return '';
+    var cnt = {}; arr.forEach(function (s) { var k = heatKey(s.c); cnt[k] = (cnt[k] || 0) + 1; });
+    var hb = S.hb && cnt[S.hb] ? S.hb : null, shown = hb ? arr.filter(function (s) { return heatKey(s.c) === hb; }) : arr;
     var up = arr.filter(function (s) { return s.c > 0; }).length, dn = arr.filter(function (s) { return s.c < 0; }).length;
-    var opts = '<div class="opts" role="group" aria-label="热力图范围">' + Object.keys(HEAT_N).sort(function (a, b) { return (+a || 1e9) - (+b || 1e9); }).map(function (k) {
-      return '<button type="button" data-heat="' + k + '" aria-pressed="' + (String(n) === k) + '">' + HEAT_N[k] + '</button>'; }).join('') + '</div>';
-    var cells = arr.map(function (s) {
-      var lv = heatLevel(s.c), dir = s.c > 0 ? 'u' : s.c < 0 ? 'd' : 'z';
-      return '<button type="button" class="hm-c hm-' + dir + lv + '" data-q="' + esc(s.code) + '" title="' + esc(s.name) + ' ' + pct(s.c) + ' · 成交额 RM ' + big(s.to) + '">' +
+    var opts = '<div class="opts" role="group" aria-label="热力图范围">' + HEAT_N.map(function (x) {
+      return '<button type="button" data-heat="' + x[0] + '" aria-pressed="' + (n === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>';
+    var dens = shown.length <= 30 ? 'hm-l' : shown.length <= 60 ? 'hm-m' : shown.length <= 100 ? 'hm-s' : 'hm-xs';
+    var cells = shown.map(function (s) {
+      return '<button type="button" class="hm-c hm-' + heatKey(s.c) + '" data-q="' + esc(s.code) + '" title="' + esc(s.name) + ' ' + pct(s.c) + ' · 成交额 RM ' + big(s.to) + '">' +
         '<span class="hm-n">' + esc(s.name) + '</span><span class="hm-p">' + (s.c > 0 ? '+' : '') + s.c.toFixed(1) + '</span></button>';
     }).join('');
-    var legend = '<div class="hm-lg" aria-label="颜色对照 (涨跌 %)">' + [['d4', '-10'], ['d3', '-5'], ['d2', '-2'], ['d1', '-0.5'], ['z0', '0'], ['u1', '+0.5'], ['u2', '+2'], ['u3', '+5'], ['u4', '+10']].map(function (x) {
-      return '<span class="hm-' + x[0] + '">' + x[1] + '</span>'; }).join('') + '</div>';
-    return pn('HEATMAP 热力图', '按成交额 · ▲' + up + ' ▼' + dn, opts + '<div class="hm">' + cells + '</div>' + legend);
+    var legend = '<div class="hm-lg" role="group" aria-label="按涨跌幅筛选">' + HEAT_LG.map(function (x) {
+      return '<button type="button" class="hm-' + x[0] + '" data-hb="' + x[0] + '" aria-pressed="' + (hb === x[0]) + '" aria-label="' + HEAT_TXT[x[0]] + ' ' + (cnt[x[0]] || 0) + ' 支"' + (cnt[x[0]] ? '' : ' disabled') + '>' +
+        x[1] + '<small>' + (cnt[x[0]] || 0) + '</small></button>'; }).join('') + '</div>' +
+      '<p class="dim hm-tip">' + (hb ? '只显示「' + HEAT_TXT[hb] + '」' + shown.length + ' 支 · 再点一次显示全部' : '点颜色格子 = 只看那一档涨跌幅的股票') + '</p>';
+    return pn('HEATMAP 热力图', '按成交额 · ▲' + up + ' ▼' + dn, opts + '<div class="hm ' + dens + '">' + cells + '</div>' + legend);
   }
   function pageMkt() {
     var m = D.market || {}, ix = m.index, b = m.breadth, h = '';
@@ -852,6 +861,7 @@
       var sl2 = document.querySelector('.fscroll'); if (sl2) { sl2.scrollLeft = x; var on = sl2.querySelector('[aria-pressed="true"]'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
       return; }
     var cbt = e.target.closest('[data-cb]'); if (cbt) { cbClick(cbt); return; }
+    var hbx = e.target.closest('[data-hb]'); if (hbx) { S.hb = S.hb === hbx.dataset.hb ? null : hbx.dataset.hb; render(); return; }
     var t = e.target.closest('[data-page],[data-q],[data-back],[data-flt],[data-sort],[data-more],[data-cat],[data-heat]');
     if (!t) return;
     if (t.dataset.page) go(t.dataset.page);
@@ -861,7 +871,7 @@
     else if (t.dataset.sort) setSort(t.dataset.sort);
     else if (t.dataset.more) { S.limit += 50; render(); }
     else if (t.dataset.cat) { S.cat = t.dataset.cat; render(); }
-    else if (t.dataset.heat) { S.heat = +t.dataset.heat; render(); }
+    else if (t.dataset.heat) { S.heat = +t.dataset.heat; S.hb = null; render(); }
   });
   document.addEventListener('toggle', function (e) { var d = e.target; if (d.classList && d.classList.contains('info')) OPEN[d.dataset.code] = d.open; }, true);
   document.addEventListener('change', function (e) {
