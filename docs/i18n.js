@@ -452,13 +452,26 @@
       location.replace(location.pathname + u + location.hash); // 重新载入：中文 = 原文，英文 = 重新翻译
     });
     bar.appendChild(b);
+    // 界面风格：标准报告 ⇄ 终端版 (纯文字)，选了会记住 (head 里那段会直接跳过去)
+    if (document.body && document.body.getAttribute('data-market') === 'MY' && !document.getElementById('ui-btn')) {
+      var u = document.createElement('a');
+      u.id = 'ui-btn'; u.className = 'lang-btn'; u.href = 'terminal/'; u.setAttribute('data-ui', 'term'); u.setAttribute('data-keep', '1');
+      u.textContent = lang === 'en' ? 'Terminal' : '终端';
+      u.setAttribute('aria-label', lang === 'en' ? 'Switch to terminal style' : '切换到终端风格');
+      u.style.textDecoration = 'none';
+      bar.insertBefore(u, b);
+    }
   }
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('[data-ui]');
+    if (a) { try { localStorage.setItem('bursa_ui', a.getAttribute('data-ui')); } catch (err) { /* 存不了就只换这一次 */ } }
+  });
   var st = document.createElement('style');
   st.textContent = '.lang-btn{flex:none;white-space:nowrap;font:inherit;font-size:var(--fs-sm);font-weight:600;padding:0.25rem 0.6rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-secondary);cursor:pointer}' +
     '.lang-btn:hover{color:var(--text-primary)}' +
     '@font-face{font-family:"Bursa Num";src:local("SF Mono"),local("Menlo"),local("Consolas"),local("DejaVu Sans Mono"),local("Courier New");unicode-range:U+0025,U+002B,U+0030-0039,U+003A}' +
     'html[data-lang="en"]{--font:"Bursa Num","Times New Roman",Times,"Liberation Serif","Noto Serif",serif}' +
-    '#lang-btn{margin-left:auto}' +
+    '#ui-btn{margin-left:auto}#ui-btn+#lang-btn{margin-left:0.4rem}#lang-btn{margin-left:auto}' +
     // 英文模式：中英并排的标签里，英文那一半原本是灰色小字，现在是主文字
     'html[data-lang="en"] :is(h4,h5,.cbt-x,.cbt-xh,.bt-head,.section,.subsection,.dash-h) > :is(i,small){font-style:normal;color:inherit;font-size:inherit;margin-left:0}' +
     'html[data-lang="en"] .cbt-x > span > i, html[data-lang="en"] .cbt-xh > i{font-style:normal;color:inherit;font-size:inherit;margin-left:0}';
