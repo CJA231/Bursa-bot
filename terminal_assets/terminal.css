@@ -1,19 +1,19 @@
-/* bursa.term — Nord 配色的纯文字终端界面。深色 = Polar Night，浅色 = Snow Storm，跟系统，按 t 可切换 */
+/* bursa.term — 纯文字终端界面。底色是中性灰 (不带蓝)，字和图用 Nord 的颜色；深色 / 浅色跟系统，按 t 可切换 */
 :root {
-  --bg: #2e3440; --bg2: #3b4252; --fg: #e5e9f0; --mut: #9aa3b5; --line: #4c566a;
-  --acc: #88c0d0; --acc2: #81a1c1; --up: #a3be8c; --dn: #e5878f; --warn: #ebcb8b; --sel: #434c5e;
+  --bg: #303030; --bg2: #3a3a3a; --fg: #e6e6e6; --mut: #a8a8a8; --line: #5a5a5a;
+  --acc: #88c0d0; --acc2: #81a1c1; --up: #a3be8c; --dn: #e5878f; --warn: #ebcb8b; --sel: #424242;
   --font: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, "PingFang SC", "Noto Sans SC", monospace;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #eceff4; --bg2: #e5e9f0; --fg: #2e3440; --mut: #5c6577; --line: #c3cad6;
-    --acc: #3f7591; --acc2: #5e81ac; --up: #4b7a36; --dn: #b0414b; --warn: #8a6a12; --sel: #d8dee9; color-scheme: light;
+    --bg: #e8e8e8; --bg2: #dedede; --fg: #2b2b2b; --mut: #555555; --line: #bdbdbd;
+    --acc: #2f6580; --acc2: #4a6d99; --up: #3f6b2c; --dn: #b0414b; --warn: #7a5c0c; --sel: #d6d6d6; color-scheme: light;
   }
 }
 :root[data-theme="light"] {
-  --bg: #eceff4; --bg2: #e5e9f0; --fg: #2e3440; --mut: #5c6577; --line: #c3cad6;
-  --acc: #3f7591; --acc2: #5e81ac; --up: #4b7a36; --dn: #b0414b; --warn: #8a6a12; --sel: #d8dee9; color-scheme: light;
+  --bg: #e8e8e8; --bg2: #dedede; --fg: #2b2b2b; --mut: #555555; --line: #bdbdbd;
+  --acc: #2f6580; --acc2: #4a6d99; --up: #3f6b2c; --dn: #b0414b; --warn: #7a5c0c; --sel: #d6d6d6; color-scheme: light;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); }
