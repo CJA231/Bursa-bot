@@ -729,6 +729,131 @@
     else if (d.cald) S.calD = S.calD === d.cald ? null : d.cald;
     render();
   }
+
+  // ---------- ✦ AI 问答：每一页右下角的按钮，问题 + 当前页面的资料一起送给 DeepSeek ----------
+  // 两种连线方式 (⚙ 设置，只存在这台设备的浏览器)：Worker (worker/ai-proxy.js，密钥在 Cloudflare，推荐) / 自己的 DeepSeek 密钥 (浏览器直接连)
+  var AI_SYS = '你是 Bursa Bot 终端版里的 AI 助手，帮用户看懂马来西亚股票的公开资料。用户的问题后面会附上「当前页面资料」，回答要以这些资料为根据，资料里没有的就说没有，不要编造数字或事件。' +
+    '用简体中文回答，条理清楚、简短；需要时分点。可以解释指标、财报数字的变化、公告在说什么、有哪些需要留意的事项。' +
+    '绝对不要给买入、卖出、持有、加仓、止损、目标价或任何操作建议，也不要预测股价涨跌；用户问「该不该买」时，说明你不能给建议，改为整理相关事实和需要留意的地方。';
+  var AI = { open: false, busy: false, msgs: [], ctxKey: null, cfg: (function () { try { return JSON.parse(localStorage.getItem('bterm_ai') || '{}'); } catch (e) { return {}; } })(), setup: false };
+  function aiSave() { try { localStorage.setItem('bterm_ai', JSON.stringify(AI.cfg)); } catch (e) {} }
+  function aiReady() { return AI.cfg.mode === 'worker' ? !!(AI.cfg.url && AI.cfg.pass) : AI.cfg.mode === 'key' ? !!AI.cfg.key : false; }
+  function num(v, d) { return isNum(v) ? +v.toFixed(d == null ? 2 : d) : null; }
+  // 当前页面的资料 (送给 AI 当根据)：个股页 = 这支股票的全部资料；其他页 = 今天的大盘 + 这一页的重点
+  function aiContext() {
+    var m = D.market || {}, ix = m.index, b = m.breadth, c = { 日期: D.date, 更新: D.updated };
+    if (ix) c.大盘 = { 指数: ix.label, 点数: ix.last, 涨跌: ix.chg, 涨跌百分比: ix.pct, 近30日: ix.spark };
+    if (b) c.涨跌家数 = { 涨: b.up, 平: b.flat, 跌: b.down, 新高: b.highs, 新低: b.lows };
+    if (S.code) {
+      var code = S.code, s = ST[code], it = INTEL[code], pr = PROF[code], f = FIN[code], ex = EXTRA[code], bd = bars(code) || DAILY[code];
+      c.股票 = { 代码: code, 名称: nameOf(code), 全名: PROF[code + '_name'] || null };
+      if (s) c.行情 = { 价格: s.p, 涨跌百分比: s.c, 成交量: s.vol, 成交额: s.to, 相对量: s.rv, RSI14: s.rsi, EMA20: s.ema, 五十日线: s.sma, SAR多头: s.sar, ATR百分比: s.atr, 市值: s.mc, 今天信号: !!s.sig, 在股票池: !!s.pool };
+      if (bd && bd.length) c.近30日收盘 = bd.slice(-30).map(function (x) { return [x.d, x.c]; });
+      var sig = (D.signals || []).filter(function (x) { return x.code === code; })[0], fol = (D.follow || []).filter(function (x) { return x.code === code; })[0];
+      if (sig) c.今天信号 = { 条件: sig.why, 风险线: sig.stop, 参考位: sig.target, 消息面: sig.digest };
+      if (fol) c.信号跟进 = { 信号日: fol.sig, 信号价: fol.entry, 现价: fol.last, 之后涨跌: fol.ret, 天数: fol.days, 风险线: fol.stop, 状态: fol.status, 趋势检查: fol.hits };
+      if (pr) c.公司简介 = { 行业: [pr.sector, pr.industry].filter(Boolean).join(' / '), 介绍: pr.zh || (pr.summary || '').slice(0, 800), 业务: pr.lines };
+      if (it && it !== 'loading') c.AI整理 = { 近况: it.recent, 重要事件: it.notable, 需留意: it.risks, 财报: it.earnings, 财报数字: it.facts, 即将到来: (it.events || []).slice(0, 8) };
+      if (f && f.quarterly) { var q = f.quarterly, k = Math.max(0, q.periods.length - 5);
+        c.季报 = q.periods.slice(k).map(function (p, i) { i += k; return { 季末: p, 营收: (q.revenue || [])[i], 毛利: (q.gross_profit || [])[i], 营业利润: (q.operating_income || [])[i], 净利润: (q.net_income || [])[i], EPS: (q.eps || [])[i], 总负债: (q.total_liabilities || [])[i], 总资产: (q.total_assets || [])[i] }; }); }
+      if (ex && ex !== 'loading') { c.公告 = (ex.ann || []).slice(0, 12).map(function (a) { return a.date + ' ' + a.title; }); c.新闻 = (ex.news || []).slice(0, 8).map(function (n) { return n.title + (n.source ? ' (' + n.source + ')' : ''); }); }
+    } else {
+      var liq = LIST.filter(function (x) { return isNum(x.c) && x.p >= 0.1; });
+      var brief = function (x) { return x.name + ' ' + x.code + ' ' + x.p + ' (' + (x.c > 0 ? '+' : '') + x.c + '%)'; };
+      c.成交额最大 = liq.slice().sort(function (a, b) { return (b.to || 0) - (a.to || 0); }).slice(0, 12).map(brief);
+      c.涨幅最大 = liq.filter(function (x) { return (x.to || 0) >= 1e6; }).sort(function (a, b) { return b.c - a.c; }).slice(0, 8).map(brief);
+      c.跌幅最大 = liq.filter(function (x) { return (x.to || 0) >= 1e6; }).sort(function (a, b) { return a.c - b.c; }).slice(0, 8).map(brief);
+      c.今天信号 = (D.signals || []).map(function (x) { return x.name + ' ' + x.code + ' 条件: ' + (x.why || []).join('; '); });
+      c.当前页面 = (PAGES.filter(function (p) { return p[0] === S.page; })[0] || [])[1];
+      if (S.page === 'ann') c.最近公告 = (D.board || []).slice(0, 25).map(function (x) { return x.date + ' ' + x.name + ': ' + x.title; });
+      if (S.page === 'cal' && CAL) c.日历 = CAL.filter(function (e) { return e.date >= today(); }).slice(0, 30).map(function (e) { return e.date + ' ' + e.name + ' ' + (CAL_T[e.type] || [])[1] + ' ' + (e.what || ''); });
+      if (S.page === 'watch') c.观察列表 = curFolder().codes.map(function (x) { return ST[x] ? brief(ST[x]) : nameOf(x) + ' ' + x; });
+    }
+    return c;
+  }
+  function aiChips() {
+    if (S.code) return ['用几句话总结这家公司最近的情况', '解释最新一季的财报数字', '这些技术指标说明了什么', '最近的公告在说什么', '有哪些需要留意的地方'];
+    if (S.page === 'ann') return ['今天最值得留意的公告有哪些', '把这些公告按类型整理一下'];
+    if (S.page === 'cal') return ['接下来两周有哪些重要日期', '哪些公司快要除息'];
+    if (S.page === 'watch') return ['整理我观察列表里股票今天的表现'];
+    return ['今天大盘的情况怎么样', '成交额最大的几支股票在发生什么', '解释一下今天信号股符合的条件'];
+  }
+  function aiFmt(t) { return esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^#{1,4}\s*(.+)$/gm, '<b>$1</b>').replace(/\n/g, '<br>'); }
+  function aiRender() {
+    var box = document.getElementById('ai-panel'); if (!box) return;
+    box.hidden = !AI.open; document.getElementById('ai-fab').setAttribute('aria-expanded', String(AI.open));
+    if (!AI.open) return;
+    var label = S.code ? nameOf(S.code) + ' ' + S.code : ((PAGES.filter(function (p) { return p[0] === S.page; })[0] || [])[1] || '') + ' · 今日市场';
+    var h = '<div class="ai-top"><b>✦ AI 问答</b><span class="dim">根据：' + esc(label) + '</span><button type="button" data-ai="setup">⚙ 设置</button><button type="button" data-ai="close" aria-label="关闭">×</button></div>';
+    if (AI.setup || !aiReady()) {
+      var md0 = AI.cfg.mode || 'worker';
+      h += '<div class="ai-set"><p class="dim">选择连线方式 (只存在这台设备的浏览器)：</p>' +
+        '<div class="opts"><button type="button" data-ai="mode" data-v="worker" aria-pressed="' + (md0 === 'worker') + '">Worker (推荐)</button><button type="button" data-ai="mode" data-v="key" aria-pressed="' + (md0 === 'key') + '">自己的 DeepSeek 密钥</button></div>' +
+        (md0 === 'worker' ? '<label>Worker 网址<input id="ai-url" type="url" autocomplete="off" placeholder="https://bursa-ai.xxx.workers.dev" value="' + esc(AI.cfg.url || '') + '"></label>' +
+          '<label>通行码<input id="ai-pass" type="password" autocomplete="off" value="' + esc(AI.cfg.pass || '') + '"></label><p class="dim">设置方法见仓库 worker/README.md：密钥放在 Cloudflare，网页上看不到。</p>'
+          : '<label>DeepSeek API 密钥<input id="ai-key" type="password" autocomplete="off" placeholder="sk-…" value="' + esc(AI.cfg.key || '') + '"></label><p class="dim">密钥只存在这台手机，问问题时浏览器直接连 DeepSeek。建议用另外开的、设了用量上限的密钥。</p>') +
+        '<div class="opts"><button type="button" class="ok" data-ai="save">保存</button>' + (aiReady() ? '<button type="button" data-ai="setup">取消</button>' : '') + '</div></div>';
+    } else {
+      h += '<div class="ai-log" id="ai-log">' + (AI.msgs.length ? AI.msgs.map(function (m) { return '<div class="ai-m ai-' + m.role + '">' + (m.role === 'user' ? esc(m.show || m.content) : aiFmt(m.content) || '<span class="dim">思考中…</span>') + '</div>'; }).join('') :
+        '<p class="dim">会把这一页的资料 (价格、指标、财报、公告、AI 整理) 一起交给 AI。可以点下面的问题，或自己输入。</p>') + '</div>' +
+        '<div class="opts ai-chips">' + aiChips().map(function (q) { return '<button type="button" data-ai="ask" data-v="' + esc(q) + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
+        '<div class="ai-in"><textarea id="ai-q" rows="2" placeholder="问 AI… (例如：这家公司的负债高吗？)"></textarea><button type="button" class="ok" data-ai="send"' + (AI.busy ? ' disabled' : '') + '>' + (AI.busy ? '…' : '发送') + '</button></div>' +
+        '<p class="dim ai-note">AI 生成，只根据页面资料整理，可能有错漏；不构成投资建议。' + (AI.msgs.length ? ' <button type="button" class="more" data-ai="clear">清空对话</button>' : '') + '</p>';
+    }
+    box.innerHTML = h;
+    var lg = document.getElementById('ai-log'); if (lg) lg.scrollTop = lg.scrollHeight;
+  }
+  function aiAsk(q) {
+    q = (q || '').trim(); if (!q || AI.busy) return;
+    var key = S.code || S.page; if (AI.ctxKey !== key) { AI.msgs = []; AI.ctxKey = key; }  // 换了股票 / 页面就开新对话
+    var first = !AI.msgs.length, ctx = first ? '\n\n【当前页面资料】\n' + JSON.stringify(aiContext()) : '';
+    AI.msgs.push({ role: 'user', content: q + ctx, show: q }, { role: 'assistant', content: '' });
+    AI.busy = true; aiRender();
+    var cur = AI.msgs[AI.msgs.length - 1], hist = AI.msgs.slice(0, -1).map(function (m) { return { role: m.role, content: m.content }; });
+    var req = AI.cfg.mode === 'worker' ? fetch(AI.cfg.url.replace(/\/$/, ''), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pass': AI.cfg.pass }, body: JSON.stringify({ messages: hist }) })
+      : fetch('https://api.deepseek.com/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + AI.cfg.key },
+        body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: AI_SYS }].concat(hist) }) });
+    req.then(function (r) {
+      if (!r.ok) return r.text().then(function (t) { throw new Error(r.status + (r.status === 401 ? ' 通行码 / 密钥不对' : r.status === 403 ? ' 网址不被允许 (检查 ALLOW_ORIGIN)' : r.status === 402 ? ' DeepSeek 额度不足' : '') + ' ' + t.slice(0, 120)); });
+      var rd = r.body.getReader(), dec = new TextDecoder(), buf = '';
+      function pump() {
+        return rd.read().then(function (x) {
+          if (x.done) return;
+          buf += dec.decode(x.value, { stream: true });
+          var lines = buf.split('\n'); buf = lines.pop();
+          lines.forEach(function (ln) {
+            ln = ln.trim(); if (ln.indexOf('data:') !== 0) return; var dta = ln.slice(5).trim(); if (dta === '[DONE]') return;
+            try { var j = JSON.parse(dta), dl = j.choices && j.choices[0] && j.choices[0].delta; if (dl && dl.content) cur.content += dl.content; } catch (e) {}
+          });
+          var el = document.querySelectorAll('#ai-log .ai-assistant'); if (el.length) { el[el.length - 1].innerHTML = aiFmt(cur.content); var lg = document.getElementById('ai-log'); lg.scrollTop = lg.scrollHeight; }
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function (e) {
+      cur.content = (cur.content ? cur.content + '\n\n' : '') + '⚠ 连线失败：' + e.message + (AI.cfg.mode === 'key' && /fetch|Load failed|NetworkError/i.test(e.message) ? '\n浏览器可能挡掉直接连线，请改用 Worker 方式 (worker/README.md)。' : '');
+    }).then(function () { AI.busy = false; aiRender(); });
+  }
+  function aiClick(t) {
+    var a = t.dataset.ai;
+    if (a === 'toggle') { AI.open = !AI.open; }
+    else if (a === 'close') AI.open = false;
+    else if (a === 'setup') AI.setup = !AI.setup;
+    else if (a === 'mode') { AI.cfg.mode = t.dataset.v; AI.setup = true; }
+    else if (a === 'save') {
+      if (AI.cfg.mode !== 'key') { AI.cfg.mode = 'worker'; AI.cfg.url = (document.getElementById('ai-url') || {}).value || ''; AI.cfg.pass = (document.getElementById('ai-pass') || {}).value || ''; }
+      else AI.cfg.key = (document.getElementById('ai-key') || {}).value || '';
+      aiSave(); AI.setup = !aiReady();
+    } else if (a === 'clear') AI.msgs = [];
+    else if (a === 'ask') { aiAsk(t.dataset.v); return; }
+    else if (a === 'send') { var q = document.getElementById('ai-q'); aiAsk(q && q.value); return; }
+    aiRender();
+  }
+  (function () {
+    var fab = document.createElement('button'); fab.type = 'button'; fab.id = 'ai-fab'; fab.dataset.ai = 'toggle'; fab.setAttribute('aria-controls', 'ai-panel'); fab.setAttribute('aria-expanded', 'false'); fab.innerHTML = '✦ AI';
+    var box = document.createElement('section'); box.id = 'ai-panel'; box.hidden = true; box.setAttribute('aria-label', 'AI 问答');
+    document.body.appendChild(box); document.body.appendChild(fab);
+  })();
   // 个股：字符 K 线 + 数字 + (信号 / 观察列表) + 公告和新闻
   var EXTRA = {};
 
@@ -903,6 +1028,7 @@
     main.innerHTML = S.code ? pageQuote(S.code) : fn();
     if (focusGrep) { var g = document.getElementById(focusId); if (g) { g.focus(); try { g.setSelectionRange(pos, pos); } catch (e) {} } }
     if (!BARS) loadBars();
+    if (AI.open && !AI.busy && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#ai-panel'))) aiRender();
   }
   function go(page, code) {
     S.page = page || S.page; S.code = code || null;
@@ -926,6 +1052,7 @@
       var sl2 = document.querySelector('.fscroll'); if (sl2) { sl2.scrollLeft = x; var on = sl2.querySelector('[aria-pressed="true"]'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
       return; }
     var cbt = e.target.closest('[data-cb]'); if (cbt) { cbClick(cbt); return; }
+    var ai = e.target.closest('[data-ai]'); if (ai) { aiClick(ai); return; }
     var ct = e.target.closest('[data-calg],[data-calw],[data-calm],[data-cald]'); if (ct) { calClick(ct); return; }
     var hbx = e.target.closest('[data-hb]'); if (hbx) { S.hb = S.hb === hbx.dataset.hb ? null : hbx.dataset.hb; render(); return; }
     var t = e.target.closest('[data-page],[data-q],[data-back],[data-flt],[data-sort],[data-more],[data-cat],[data-heat]');
@@ -962,6 +1089,8 @@
     if (e.metaKey || e.ctrlKey || e.altKey || !D) return;
     var typing = e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
     if (e.key === 'Enter' && e.target.id === 'wf-name') { e.preventDefault(); wSubmit(); render(); return; }
+    if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'ai-q') { e.preventDefault(); aiAsk(e.target.value); return; }
+    if (e.key === 'Escape' && AI.open) { AI.open = false; aiRender(); return; }
     if (e.key === 'Escape') { if (typing) e.target.blur(); if (S.code) go(S.page); return; }
     if (typing) return;
     var n = parseInt(e.key, 10);

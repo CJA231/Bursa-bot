@@ -264,3 +264,29 @@ pre.txt .nm { font: inherit; }
 .cal-dots .cal-dot { margin: 0; }
 .cal-r { margin: 4px 0; }
 .cal-day { margin-top: 6px; }
+
+/* ✦ AI 问答：右下角按钮 + 从下面升起的面板 (手机上占下半屏) */
+#ai-fab { position: fixed; right: 14px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 20; padding: 10px 14px; min-height: 44px;
+  background: var(--acc); color: var(--bg); font-weight: 700; border: 1px solid var(--acc); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+#ai-fab[aria-expanded="true"] { background: var(--bg2); color: var(--acc); }
+#ai-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 19; max-height: 72vh; display: flex; flex-direction: column; gap: 6px;
+  background: var(--bg); border-top: 3px double var(--acc); padding: 10px 14px calc(70px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.35); }
+#ai-panel[hidden] { display: none; }
+@media (min-width: 780px) { #ai-panel { left: auto; width: 460px; right: 14px; bottom: 70px; max-height: 70vh; border: 3px double var(--acc); padding-bottom: 12px; } }
+.ai-top { display: flex; align-items: center; gap: 8px; }
+.ai-top .dim { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.ai-top button { color: var(--acc2); padding: 4px 6px; min-height: 32px; }
+.ai-log { overflow-y: auto; display: grid; gap: 8px; min-height: 60px; flex: 1; -webkit-overflow-scrolling: touch; }
+.ai-m { padding: 6px 8px; line-height: 1.55; word-break: break-word; }
+.ai-user { background: var(--bg2); justify-self: end; max-width: 88%; }
+.ai-assistant { border-left: 2px solid var(--acc); }
+.ai-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.ai-chips::-webkit-scrollbar { display: none; }
+.ai-chips button { flex: none; border: 1px solid var(--line); font-size: 12px; }
+.ai-in { display: flex; gap: 6px; align-items: stretch; }
+.ai-in textarea, .ai-set input { flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--fg); background: var(--bg2); border: 1px solid var(--line); padding: 6px 8px; border-radius: 0; resize: none; }
+.ai-in .ok, .ai-set .ok { padding: 6px 12px; border: 1px solid var(--acc); color: var(--acc); font-weight: 700; min-height: 44px; }
+.ai-set { display: grid; gap: 8px; overflow-y: auto; }
+.ai-set label { display: grid; gap: 4px; color: var(--mut); font-size: 12px; }
+.ai-note { font-size: 11px; }
+.foot { padding-bottom: 60px; }
