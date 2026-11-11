@@ -31,11 +31,11 @@ jobs:
     # 设个上限，避免真的卡住时占着 runner 跑到默认的 6 小时
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         id: setup-python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -48,7 +48,7 @@ jobs:
 
       - name: Restore installed packages
         id: deps-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.pythonLocation }}
           key: py-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('requirements.txt') }}-${{ steps.week.outputs.week }}
