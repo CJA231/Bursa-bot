@@ -104,7 +104,32 @@ def dump_views():
             print(f"[{label}] ERROR {type(e).__name__}: {e}")
 
 
+def dump_nav():
+    """KLSE Screener / i3investor 菜单里 IPO、Entitlements、Meeting Calendar、Additional Listing 的真正网址，以及那些页面的结构"""
+    pages = {}
+    for site, url in (("klse", "https://www.klsescreener.com/v2/announcements"), ("i3", "https://klse.i3investor.com/web/stock/entitlement/1155")):
+        h = requests.get(url, headers=UA, timeout=20).text
+        for href, label in re.findall(r'<a[^>]+href="([^"#]+)"[^>]*>\s*([^<]{2,40}?)\s*</a>', h):
+            if re.search(r"ipo|entitle|dividend|meeting|additional|listing|warrant|share issued", label + href, re.I):
+                full = href if href.startswith("http") else ("https://www.klsescreener.com" if site == "klse" else "https://klse.i3investor.com") + href
+                pages.setdefault(full, label.strip())
+    print("[nav]", pages)
+    for url, label in list(pages.items())[:9]:
+        try:
+            rr = requests.get(url, headers=UA, timeout=20)
+            body = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", rr.text)
+            t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body))
+            k = max(t.find("Date"), 0)
+            dt = re.search(r"const dtdata = (\[.{0,700})", rr.text, re.S)
+            print(f"[{label}] {rr.status_code} {url} len={len(rr.text)} tables={rr.text.count('<tr')}\n    text: {t[k:k + 900]}\n    dtdata: {dt.group(1) if dt else None}")
+        except Exception as e:
+            print(f"[{label}] ERROR {e}")
+
+
 def main():
+    if "--nav" in sys.argv:
+        dump_nav()
+        return
     if "--views" in sys.argv:
         dump_views()
         return
