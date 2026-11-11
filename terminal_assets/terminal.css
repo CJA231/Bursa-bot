@@ -145,3 +145,9 @@ pre.txt .nm { font: inherit; }
 .hm-u0, .hm-d0, .hm-z0 { background: var(--bg2); color: var(--mut); }
 .hm-lg { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 2px; margin-top: 6px; font-size: 10px; text-align: center; }
 .hm-lg > span { padding: 2px 0; white-space: nowrap; }
+
+/* 公司简介 */
+.prof-lines { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.prof-lines li { padding-left: 1.6ch; text-indent: -1.6ch; }
+.prof-lines li::before { content: "▸ "; color: var(--acc); }
+.prof-en { font-size: 12px; line-height: 1.55; margin-top: 4px; }
