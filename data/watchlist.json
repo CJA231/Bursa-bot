@@ -420,6 +420,10 @@
     "name": "FINTEC"
   },
   {
+    "symbol": "0150PA.KL",
+    "name": "FINTEC-PA"
+  },
+  {
     "symbol": "0151.KL",
     "name": "KGB"
   },
@@ -470,6 +474,10 @@
   {
     "symbol": "0165.KL",
     "name": "XOX"
+  },
+  {
+    "symbol": "0165PA.KL",
+    "name": "XOX-PA"
   },
   {
     "symbol": "0166.KL",
@@ -1453,7 +1461,7 @@
   },
   {
     "symbol": "0480.KL",
-    "name": "0480.KL"
+    "name": "SKA Capital Berhad"
   },
   {
     "symbol": "0800EA.KL",
@@ -1698,6 +1706,10 @@
   {
     "symbol": "2674.KL",
     "name": "ALCOM"
+  },
+  {
+    "symbol": "2682.KL",
+    "name": "PARKWD"
   },
   {
     "symbol": "2739.KL",
