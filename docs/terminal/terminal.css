@@ -205,3 +205,12 @@ pre.txt .nm { font: inherit; }
 .fin-sub { font-size: 11px; color: var(--mut); }
 .sw { display: inline-block; width: 9px; height: 9px; margin: 0 3px 0 8px; vertical-align: -1px; }
 .fin-note { font-size: 11px; margin-top: 8px; }
+
+/* 观察列表的文件夹表单 (新建 / 改名 / 删除确认 / 导出 / 导入) */
+.wform { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.wform.col { flex-direction: column; align-items: stretch; }
+.wform input, .wform textarea { flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--fg); background: var(--bg2); border: 1px solid var(--line); padding: 6px 8px; border-radius: 0; }
+.wform textarea { font-size: 12px; resize: vertical; }
+.wform button { padding: 6px 10px; border: 1px solid var(--line); min-height: 36px; }
+.wform .ok { border-color: var(--acc); color: var(--acc); font-weight: 700; }
+.wform .bad { border-color: var(--dn); color: var(--dn); }
