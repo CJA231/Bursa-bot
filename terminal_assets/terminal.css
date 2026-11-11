@@ -1,35 +1,38 @@
-/* bursa.term — 纯 ASCII 终端配色 (xterm 256 色) + 金融终端的搭配：黑底、琥珀色标题 / 标签、白色数字、绿涨红跌、青色可点。
-   默认永远是黑底 (终端就是黑的)；按 t 切到白底 (大太阳下用)，会记住 */
+/* bursa.term — Nord 配色的纯文字终端界面。深色 = Polar Night，浅色 = Snow Storm，跟系统，按 t 可切换 */
 :root {
-  --bg: #000000; --fg: #e4e4e4; --hi: #ffffff; --mut: #9e9e9e; --line: #585858;
-  --acc: #ffaf00; --acc2: #00d7ff; --up: #00ff5f; --dn: #ff5f5f; --warn: #ffff00; --sel: #00005f; --sel-fg: #ffffff;
-  --cu: #00ff00; --cd: #ff1f1f; --vu: #00af00; --vd: #af0000; --ema: #ffff00;
+  --bg: #2e3440; --bg2: #3b4252; --fg: #e5e9f0; --mut: #9aa3b5; --line: #4c566a;
+  --acc: #88c0d0; --acc2: #81a1c1; --up: #a3be8c; --dn: #e5878f; --warn: #ebcb8b; --sel: #434c5e;
   --font: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, "PingFang SC", "Noto Sans SC", monospace;
   color-scheme: dark;
 }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #eceff4; --bg2: #e5e9f0; --fg: #2e3440; --mut: #5c6577; --line: #c3cad6;
+    --acc: #3f7591; --acc2: #5e81ac; --up: #4b7a36; --dn: #b0414b; --warn: #8a6a12; --sel: #d8dee9; color-scheme: light;
+  }
+}
 :root[data-theme="light"] {
-  --bg: #ffffff; --fg: #1c1c1c; --hi: #000000; --mut: #585858; --line: #a8a8a8;
-  --acc: #af5f00; --acc2: #005faf; --up: #008700; --dn: #d70000; --warn: #875f00; --sel: #d7d7ff; --sel-fg: #000000;
-  --cu: #00a800; --cd: #e00000; --vu: #87d787; --vd: #ff8787; --ema: #af8700;
-  color-scheme: light;
+  --bg: #eceff4; --bg2: #e5e9f0; --fg: #2e3440; --mut: #5c6577; --line: #c3cad6;
+  --acc: #3f7591; --acc2: #5e81ac; --up: #4b7a36; --dn: #b0414b; --warn: #8a6a12; --sel: #d8dee9; color-scheme: light;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); }
 body { font-family: var(--font); font-size: 13px; line-height: 1.5; -webkit-text-size-adjust: 100%; font-variant-numeric: tabular-nums; }
-a { color: var(--acc2); }
+a { color: var(--acc); }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 1px solid var(--acc); outline-offset: 2px; }
 .term { max-width: 760px; margin: 0 auto; padding: 0 14px; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
 .dim { color: var(--mut); }
-.up { color: var(--up); } .dn { color: var(--dn); } .acc { color: var(--acc); } .warn { color: var(--warn); } .cy { color: var(--acc2); }
-.b { font-weight: 700; } b { font-weight: 700; color: var(--hi); }
-.cu { color: var(--cu); } .cd { color: var(--cd); } .vu { color: var(--vu); } .vd { color: var(--vd); }
+.up { color: var(--up); } .dn { color: var(--dn); } .acc { color: var(--acc); } .warn { color: var(--warn); }
+/* 图表：K线实体 = 涨跌色，成交量淡一级，价格才突出 */
+.cu { color: var(--up); } .cd { color: var(--dn); } .vu { color: var(--up); opacity: 0.5; } .vd { color: var(--dn); opacity: 0.5; }
+.b { font-weight: 700; }
 
 /* 顶部：命令行 + 状态行 + 页签 (页签吸顶) */
 .top { position: sticky; top: 0; z-index: 5; background: var(--bg); padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
 .prompt { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mut); }
 .prompt .u { color: var(--up); } .prompt .d { color: var(--acc2); }
-.cur { display: inline-block; width: 0.6em; height: 1.05em; background: var(--fg); vertical-align: -0.15em; margin-left: 2px; animation: blink 1.1s steps(1) infinite; }
+.cur { display: inline-block; width: 0.6em; height: 1.05em; background: var(--acc); vertical-align: -0.15em; margin-left: 2px; animation: blink 1.1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cur { animation: none; } }
 .status { margin: 2px 0 8px; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
@@ -37,18 +40,17 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 1px solid 
 .keys { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .keys::-webkit-scrollbar { display: none; }
 .keys button { flex: none; padding: 9px 9px; color: var(--mut); min-height: 40px; white-space: nowrap; }
-.keys button:hover { color: var(--hi); }
-.keys button .k { color: var(--acc); }
+.keys button .k { color: var(--acc2); }
 .keys button[aria-current="page"] { background: var(--acc); color: var(--bg); font-weight: 700; }
 .keys button[aria-current="page"] .k { color: var(--bg); }
 
 main { display: grid; gap: 22px; padding-top: 18px; outline: none; }
 
-/* 面板：双线框 (DOS 风) + 嵌在上边框里的反白标题 */
-.pn { position: relative; border: 3px double var(--line); padding: 18px 12px 12px; min-width: 0; }
-.pn > h2 { position: absolute; top: -0.85em; left: 8px; margin: 0; padding: 0 6px; background: var(--bg); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--mut); white-space: nowrap; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; }
-.pn > h2 .tt { background: var(--acc); color: var(--bg); padding: 1px 6px; }
-.pn > h2 small { color: var(--mut); font-weight: 400; letter-spacing: 0; margin-left: 4px; }
+/* 面板：细框 + 嵌在上边框里的标题 ┤ TITLE ├ */
+.pn { position: relative; border: 1px solid var(--line); padding: 16px 12px 12px; min-width: 0; }
+.pn > h2 { position: absolute; top: -0.8em; left: 10px; margin: 0; padding: 0 6px; background: var(--bg); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--acc); white-space: nowrap; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; }
+.pn > h2::before { content: "┤ "; color: var(--line); } .pn > h2::after { content: " ├"; color: var(--line); }
+.pn > h2 small { color: var(--mut); font-weight: 400; letter-spacing: 0; margin-left: 0.6em; }
 .pn p { margin: 0; }
 .stack { display: grid; gap: 10px; min-width: 0; }
 
@@ -56,16 +58,15 @@ main { display: grid; gap: 22px; padding-top: 18px; outline: none; }
 pre.chart, pre.txt { margin: 0; font-family: var(--font); font-size: 11.5px; line-height: 1.05; white-space: pre; overflow-x: auto; scrollbar-width: none; }
 pre.txt { line-height: 1.45; font-size: 12px; }
 pre::-webkit-scrollbar { display: none; }
-.e { color: var(--ema); } .g { color: var(--line); }
+.e { color: var(--warn); } .g { color: var(--line); }
 .cell { display: inline-block; vertical-align: top; overflow: hidden; white-space: pre; }
 
 /* 键值 (两栏 / 四栏) */
 .kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 14px; }
 .kv.k4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .kv > div { display: flex; justify-content: space-between; gap: 6px; border-bottom: 1px dotted var(--line); padding: 3px 0; min-width: 0; }
-.kv > div > span:first-child { color: var(--acc); white-space: nowrap; }
-.kv > div > span:last-child { color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.kv > div > span.up:last-child { color: var(--up); } .kv > div > span.dn:last-child { color: var(--dn); } .kv > div > span.warn:last-child { color: var(--warn); } .kv > div > span.dim:last-child { color: var(--mut); }
+.kv > div > span:first-child { color: var(--mut); white-space: nowrap; }
+.kv > div > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kv.k4 > div { display: grid; gap: 0; border: 0; }
 .kv.k4 > div > span:last-child { font-size: 15px; font-weight: 700; }
 @media (max-width: 420px) { .kv.k4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; } }
@@ -73,31 +74,30 @@ pre::-webkit-scrollbar { display: none; }
 /* 行列表 (按钮)：用 ch 对齐 */
 .rows { display: grid; }
 .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; padding: 7px 0; border-bottom: 1px dotted var(--line); width: 100%; text-align: left; }
-.row:hover, .row:focus-visible { background: var(--sel); color: var(--sel-fg); }
+.row:hover, .row:focus-visible { background: var(--sel); }
 .row .sub { color: var(--mut); font-size: 12px; }
 .row .r { text-align: right; white-space: nowrap; }
 .tag { display: inline-block; padding: 0 4px; border: 1px solid currentColor; font-size: 11px; line-height: 1.35; margin-right: 4px; }
 .grid-pool { display: grid; grid-template-columns: 9ch 7ch 7ch 5ch 4ch minmax(0, 1fr); gap: 0 1ch; align-items: baseline; }
 .grid-pool > span { white-space: nowrap; overflow: hidden; }
 .grid-pool .num { text-align: right; }
-.thead { color: var(--acc); font-size: 11px; padding: 0 0 4px; border-bottom: 1px solid var(--line); }
+.thead { color: var(--mut); font-size: 11px; padding: 0 0 4px; border-bottom: 1px solid var(--line); }
 @media (max-width: 380px) { .grid-pool { grid-template-columns: 8ch 6ch 6ch 5ch 4ch minmax(0, 1fr); } }
 
 /* 开关键 [a] ALL */
 .opts { display: flex; flex-wrap: wrap; gap: 4px 6px; }
 .opts button { padding: 3px 6px; color: var(--mut); border: 1px solid transparent; min-height: 30px; }
-.opts button:hover { color: var(--hi); }
-.opts button[aria-pressed="true"] { color: var(--bg); background: var(--acc2); font-weight: 700; }
+.opts button[aria-pressed="true"] { color: var(--bg); background: var(--acc2); }
 .grep { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); padding: 4px 0; }
-.grep label { color: var(--up); }
-.grep input { flex: 1; min-width: 0; font: inherit; color: var(--hi); caret-color: var(--up); background: transparent; border: 0; padding: 4px 0; outline: none; }
-.more { color: var(--acc2); padding: 8px 0; }
+.grep label { color: var(--acc2); }
+.grep input { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: transparent; border: 0; padding: 4px 0; outline: none; }
+.more { color: var(--acc); padding: 8px 0; }
 
 .digest { border-left: 2px solid var(--acc2); padding-left: 8px; color: var(--fg); }
 .digest b { color: var(--acc2); font-weight: 400; }
 .list-ann a { color: var(--fg); text-decoration: none; }
-.list-ann a:hover { color: var(--acc2); }
+.list-ann a:hover { color: var(--acc); }
 .foot { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 10px; font-size: 12px; color: var(--mut); }
 .foot p { margin: 0 0 4px; }
-.foot button { color: var(--acc2); }
-.back { color: var(--acc2); padding: 4px 0; }
+.foot button { color: var(--acc); }
+.back { color: var(--acc); padding: 4px 0; }

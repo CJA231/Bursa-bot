@@ -1,4 +1,4 @@
-// bursa.term — 马股终端版 (纯文字 / ASCII 终端配色)。数据: data.json (今天的结果) + bars.json (日线，打开后在背景下载)
+// bursa.term — 马股终端版 (纯文字 / Nord)。数据: data.json (今天的结果) + bars.json (日线，打开后在背景下载)
 // 页面: 1 信号 · 2 持仓 · 3 回测 · 4 股票池 · 5 市场 · 6 公告；#q-<代码> = 个股。图全部用字符画 (█ │ ▁▂▃ …)。
 (function () {
   'use strict';
@@ -191,7 +191,7 @@
         ['平均持有', isNum(a.avg_days) ? a.avg_days + ' 天' : '—'], ['最多连亏', a.max_streak != null ? a.max_streak + ' 笔' : '—'], ['最好', pct(a.best, 1), 'up'], ['最差', pct(a.worst, 1), 'dn']]));
     if (b.curve && b.curve.length > 1) h += pn('EQUITY 资金曲线', '已平仓累计 · ' + md(b.curve[0][0]) + ' ~ ' + md(b.curve[b.curve.length - 1][0]),
       blockChart([0].concat(b.curve.map(function (c) { return R(c[1]); })), { rows: 8, zero: true, label: '账户资金曲线', fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
-        color: function (v) { return v >= 0 ? 'cu' : 'cd'; }, dates: [md(b.curve[0][0]), md(b.curve[b.curve.length - 1][0])] }));
+        color: function (v) { return v >= 0 ? 'acc' : 'dn'; }, dates: [md(b.curve[0][0]), md(b.curve[b.curve.length - 1][0])] }));
     var ex = a.exits || {}, tot = Object.keys(ex).reduce(function (s, k) { return s + ex[k]; }, 0) || 1;
     h += pn('EXITS 离场原因', a.closed + ' 笔', '<pre class="txt">' + Object.keys(ex).sort(function (x, y) { return ex[y] - ex[x]; }).map(function (k) {
       return cell(esc(EXIT[k] || k), 10) + span('acc', meter(ex[k] / tot, 20)) + ' ' + pad(ex[k], 3, true); }).join('\n') + '</pre>');
@@ -359,16 +359,12 @@
   window.addEventListener('hashchange', function () { fromHash(); render(); });
   var resizeT = null;
   window.addEventListener('resize', function () { clearTimeout(resizeT); resizeT = setTimeout(render, 150); });
-  function setTheme(th) {
-    document.documentElement.dataset.theme = th;
-    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = th === 'light' ? '#ffffff' : '#000000';
-  }
   function toggleTheme() {
-    var th = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
-    setTheme(th);
-    try { localStorage.setItem('bterm_theme2', th); } catch (e) {}
+    var root = document.documentElement, dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+    try { localStorage.setItem('bterm_theme', root.dataset.theme); } catch (e) {}
   }
-  try { var th = localStorage.getItem('bterm_theme2'); if (th === 'dark' || th === 'light') setTheme(th); } catch (e) {}
+  try { var th = localStorage.getItem('bterm_theme'); if (th === 'dark' || th === 'light') document.documentElement.dataset.theme = th; } catch (e) {}
   document.getElementById('theme-btn').addEventListener('click', toggleTheme);
 
   fetch('data.json?v=' + V).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function (j) {
