@@ -539,7 +539,7 @@
   }
 
   // ---------- 外框 ----------
-  // 顶部跑马灯：KLCI、涨 / 平 / 跌家数、USD/MYR、更新时间，后面接成交额最大的 10 支股票的涨跌；内容复制一份接在后面，无缝循环
+  // 顶部跑马灯：KLCI、涨 / 平 / 跌家数、USD/MYR、更新时间，后面接成交额前 10、成交量前 10 的涨跌 (不含仙股)；内容复制一份接在后面，无缝循环
   function status() {
     var m = D.market || {}, ix = m.index, b = m.breadth, st = { live: '盘中 LIVE', pre: '开市前', closed: '收盘 CLOSED' }[D.state] || D.state, sep = ' <span class="g">│</span> ';
     var parts = [];
@@ -547,8 +547,13 @@
     if (b) parts.push('<span class="up">涨 ▲' + b.up + '</span> <span class="dim">平 ■' + b.flat + '</span> <span class="dn">跌 ▼' + b.down + '</span>');
     if (isNum(m.usd_myr)) parts.push('<span class="dim">USD/MYR</span> ' + m.usd_myr.toFixed(4));
     parts.push('<span class="dim">' + esc(md(D.updated.slice(0, 10)) + D.updated.slice(10)) + ' ' + esc(D.tz || '') + '</span> <span class="' + (D.state === 'live' ? 'warn' : 'acc') + '">' + st + '</span>');
-    LIST.filter(function (x) { return x.pool === 1 && isNum(x.c); }).sort(function (x, y) { return (y.to || 0) - (x.to || 0); }).slice(0, 10).forEach(function (x) {
-      parts.push('<b>' + esc(x.name) + '</b> ' + px(x.p) + ' <span class="' + cls(x.c) + '">' + (x.c > 0 ? '▲' : x.c < 0 ? '▼' : '') + pct(x.c, 1) + '</span>');
+    // 成交额前 10、成交量前 10 (仙股不看：价格 < RM0.10 的剔除)
+    var liq = LIST.filter(function (x) { return isNum(x.c) && isNum(x.p) && x.p >= 0.1; });
+    [['成交额 TOP10', 'to'], ['成交量 TOP10', 'vol']].forEach(function (g) {
+      parts.push('<span class="tk-h">' + g[0] + '</span>');
+      liq.slice().sort(function (x, y) { return (y[g[1]] || 0) - (x[g[1]] || 0); }).slice(0, 10).forEach(function (x) {
+        parts.push('<b>' + esc(x.name) + '</b> ' + px(x.p) + ' <span class="' + cls(x.c) + '">' + (x.c > 0 ? '▲' : x.c < 0 ? '▼' : '') + pct(x.c, 1) + '</span>');
+      });
     });
     var one = parts.join(sep) + sep;
     return '<span class="tick" aria-hidden="true"><span>' + one + '</span><span>' + one + '</span></span>' +

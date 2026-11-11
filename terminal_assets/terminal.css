@@ -35,7 +35,15 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 1px solid 
 .cur { display: inline-block; width: 0.6em; height: 1.05em; background: var(--acc); vertical-align: -0.15em; margin-left: 2px; animation: blink 1.1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cur { animation: none; } }
-.status { margin: 2px 0 8px; white-space: nowrap; overflow: hidden; position: relative; }
+.status { margin: 4px 0 8px; white-space: nowrap; overflow: hidden; position: relative; padding: 4px 0; background: var(--tk-bg); color: var(--tk-fg); border: 1px solid var(--tk-bd); font-weight: 500; }
+/* 跑马灯是高亮底色 (深色模式 = Nord 青色底 + 深字；浅色模式 = 深青底 + 白字)，里面的涨跌色换成在这个底色上看得清的版本 */
+:root { --tk-bg: #88c0d0; --tk-fg: #1d2128; --tk-bd: #a9d4e0; --tk-up: #1f5f2c; --tk-dn: #8f1d2c; --tk-mut: #33424a; }
+:root[data-theme="light"] { --tk-bg: #2f6580; --tk-fg: #ffffff; --tk-bd: #24506a; --tk-up: #b9f0a0; --tk-dn: #ffc2c8; --tk-mut: #d3e3ea; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --tk-bg: #2f6580; --tk-fg: #ffffff; --tk-bd: #24506a; --tk-up: #b9f0a0; --tk-dn: #ffc2c8; --tk-mut: #d3e3ea; } }
+.status b { color: inherit; }
+.status .up { color: var(--tk-up); } .status .dn { color: var(--tk-dn); } .status .dim, .status .g { color: var(--tk-mut); }
+.status .acc, .status .warn { color: inherit; font-weight: 700; }
+.tk-h { background: var(--tk-fg); color: var(--tk-bg); padding: 0 5px; font-weight: 700; }
 /* 跑马灯：两份一样的内容并排，往左移一半刚好接回开头；手指按住 / 鼠标停上去会暂停；系统设了「减少动态效果」就不动，可左右滑 */
 .tick { display: inline-flex; animation: tick 60s linear infinite; will-change: transform; }
 .tick > span { flex: none; padding-right: 0; }
