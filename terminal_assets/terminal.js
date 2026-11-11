@@ -599,21 +599,26 @@
       h += pn('LISTING 名单变动', '近 14 天', '<pre class="txt">' + ch.map(function (e) { return md(e.date) + ' ' + span(e.type === 'removed' ? 'dn' : e.type === 'new' ? 'up' : 'warn', cell(L[e.type] || e.type, 7)) + ' ' + esc(e.symbol.replace('.KL', '')) + ' ' + (e.old ? esc(e.old) + ' → ' : '') + esc(e.name); }).join('\n') + '</pre>'); }
     return h;
   }
+  // 公告筛选只有一排：「全部」固定在左边，AI 标记 (📌 / ⚠) 和各分类在右边一条横向滑动；一次选一个 (S.af)
   function pageAnn() {
     var bd = D.board || [];
     if (!bd.length) return pn('ANNOUNCEMENTS 公告', '', '<p class="dim">最近 14 天报告里的股票没有公告。</p>');
-    var cats = ['all'].concat(Object.keys(CAT).filter(function (c) { return bd.some(function (x) { return x.cat === c; }); }));
     loadIntelIx();
-    var tg = function (x) { var it = INTEL_IX && INTEL_IX[x.code]; return it && it.t ? it.t[annId(x.link)] : null; };
-    var items = bd.filter(function (x) { return (S.cat === 'all' || x.cat === S.cat) && (!S.atag || tg(x) === S.atag || (S.atag === 'notable' && tg(x) === 'catalyst')); }), out = '', last = null;
+    var tg = function (x) { var it = INTEL_IX && INTEL_IX[x.code]; var t = it && it.t ? it.t[annId(x.link)] : null; return t === 'catalyst' ? 'notable' : t; };
+    var af = S.af || '';
+    var pass = function (x) { return !af || (af === 'notable' || af === 'risk' ? tg(x) === af : x.cat === af); };
+    var items = bd.filter(pass), out = '', last = null;
     items.forEach(function (x) {
       if (x.date !== last) { out += '<p class="dim" style="margin-top:6px">── ' + md(x.date) + ' ──</p>'; last = x.date; }
       out += '<p class="list-ann"><button type="button" data-q="' + esc(x.code) + '" class="' + (x.signal ? 'up' : 'acc') + '">' + esc(x.name) + '</button> <span class="tag dim">' + (CAT[x.cat] || x.cat) + '</span>' + tagChip(tg(x)) + '<a href="' + esc(x.link) + '" target="_blank" rel="noopener">' + esc(x.title) + '</a></p>';
     });
-    var tagBar = '<div class="opts" role="group" aria-label="AI 标记">' + [['', '全部'], ['notable', '📌 重要事件'], ['risk', '⚠ 需留意']].map(function (t) {
-      return '<button type="button" data-atag="' + t[0] + '" aria-pressed="' + ((S.atag || '') === t[0]) + '">' + t[1] + '</button>'; }).join('') + (INTEL_IX ? '' : ' <span class="dim">AI 标记载入中…</span>') + '</div>';
-    return pn('ANNOUNCEMENTS 公告', '近 14 天 · ' + items.length + ' 条', tagBar + '<div class="opts" role="group" aria-label="分类">' + cats.map(function (c) { return '<button type="button" data-cat="' + c + '" aria-pressed="' + (S.cat === c) + '">' + (c === 'all' ? '全部' : CAT[c]) + '</button>'; }).join('') + '</div>' + out);
+    var chips = [['notable', '📌 重要事件'], ['risk', '⚠ 需留意']].concat(Object.keys(CAT).filter(function (c) { return bd.some(function (x) { return x.cat === c; }); }).map(function (c) { return [c, CAT[c]]; }));
+    var btn = function (k, label) { return '<button type="button" data-af="' + k + '" aria-pressed="' + (af === k) + '">' + label + '</button>'; };
+    var bar = '<div class="fbar" role="group" aria-label="筛选公告">' + btn('', '全部') + '<div class="fscroll">' + chips.map(function (c) { return btn(c[0], c[1]); }).join('') + '</div></div>' +
+      (INTEL_IX ? '' : '<p class="dim" style="font-size:11px">AI 标记载入中…</p>');
+    return pn('ANNOUNCEMENTS 公告', '近 14 天 · ' + items.length + ' 条', bar + out);
   }
+
 
   // ---------- AI 分析 (scripts/company_intel.py 每天收盘后用 DeepSeek 逐家整理，写在 ../intel/)：近况、重要事件 / 留意事项、财报一句、公告标记 ----------
   // 只做中性标记 (📌 = 值得注意的事件，⚠ = 需要留意)，不写「利好」：避免被当成买入信号
@@ -842,7 +847,10 @@
   document.addEventListener('click', function (e) {
     var wt = e.target.closest('[data-wf],[data-wa],[data-wadd],[data-wd],[data-wt]'); if (wt) { watchClick(wt); return; }
     var fb = e.target.closest('[data-fin]'); if (fb) { S.fin = fb.dataset.fin; render(); return; }
-    var ab = e.target.closest('[data-atag]'); if (ab) { S.atag = ab.dataset.atag || null; render(); return; }
+    var ab = e.target.closest('[data-af]'); if (ab) {  // 换筛选后把选中的那个滑到看得见的位置
+      S.af = ab.dataset.af || ''; var sl = document.querySelector('.fscroll'), x = sl ? sl.scrollLeft : 0; render();
+      var sl2 = document.querySelector('.fscroll'); if (sl2) { sl2.scrollLeft = x; var on = sl2.querySelector('[aria-pressed="true"]'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+      return; }
     var cbt = e.target.closest('[data-cb]'); if (cbt) { cbClick(cbt); return; }
     var t = e.target.closest('[data-page],[data-q],[data-back],[data-flt],[data-sort],[data-more],[data-cat],[data-heat]');
     if (!t) return;

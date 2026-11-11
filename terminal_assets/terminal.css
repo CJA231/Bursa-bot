@@ -224,3 +224,13 @@ pre.txt .nm { font: inherit; }
 .intel-l li b { font-weight: 400; }
 .intel-f { font-size: 12px; }
 .intel-note { font-size: 11px; margin-top: 8px; }
+
+/* 公告筛选：一排，「全部」固定，右边横向滑动 (右侧淡出提示还可以滑) */
+.fbar { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 4px; }
+.fbar button { flex: none; padding: 4px 8px; color: var(--mut); min-height: 32px; white-space: nowrap; }
+.fbar button[aria-pressed="true"] { color: var(--bg); background: var(--acc2); font-weight: 700; }
+.fbar > button { border-right: 1px solid var(--line); padding-right: 10px; }
+.fscroll { display: flex; gap: 4px; padding-right: 28px; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 1; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity;
+  -webkit-mask-image: linear-gradient(to right, #000 85%, transparent); mask-image: linear-gradient(to right, #000 85%, transparent); }
+.fscroll::-webkit-scrollbar { display: none; }
+.fscroll button { scroll-snap-align: start; }
