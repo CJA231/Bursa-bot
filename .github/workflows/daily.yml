@@ -74,6 +74,16 @@ jobs:
           PYTHONUNBUFFERED: '1'  # 不缓冲输出，Actions 日志里每一行的时间戳才是真实的 (以前全部挤在结束那一秒)
         run: python main.py
 
+      # 记录各公告网站的延迟 (KLSE Screener vs i3investor，同一组股票的最新公告日期)，跟报告一起提交到 data/ann_latency.json。
+      # 只是统计，出错不挡报告；看结果: python scripts/ann_latency.py --report
+      - name: Record announcement source latency
+        if: ${{ github.event.inputs.market != 'US' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+        run: python scripts/ann_latency.py
+
       - name: Publish report
         env:
           MARKET: ${{ github.event.inputs.market || 'MY' }}

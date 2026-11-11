@@ -78,11 +78,14 @@ pre::-webkit-scrollbar { display: none; }
 .row .sub { color: var(--mut); font-size: 12px; }
 .row .r { text-align: right; white-space: nowrap; }
 .tag { display: inline-block; padding: 0 4px; border: 1px solid currentColor; font-size: 11px; line-height: 1.35; margin-right: 4px; }
-.grid-pool { display: grid; grid-template-columns: 9ch 7ch 7ch 5ch 4ch minmax(0, 1fr); gap: 0 1ch; align-items: baseline; }
+.grid-pool { display: grid; grid-template-columns: 4ch 9ch 6ch 6ch 4ch 3ch minmax(0, 1fr); gap: 0 1ch; align-items: baseline; }
+.pool-tbl { font-size: 12px; }  /* 多了代码一栏：整张表 (表头 + 行) 一起缩小一号，栏宽才对得齐 */
 .grid-pool > span { white-space: nowrap; overflow: hidden; }
 .grid-pool .num { text-align: right; }
-.thead { color: var(--mut); font-size: 11px; padding: 0 0 4px; border-bottom: 1px solid var(--line); }
-@media (max-width: 380px) { .grid-pool { grid-template-columns: 8ch 6ch 6ch 5ch 4ch minmax(0, 1fr); } }
+.thead { color: var(--mut); padding: 0 0 4px; border-bottom: 1px solid var(--line); }  /* 字号要跟下面的行一样，栏宽用 ch，字号不同就对不齐 */
+.thead .th { color: inherit; text-align: right; white-space: nowrap; overflow: hidden; }
+.thead .th.on { color: var(--acc); }
+@media (max-width: 380px) { .grid-pool { grid-template-columns: 4ch 8ch 6ch 6ch 4ch 3ch minmax(0, 1fr); gap: 0 0.8ch; } }
 
 /* 开关键 [a] ALL */
 .opts { display: flex; flex-wrap: wrap; gap: 4px 6px; }
@@ -128,3 +131,17 @@ input[type="checkbox"] { accent-color: var(--acc); width: 16px; height: 16px; fl
 .run:hover { background: var(--acc); color: var(--bg); }
 .run[disabled] { opacity: 0.6; cursor: wait; }
 pre.txt .nm { font: inherit; }
+
+/* 热力图：一格一支，背景 = 涨跌色按幅度混进底色 (0 = 平盘灰) */
+.hm { display: grid; grid-template-columns: repeat(auto-fill, minmax(10ch, 1fr)); gap: 2px; font-size: 11px; }
+.hm-c { display: grid; padding: 4px 4px 3px; min-height: 40px; text-align: left; line-height: 1.25; color: var(--fg); background: var(--bg2); min-width: 0; }
+.hm-c:hover, .hm-c:focus-visible { outline: 1px solid var(--fg); outline-offset: -1px; }
+.hm-n { white-space: nowrap; overflow: hidden; text-overflow: clip; font-weight: 700; }
+.hm-p { font-variant-numeric: tabular-nums; }
+.hm-u1 { background: color-mix(in srgb, var(--up) 22%, var(--bg)); } .hm-d1 { background: color-mix(in srgb, var(--dn) 22%, var(--bg)); }
+.hm-u2 { background: color-mix(in srgb, var(--up) 40%, var(--bg)); } .hm-d2 { background: color-mix(in srgb, var(--dn) 40%, var(--bg)); }
+.hm-u3 { background: color-mix(in srgb, var(--up) 62%, var(--bg)); } .hm-d3 { background: color-mix(in srgb, var(--dn) 62%, var(--bg)); }
+.hm-u4 { background: var(--up); color: var(--bg); } .hm-d4 { background: var(--dn); color: var(--bg); }
+.hm-u0, .hm-d0, .hm-z0 { background: var(--bg2); color: var(--mut); }
+.hm-lg { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 2px; margin-top: 6px; font-size: 10px; text-align: center; }
+.hm-lg > span { padding: 2px 0; white-space: nowrap; }
