@@ -214,3 +214,12 @@ pre.txt .nm { font: inherit; }
 .wform button { padding: 6px 10px; border: 1px solid var(--line); min-height: 36px; }
 .wform .ok { border-color: var(--acc); color: var(--acc); font-weight: 700; }
 .wform .bad { border-color: var(--dn); color: var(--dn); }
+
+/* AI 分析：利好 / 风险标签 */
+.tg-cat { color: var(--up); } .tg-risk { color: var(--warn); }
+.tag.tg-cat, .tag.tg-risk { margin-left: 2px; }
+.intel-l { margin: 4px 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.intel-l li { padding-left: 2.2ch; text-indent: -2.2ch; }
+.intel-l li b { font-weight: 400; }
+.intel-f { font-size: 12px; }
+.intel-note { font-size: 11px; margin-top: 8px; }
