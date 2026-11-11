@@ -6,9 +6,10 @@
 - 新闻：Google News / Yahoo (跟报告同一套搜法，最近 90 天，最多 8 条)
 - 财报：docs/stock/<代码>.json 里的季报 → 由程序算好「比去年同季 / 比上一季」的变化 (DeepSeek 只负责描述，不自己算数字)
 - 公司简介：同一个文件里的 profile
-DeepSeek 输出 (JSON)：近况 2~3 句、利好 / 风险各几条、财报一两句、每条公告一个标签 (catalyst 利好 / risk 风险 / routine 例行)。
+DeepSeek 输出 (JSON)：近况 2~3 句、重要事件 / 留意事项各几条、财报一两句、每条公告一个标签 (notable 重要事件 / risk 留意 / routine 例行)。
+全部只陈述事实，不判断好坏 (不写「利好」「利空」这类会被当成买卖信号的字眼)。
 
-写到 docs/intel/<代码>.json，另外 docs/intel/index.json 放每家公司的更新日期、利好 / 风险条数和最近公告的标签 (终端版公告页用)。
+写到 docs/intel/<代码>.json，另外 docs/intel/index.json 放每家公司的更新日期、重要事件 / 留意事项条数和最近公告的标签 (终端版公告页用)。
 输入没变 (公告、新闻、最新一季财报都一样) 就不再问 DeepSeek；超过 REFRESH_DAYS 天才重新抓。
 文字只整理公开资料，不给买卖建议 (提示词要求 + strip_trade_advice 再过滤一次)。
 
@@ -41,18 +42,18 @@ ANN_DAYS, ANN_MAX = 90, 25
 NEWS_MAX = 8
 INDEX_TAG_DAYS = 45       # index.json 只放最近 45 天公告的标签 (控制文件大小)
 FETCH_WORKERS = 4
-TAGS = ("catalyst", "risk", "routine")
+TAGS = ("notable", "risk", "routine")
 
 SYSTEM_PROMPT = """你是马来西亚上市公司的资料整理助手，帮投资者快速看懂一家公司最近发生了什么。
 你会拿到：公司名称和简介、最近的公告标题 (有编号)、最近的新闻标题、程序算好的财报变化。
 用简体中文输出 JSON，字段：
 - recent: 2~3 句，这家公司最近在发生什么 (合约、业务、财报、企业活动、股权变动、监管事件)。没有资料就写「近期没有重要公告或新闻」。
-- catalysts: 0~3 条，可能对公司有正面影响的事件，每条一句，引用具体事件。
-- risks: 0~3 条，值得留意的风险事件，每条一句 (例如：私募 / 附加股摊薄、交易所 UMA 询问、核数师保留意见、大股东或董事减持、亏损扩大、诉讼、违约)。
+- notable: 0~3 条，近期的重要事件 (例如：获得合约、收购 / 出售资产、新业务、业绩发布、派息、红股)，每条一句，只陈述发生了什么，不说对公司是好是坏。
+- risks: 0~3 条，需要留意的事项，每条一句 (例如：私募 / 附加股摊薄、交易所 UMA 询问、核数师保留意见、大股东或董事减持、亏损扩大、诉讼、违约)，同样只陈述事实。
 - earnings: 1~2 句描述财报变化，只能用给你的数字，不能自己推算新数字；没有财报资料就留空字符串。
-- tags: 每条公告一个对象 {"i": 公告编号, "t": "catalyst" 或 "risk" 或 "routine", "why": "10 个字以内的原因"}。
+- tags: 每条公告一个对象 {"i": 公告编号, "t": "notable" 或 "risk" 或 "routine", "why": "10 个字以内，说明是什么事件 (例如「合约 RM50M」「私募 10%」)"}。
   股东大会通知、董事持股例行申报、更正、季度报告本身归 routine (财报内容另外写在 earnings)。
-规则：只根据给你的资料，不要编造事件或数字；不要评价股价会涨会跌；不要给任何买入、卖出、持有、目标价之类的建议。
+规则：只根据给你的资料，不要编造事件或数字；不要用「利好」「利空」「正面」「负面」「看好」之类的评价字眼；不要评价股价会涨会跌；不要给任何买入、卖出、持有、目标价之类的建议。
 公司名、产品名、机构名保留英文。只输出 JSON。"""
 
 
@@ -144,8 +145,15 @@ def ask(c):
     return json.loads(r.choices[0].message.content or "{}")
 
 
+JUDGE_RE = re.compile(r"利好|利空|看好|看淡|看涨|看跌|正面消息|负面消息|bullish|bearish", re.I)
+
+
 def clean(text):
-    return m.strip_trade_advice(str(text or "").strip())
+    """去掉买卖建议 (main.strip_trade_advice) 和好坏评价字眼的分句"""
+    t = m.strip_trade_advice(str(text or "").strip())
+    parts = re.split(r"([，,。；;])", t)
+    t = "".join(parts[i] + (parts[i + 1] if i + 1 < len(parts) else "") for i in range(0, len(parts), 2) if not JUDGE_RE.search(parts[i]))
+    return t.strip().rstrip("，,；;")
 
 
 def build_record(c, out, now, h):
@@ -161,7 +169,7 @@ def build_record(c, out, now, h):
             "tag": tags.get(i, ("routine", ""))[0], "why": tags.get(i, ("", ""))[1]} for i, a in enumerate(c["ann"])]
     return {"v": 1, "code": c["code"], "name": c["name"], "long_name": c["long_name"], "updated": now.strftime("%Y-%m-%d %H:%M"),
             "hash": h, "recent": clean(out.get("recent")),
-            "catalysts": [x for x in (clean(s) for s in (out.get("catalysts") or [])[:3]) if x],
+            "notable": [x for x in (clean(s) for s in (out.get("notable") or out.get("catalysts") or [])[:3]) if x],
             "risks": [x for x in (clean(s) for s in (out.get("risks") or [])[:3]) if x],
             "earnings": clean(out.get("earnings")) if c["facts"] else "", "facts": c["facts"], "ann": ann, "news": c["news"]}
 
@@ -195,7 +203,7 @@ def write_index(now):
         rec = read_json(os.path.join(INTEL_DIR, fn), None)
         if not rec:
             continue
-        items[rec["code"]] = {"u": rec["updated"][:10], "c": len(rec.get("catalysts") or []), "r": len(rec.get("risks") or []),
+        items[rec["code"]] = {"u": rec["updated"][:10], "c": len(rec.get("notable") or []), "r": len(rec.get("risks") or []),
                               "t": {a["id"]: a["tag"] for a in rec.get("ann") or [] if a["date"] >= since and a["tag"] != "routine"}}
     with open(INDEX_PATH, "w", encoding="utf-8") as f:
         json.dump({"v": 1, "updated": now.strftime("%Y-%m-%d %H:%M"), "items": items}, f, ensure_ascii=False, separators=(",", ":"))

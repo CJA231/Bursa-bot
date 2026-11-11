@@ -216,8 +216,9 @@ pre.txt .nm { font: inherit; }
 .wform .bad { border-color: var(--dn); color: var(--dn); }
 
 /* AI 分析：利好 / 风险标签 */
-.tg-cat { color: var(--up); } .tg-risk { color: var(--warn); }
-.tag.tg-cat, .tag.tg-risk { margin-left: 2px; }
+.tg-risk { color: var(--warn); }
+.tag.tg-note { border-color: #d0574f; color: #d0574f; }  /* 📌 红框：只是「值得注意」，不代表好坏 */
+.tag.tg-note, .tag.tg-risk { margin-left: 2px; }
 .intel-l { margin: 4px 0; padding: 0; list-style: none; display: grid; gap: 4px; }
 .intel-l li { padding-left: 2.2ch; text-indent: -2.2ch; }
 .intel-l li b { font-weight: 400; }

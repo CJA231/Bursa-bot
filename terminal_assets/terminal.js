@@ -605,26 +605,27 @@
     var cats = ['all'].concat(Object.keys(CAT).filter(function (c) { return bd.some(function (x) { return x.cat === c; }); }));
     loadIntelIx();
     var tg = function (x) { var it = INTEL_IX && INTEL_IX[x.code]; return it && it.t ? it.t[annId(x.link)] : null; };
-    var items = bd.filter(function (x) { return (S.cat === 'all' || x.cat === S.cat) && (!S.atag || tg(x) === S.atag); }), out = '', last = null;
+    var items = bd.filter(function (x) { return (S.cat === 'all' || x.cat === S.cat) && (!S.atag || tg(x) === S.atag || (S.atag === 'notable' && tg(x) === 'catalyst')); }), out = '', last = null;
     items.forEach(function (x) {
       if (x.date !== last) { out += '<p class="dim" style="margin-top:6px">── ' + md(x.date) + ' ──</p>'; last = x.date; }
       out += '<p class="list-ann"><button type="button" data-q="' + esc(x.code) + '" class="' + (x.signal ? 'up' : 'acc') + '">' + esc(x.name) + '</button> <span class="tag dim">' + (CAT[x.cat] || x.cat) + '</span>' + tagChip(tg(x)) + '<a href="' + esc(x.link) + '" target="_blank" rel="noopener">' + esc(x.title) + '</a></p>';
     });
-    var tagBar = '<div class="opts" role="group" aria-label="AI 标签">' + [['', '全部'], ['risk', '⚠ 只看风险'], ['catalyst', '🔺 只看利好']].map(function (t) {
-      return '<button type="button" data-atag="' + t[0] + '" aria-pressed="' + ((S.atag || '') === t[0]) + '">' + t[1] + '</button>'; }).join('') + (INTEL_IX ? '' : ' <span class="dim">AI 标签载入中…</span>') + '</div>';
+    var tagBar = '<div class="opts" role="group" aria-label="AI 标记">' + [['', '全部'], ['notable', '📌 重要事件'], ['risk', '⚠ 需留意']].map(function (t) {
+      return '<button type="button" data-atag="' + t[0] + '" aria-pressed="' + ((S.atag || '') === t[0]) + '">' + t[1] + '</button>'; }).join('') + (INTEL_IX ? '' : ' <span class="dim">AI 标记载入中…</span>') + '</div>';
     return pn('ANNOUNCEMENTS 公告', '近 14 天 · ' + items.length + ' 条', tagBar + '<div class="opts" role="group" aria-label="分类">' + cats.map(function (c) { return '<button type="button" data-cat="' + c + '" aria-pressed="' + (S.cat === c) + '">' + (c === 'all' ? '全部' : CAT[c]) + '</button>'; }).join('') + '</div>' + out);
   }
 
-  // ---------- AI 分析 (scripts/company_intel.py 每天收盘后用 DeepSeek 逐家整理，写在 ../intel/)：近况、利好 / 风险、财报一句、公告标签 ----------
+  // ---------- AI 分析 (scripts/company_intel.py 每天收盘后用 DeepSeek 逐家整理，写在 ../intel/)：近况、重要事件 / 留意事项、财报一句、公告标记 ----------
+  // 只做中性标记 (📌 = 值得注意的事件，⚠ = 需要留意)，不写「利好」：避免被当成买入信号
   var INTEL = {}, INTEL_IX = null, ixLoading = false;
-  var TAG = { catalyst: ['🔺', '利好', 'tg-cat'], risk: ['⚠', '风险', 'tg-risk'] };
+  var TAG = { notable: ['📌', '', 'tg-note'], catalyst: ['📌', '', 'tg-note'], risk: ['⚠', '留意', 'tg-risk'] };
   function loadIntelIx() {
     if (INTEL_IX || ixLoading) return; ixLoading = true;
     fetch((D.report || '../') + 'intel/index.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
       .then(function (j) { INTEL_IX = (j && j.items) || {}; if (S.page === 'ann' && !S.code) render(); });
   }
   function annId(link) { var mm = /(\d+)\D*$/.exec(link || ''); return mm ? mm[1] : null; }
-  function tagChip(t) { var x = TAG[t]; return x ? '<span class="tag ' + x[2] + '">' + x[0] + ' ' + x[1] + '</span>' : ''; }
+  function tagChip(t) { var x = TAG[t]; return x ? '<span class="tag ' + x[2] + '" title="' + (x[1] || '重要事件') + '">' + x[0] + (x[1] ? ' ' + x[1] : '') + '</span>' : ''; }
   function intelPanel(code) {
     if (!(code in INTEL)) {
       INTEL[code] = 'loading';
@@ -636,14 +637,15 @@
     if (!r) return pn(title, '', '<p class="dim">还没分析到这家公司 (每天收盘后陆续补上)。</p>');
     var f = r.facts, h = '';
     if (r.recent) h += '<p>' + esc(r.recent) + '</p>';
-    if ((r.catalysts || []).length || (r.risks || []).length) h += '<ul class="intel-l">' +
-      (r.catalysts || []).map(function (x) { return '<li class="tg-cat"><b>🔺</b> ' + esc(x) + '</li>'; }).join('') +
+    var nt = r.notable || r.catalysts || [];
+    if (nt.length || (r.risks || []).length) h += '<ul class="intel-l">' +
+      nt.map(function (x) { return '<li><b>📌</b> ' + esc(x) + '</li>'; }).join('') +
       (r.risks || []).map(function (x) { return '<li class="tg-risk"><b>⚠</b> ' + esc(x) + '</li>'; }).join('') + '</ul>';
     if (f) h += '<p class="dim intel-f">' + md(f.period) + ' 季：营收 ' + finNum(f.revenue) + (isNum(f.revenue_yoy) ? ' (按年 ' + pct(f.revenue_yoy, 1) + ')' : '') +
       ' · 净利 ' + finNum(f.net_income) + (isNum(f.net_income_yoy) ? ' (按年 ' + pct(f.net_income_yoy, 1) + ')' : '') + (isNum(f.net_margin) ? ' · 净利率 ' + f.net_margin + '%' : '') + '</p>';
     if (r.earnings) h += '<p>' + esc(r.earnings) + '</p>';
     var tagged = (r.ann || []).filter(function (a) { return a.tag !== 'routine'; });
-    if (tagged.length) h += '<h3 class="fin-h">有标签的公告</h3>' + tagged.slice(0, 10).map(function (a) {
+    if (tagged.length) h += '<h3 class="fin-h">标记的公告 <span class="dim">📌 重要事件 · ⚠ 需留意</span></h3>' + tagged.slice(0, 10).map(function (a) {
       return '<p class="list-ann"><span class="dim">' + md(a.date) + '</span> ' + tagChip(a.tag) + '<a href="' + esc(a.link) + '" target="_blank" rel="noopener">' + esc(a.title) + '</a>' + (a.why ? ' <span class="dim">· ' + esc(a.why) + '</span>' : '') + '</p>'; }).join('');
     h += '<p class="dim intel-note">AI 生成 (DeepSeek)，只整理公开的公告、新闻和财报，可能有错漏，不构成投资建议 · 更新 ' + esc(r.updated) + '</p>';
     return pn(title, '公告 ' + (r.ann || []).length + ' · 新闻 ' + (r.news || []).length, h);
