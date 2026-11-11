@@ -66,15 +66,12 @@ def dump_lists():
             print(f"[{label}] {r.status_code} len={len(body)} {url}")
             if r.status_code != 200:
                 continue
-            # 找「日期」出现的位置 (dd Mon yyyy / yyyy-mm-dd / dd/mm/yyyy)，印附近的 HTML
-            hits = [m.start() for m in re.finditer(r"\b(\d{1,2} [A-Z][a-z]{2},? \d{4}|\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})", body)]
-            print(f"    {len(hits)} date-like strings")
-            seen = 0
-            for h in hits[3:]:
-                if seen >= 3:
-                    break
-                print("    ---- " + re.sub(r"\s+", " ", body[max(0, h - 600):h + 700]))
-                seen += 1
+            # 公告链接 (i3: /web/announcement/detail/<id>；msb: 含 announcement 的 .aspx 链接) 附近的 HTML
+            pat = r"/web/announcement/detail/\\d+" if "i3" in label else r"href=\"[^\"]*[Aa]nnouncement[^\"]*\\d[^\"]*\""
+            hits = [m.start() for m in re.finditer(pat, body)]
+            print(f"    {len(hits)} announcement links")
+            for h in hits[:2] + hits[10:11]:
+                print("    ---- " + re.sub(r"\\s+", " ", body[max(0, h - 900):h + 500]))
         except Exception as e:
             print(f"[{label}] ERROR {type(e).__name__}: {e}")
 
