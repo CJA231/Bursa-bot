@@ -131,3 +131,17 @@ input[type="checkbox"] { accent-color: var(--acc); width: 16px; height: 16px; fl
 .run:hover { background: var(--acc); color: var(--bg); }
 .run[disabled] { opacity: 0.6; cursor: wait; }
 pre.txt .nm { font: inherit; }
+
+/* 热力图：一格一支，背景 = 涨跌色按幅度混进底色 (0 = 平盘灰) */
+.hm { display: grid; grid-template-columns: repeat(auto-fill, minmax(10ch, 1fr)); gap: 2px; font-size: 11px; }
+.hm-c { display: grid; padding: 4px 4px 3px; min-height: 40px; text-align: left; line-height: 1.25; color: var(--fg); background: var(--bg2); min-width: 0; }
+.hm-c:hover, .hm-c:focus-visible { outline: 1px solid var(--fg); outline-offset: -1px; }
+.hm-n { white-space: nowrap; overflow: hidden; text-overflow: clip; font-weight: 700; }
+.hm-p { font-variant-numeric: tabular-nums; }
+.hm-u1 { background: color-mix(in srgb, var(--up) 22%, var(--bg)); } .hm-d1 { background: color-mix(in srgb, var(--dn) 22%, var(--bg)); }
+.hm-u2 { background: color-mix(in srgb, var(--up) 40%, var(--bg)); } .hm-d2 { background: color-mix(in srgb, var(--dn) 40%, var(--bg)); }
+.hm-u3 { background: color-mix(in srgb, var(--up) 62%, var(--bg)); } .hm-d3 { background: color-mix(in srgb, var(--dn) 62%, var(--bg)); }
+.hm-u4 { background: var(--up); color: var(--bg); } .hm-d4 { background: var(--dn); color: var(--bg); }
+.hm-u0, .hm-d0, .hm-z0 { background: var(--bg2); color: var(--mut); }
+.hm-lg { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 2px; margin-top: 6px; font-size: 10px; text-align: center; }
+.hm-lg > span { padding: 2px 0; white-space: nowrap; }
