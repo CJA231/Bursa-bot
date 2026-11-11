@@ -81,7 +81,9 @@ pre::-webkit-scrollbar { display: none; }
 .grid-pool { display: grid; grid-template-columns: 9ch 7ch 7ch 5ch 4ch minmax(0, 1fr); gap: 0 1ch; align-items: baseline; }
 .grid-pool > span { white-space: nowrap; overflow: hidden; }
 .grid-pool .num { text-align: right; }
-.thead { color: var(--mut); font-size: 11px; padding: 0 0 4px; border-bottom: 1px solid var(--line); }
+.thead { color: var(--mut); padding: 0 0 4px; border-bottom: 1px solid var(--line); }  /* 字号要跟下面的行一样，栏宽用 ch，字号不同就对不齐 */
+.thead .th { color: inherit; text-align: right; white-space: nowrap; overflow: hidden; }
+.thead .th.on { color: var(--acc); }
 @media (max-width: 380px) { .grid-pool { grid-template-columns: 8ch 6ch 6ch 5ch 4ch minmax(0, 1fr); } }
 
 /* 开关键 [a] ALL */

@@ -6,7 +6,7 @@
   var D = null, BARS = null, barsLoading = false;
   var main = document.getElementById('main');
   var PAGES = [['sig', '信号'], ['mkt', '市场'], ['hold', '观察列表'], ['bt', '回测'], ['pool', '股票池'], ['ann', '公告']];
-  var S = { page: 'sig', code: null, flt: {}, sort: 'to', q: '', limit: 50, cat: 'all' };
+  var S = { page: 'sig', code: null, flt: {}, sort: 'to', dir: -1, q: '', limit: 50, cat: 'all' };
   var CAT = { results: '财报', dividend: '派息', corporate: '企业', holding: '持股', buyback: '回购', uma: '异常', people: '人事', meeting: '会议', other: '其他' };
   var EXIT = { take: '止盈', emab: 'EMA 破位', combo: '趋势转坏', time: '到期', swing: '跌破低点', stop: '止损', sar: 'SAR 转空', red: '回调红K', open: '持有中', high: '前高', res: '阻力' };
   var STN = { hold: 'HOLD 持有', near: 'NEAR 近风险', out: 'EXIT 离场' };
@@ -419,14 +419,17 @@
   function poolList() {
     var q = S.q.trim().toUpperCase(), fs = FLT.filter(function (f) { return S.flt[f[1]]; }), so = SORT.filter(function (x) { return x[1] === S.sort; })[0];
     return LIST.filter(function (s) { return (q ? (s.name.toUpperCase().indexOf(q) >= 0 || s.code.indexOf(q) >= 0) : s.pool === 1) && fs.every(function (f) { return f[3](s); }); })
-      .sort(function (a, b) { return so[3](b) - so[3](a); });
+      .sort(function (a, b) { return (so[3](a) - so[3](b)) * S.dir; });  // dir -1 = 高到低, 1 = 低到高
   }
+  // 同一个排序再按一次 = 换方向 (高到低 ⇄ 低到高)
+  function setSort(k) { if (S.sort === k) S.dir = -S.dir; else { S.sort = k; S.dir = -1; } render(); }
   function pagePool() {
     var l = poolList(), n = LIST.filter(function (s) { return s.pool === 1; }).length;
     var head = '<div class="grep"><label for="grep">grep&gt;</label><input id="grep" type="search" inputmode="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="名称或代码 (搜全部)" value="' + esc(S.q) + '"></div>' +
       '<div class="opts" role="group" aria-label="筛选">' + FLT.map(function (f) { return '<button type="button" data-flt="' + f[1] + '" aria-pressed="' + !!S.flt[f[1]] + '">[' + f[0] + ']' + f[2] + '</button>'; }).join('') + '</div>' +
-      '<div class="opts" role="group" aria-label="排序">' + SORT.map(function (x) { return '<button type="button" data-sort="' + x[1] + '" aria-pressed="' + (S.sort === x[1]) + '">[' + x[0] + ']' + x[2] + '↓</button>'; }).join('') + '</div>';
-    var rows = '<div class="grid-pool thead"><span>NAME</span><span class="num">LAST</span><span class="num">CHG%</span><span class="num">RVOL</span><span class="num">RSI</span><span>30D</span></div>' +
+      '<div class="opts" role="group" aria-label="排序">' + SORT.map(function (x) { return '<button type="button" data-sort="' + x[1] + '" aria-pressed="' + (S.sort === x[1]) + '" title="再按一次换方向">[' + x[0] + ']' + x[2] + (S.sort === x[1] ? (S.dir < 0 ? '↓' : '↑') : '') + '</button>'; }).join('') + '</div>';
+    function th(k, t) { var on = S.sort === k; return '<button type="button" class="num th' + (on ? ' on' : '') + '" data-sort="' + k + '">' + (on ? (S.dir < 0 ? '↓' : '↑') : '') + t + '</button>'; }
+    var rows = '<div class="grid-pool thead"><span>NAME</span><span class="num">LAST</span>' + th('chg', 'CHG%') + th('rv', 'RVOL') + th('rsi', 'RSI') + '<span>30D</span></div>' +
       l.slice(0, S.limit).map(function (s) {
         return '<button type="button" class="row" data-q="' + esc(s.code) + '" style="display:block"><span class="grid-pool"><span class="' + (s.pool ? '' : 'dim') + '">' + esc(s.name) + '</span><span class="num">' + px(s.p) + '</span>' +
           '<span class="num ' + cls(s.c) + '">' + pct(s.c, 1).replace('%', '') + '</span><span class="num' + (s.rv >= 2 ? ' warn' : '') + '">' + (isNum(s.rv) ? s.rv.toFixed(1) : '—') + '</span>' +
@@ -542,7 +545,7 @@
     else if (t.dataset.q) go(S.page, t.dataset.q);
     else if (t.dataset.back) go(S.page);
     else if (t.dataset.flt) { S.flt[t.dataset.flt] = !S.flt[t.dataset.flt]; S.limit = 50; render(); }
-    else if (t.dataset.sort) { S.sort = t.dataset.sort; render(); }
+    else if (t.dataset.sort) setSort(t.dataset.sort);
     else if (t.dataset.more) { S.limit += 50; render(); }
     else if (t.dataset.cat) { S.cat = t.dataset.cat; render(); }
   });
@@ -568,7 +571,7 @@
     if (e.key === 't') { toggleTheme(); return; }
     if (S.page === 'pool' && !S.code) {
       var f = FLT.filter(function (x) { return x[0] === e.key; })[0], s = SORT.filter(function (x) { return x[0] === e.key; })[0];
-      if (f) { S.flt[f[1]] = !S.flt[f[1]]; S.limit = 50; render(); } else if (s) { S.sort = s[1]; render(); } else if (e.key === 'a') { S.flt = {}; render(); }
+      if (f) { S.flt[f[1]] = !S.flt[f[1]]; S.limit = 50; render(); } else if (s) setSort(s[1]); else if (e.key === 'a') { S.flt = {}; render(); }
     }
   });
   window.addEventListener('hashchange', function () { fromHash(); render(); });
