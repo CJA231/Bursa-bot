@@ -1,11 +1,11 @@
 // bursa.term — 马股终端版 (纯文字 / Nord)。数据: data.json (今天的结果) + bars.json (日线，打开后在背景下载)
-// 页面: 1 信号 · 2 持仓 · 3 回测 · 4 股票池 · 5 市场 · 6 公告；#q-<代码> = 个股。图全部用字符画 (█ │ ▁▂▃ …)。
+// 页面: 1 信号 · 2 市场 · 3 观察列表 · 4 回测 · 5 股票池 · 6 公告；#q-<代码> = 个股。图全部用字符画 (█ │ ▁▂▃ …)。
 (function () {
   'use strict';
   var V = (document.currentScript && /v=([^&]+)/.exec(document.currentScript.src) || [])[1] || Date.now();
   var D = null, BARS = null, barsLoading = false;
   var main = document.getElementById('main');
-  var PAGES = [['sig', '信号'], ['hold', '持仓'], ['bt', '回测'], ['pool', '股票池'], ['mkt', '市场'], ['ann', '公告']];
+  var PAGES = [['sig', '信号'], ['mkt', '市场'], ['hold', '观察列表'], ['bt', '回测'], ['pool', '股票池'], ['ann', '公告']];
   var S = { page: 'sig', code: null, flt: {}, sort: 'to', q: '', limit: 50, cat: 'all' };
   var CAT = { results: '财报', dividend: '派息', corporate: '企业', holding: '持股', buyback: '回购', uma: '异常', people: '人事', meeting: '会议', other: '其他' };
   var EXIT = { take: '止盈', emab: 'EMA 破位', combo: '趋势转坏', time: '到期', swing: '跌破低点', stop: '止损', sar: 'SAR 转空', red: '回调红K', open: '持有中', high: '前高', res: '阻力' };
@@ -152,7 +152,7 @@
 
   function pageSig() {
     var sigs = D.signals || [];
-    if (!sigs.length) return pn('SIGNALS 信号', md(D.date), '<p>今天没有股票符合「SAR 转多」的全部条件。</p><p class="dim">还在跟进的信号看 [2] 持仓；回测结果看 [3]。</p>');
+    if (!sigs.length) return pn('SIGNALS 信号', md(D.date), '<p>今天没有股票符合「SAR 转多」的全部条件。</p><p class="dim">还在跟进的信号看 [3] 观察列表；回测结果看 [4]。</p>');
     return sigs.map(function (x) {
       var risk = isNum(x.stop) ? (x.price - x.stop) / x.price * 100 : null;
       var inner = '<p><button type="button" class="nm" data-q="' + esc(x.code) + '"><b>' + esc(x.name) + '</b> <span class="dim">' + esc(x.code) + '</span></button>　<b>' + px(x.price) + '</b> <span class="' + cls(x.chg) + '">' + pct(x.chg) + '</span>' + (D.state === 'live' ? '　<span class="warn">盘中</span>' : '') + '</p>' +
@@ -169,7 +169,7 @@
   }
   function pageHold() {
     var f = D.follow || [];
-    if (!f.length) return pn('POSITIONS 持仓跟进', '', '<p class="dim">最近没有还在跟进的信号。</p>');
+    if (!f.length) return pn('WATCHLIST 观察列表', '', '<p class="dim">最近没有还在跟进的信号。</p>');
     var groups = [['near', '接近风险线'], ['hold', '持有中'], ['out', '刚离场']];
     return groups.map(function (gp) {
       var items = f.filter(function (x) { return x.status === gp[0]; });
@@ -261,7 +261,7 @@
     });
     return pn('ANNOUNCEMENTS 公告', '近 14 天 · ' + items.length + ' 条', '<div class="opts" role="group" aria-label="分类">' + cats.map(function (c) { return '<button type="button" data-cat="' + c + '" aria-pressed="' + (S.cat === c) + '">' + (c === 'all' ? '全部' : CAT[c]) + '</button>'; }).join('') + '</div>' + out);
   }
-  // 个股：字符 K 线 + 数字 + (信号 / 持仓计划) + 公告和新闻
+  // 个股：字符 K 线 + 数字 + (信号 / 观察列表) + 公告和新闻
   var EXTRA = {};
   function pageQuote(code) {
     var s = ST[code];
@@ -275,7 +275,7 @@
         ['市值', isNum(s.mc) ? 'RM ' + big(s.mc) : '—'], ['股票池', s.sig ? '信号股' : s.pool ? (s.first ? md(s.first) + ' 起 · ' + s.streak + ' 天' : '在池') : '不在池'], ['上市', isNum(s.listed) ? s.listed + ' 天' : '> 90 天'], ['日期', md(D.date)]]));
     if (sig) h += pn('PLAN 信号计划', 'SAR 转多', kv([['进场', px(sig.price)], ['风险线', px(sig.stop), 'dn'], ['目标', px(sig.target), 'up'], ['R:R', isNum(sig.rr) ? sig.rr.toFixed(1) : '—']]) +
       '<pre class="txt">' + (sig.why || []).map(function (w) { return span('up', '[x]') + ' ' + esc(w); }).join('\n') + '</pre>' + (sig.digest ? '<p class="digest"><b>消息面&gt;</b> ' + esc(sig.digest) + '</p>' : ''));
-    else if (fol) h += pn('POSITION 持仓跟进', STN[fol.status], kv([['信号日', md(fol.sig)], ['进场', px(fol.entry)], ['现价', px(fol.last)], ['收益', pct(fol.ret, 1), cls(fol.ret)],
+    else if (fol) h += pn('WATCH 观察列表', STN[fol.status], kv([['信号日', md(fol.sig)], ['进场', px(fol.entry)], ['现价', px(fol.last)], ['收益', pct(fol.ret, 1), cls(fol.ret)],
       ['持有', fol.days + ' 天'], ['STOP', px(fol.stop), 'dn'], ['离 STOP', isNum(fol.dist) ? fol.dist.toFixed(1) + '%' : '—', fol.dist < 3 ? 'dn' : ''], ['状态', fol.status === 'out' ? (EXIT[fol.reason] || fol.reason) : STN[fol.status]]]) +
       (fol.hits && fol.hits.length ? '<p class="warn">趋势检查: ' + esc(fol.hits.join('、')) + '</p>' : ''));
     var ex = EXTRA[code];
@@ -311,7 +311,7 @@
   function render() {
     if (!D) return;
     keys();
-    document.getElementById('prompt-arg').textContent = S.code ? 'quote ' + S.code : '--' + S.page;
+    document.getElementById('prompt-arg').textContent = S.code ? 'quote ' + S.code : '--' + (S.page === 'hold' ? 'watch' : S.page);
     var fn = { sig: pageSig, hold: pageHold, bt: pageBt, pool: pagePool, mkt: pageMkt, ann: pageAnn }[S.page] || pageSig;
     var focusGrep = document.activeElement && document.activeElement.id === 'grep', pos = focusGrep ? document.activeElement.selectionStart : null;
     main.innerHTML = S.code ? pageQuote(S.code) : fn();
