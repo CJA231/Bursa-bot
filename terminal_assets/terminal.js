@@ -8,8 +8,8 @@
   var PAGES = [['sig', '信号'], ['mkt', '市场'], ['watch', '观察列表'], ['bt', '回测'], ['pool', '股票池'], ['ann', '公告']];
   var S = { page: 'sig', code: null, flt: {}, sort: 'to', dir: -1, q: '', limit: 50, cat: 'all' };
   var CAT = { results: '财报', dividend: '派息', corporate: '企业', holding: '持股', buyback: '回购', uma: '异常', people: '人事', meeting: '会议', other: '其他' };
-  var EXIT = { take: '止盈', emab: 'EMA 破位', combo: '趋势转坏', time: '到期', swing: '跌破低点', stop: '止损', sar: 'SAR 转空', red: '回调红K', open: '持有中', high: '前高', res: '阻力' };
-  var STN = { hold: 'HOLD 持有', near: 'NEAR 近风险', out: 'EXIT 离场' };
+  var EXIT = { take: '涨幅达标', emab: 'EMA 破位', combo: '趋势转坏', time: '期满', swing: '跌破低点', stop: '跌破风险线', sar: 'SAR 转空', red: '回调红K', open: '跟踪中', high: '前高', res: '阻力' };
+  var STN = { hold: 'ACTIVE 跟踪中', near: 'NEAR 近风险线', out: 'ENDED 已结束' };
 
   // ---------- 小工具 ----------
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -172,9 +172,9 @@
       var risk = isNum(x.stop) ? (x.price - x.stop) / x.price * 100 : null;
       var inner = '<p><button type="button" class="nm" data-q="' + esc(x.code) + '"><b>' + esc(x.name) + '</b> <span class="dim">' + esc(x.code) + '</span></button>　<b>' + px(x.price) + '</b> <span class="' + cls(x.chg) + '">' + pct(x.chg) + '</span>' + (D.state === 'live' ? '　<span class="warn">盘中</span>' : '') + '</p>' +
         chartFor(x.code, { stop: x.stop, target: x.target, label: x.name + ' 日线' }) +
-        kv([['风险 RISK', risk == null ? '—' : pct(-risk, 1), 'dn'], ['目标 TGT', x.tp ? '+' + x.tp + '%' : '—', 'up'], ['R:R', isNum(x.rr) ? x.rr.toFixed(1) : '—'], ['相对量', isNum(x.rv) ? x.rv.toFixed(2) + '×' : '—']], true) +
-        (risk != null && x.tp ? '<pre class="txt">RISK ' + (function () { var k = Math.max(1, Math.round(risk / (risk + x.tp) * 24)); return span('cd', '█'.repeat(k)) + span('cu', '█'.repeat(24 - k)); })() + ' REWARD\n' +
-          span('dim', 'STOP ' + px(x.stop) + (x.stop_by ? ' (' + esc(x.stop_by) + ')' : '') + '  ·  TGT ' + px(x.target)) + '</pre>' : '') +
+        kv([['距风险线', risk == null ? '—' : pct(-risk, 1), 'dn'], ['参考涨幅', x.tp ? '+' + x.tp + '%' : '—', 'up'], ['R:R', isNum(x.rr) ? x.rr.toFixed(1) : '—'], ['相对量', isNum(x.rv) ? x.rv.toFixed(2) + '×' : '—']], true) +
+        (risk != null && x.tp ? '<pre class="txt">下行 ' + (function () { var k = Math.max(1, Math.round(risk / (risk + x.tp) * 24)); return span('cd', '█'.repeat(k)) + span('cu', '█'.repeat(24 - k)); })() + ' 上行\n' +
+          span('dim', '风险线 ' + px(x.stop) + (x.stop_by ? ' (' + esc(x.stop_by) + ')' : '') + '  ·  参考位 ' + px(x.target)) + '</pre>' : '') +
         (x.digest ? '<p class="digest"><b>消息面&gt;</b> ' + esc(x.digest) + '</p>' : '') +
         '<details class="info" data-code="' + esc(x.code) + '"' + (OPEN[x.code] ? ' open' : '') + '><summary>Info <span class="arw" aria-hidden="true">➡️</span></summary>' +
         '<pre class="txt">' + (x.why || []).map(function (w) { return span('up', '[x]') + ' ' + esc(w); }).join('\n') + '</pre>' +
@@ -182,18 +182,18 @@
       return pn('SIGNAL · SAR 转多', md(x.date || D.date), inner);
     }).join('') + pageTrack();
   }
-  // 信号跟进 (系统自动)：最近的信号买进后现在怎样 (接近风险线 / 持有中 / 刚离场)
+  // 信号跟进 (系统自动)：最近的信号之后走势怎样 (接近风险线 / 跟踪中 / 刚结束)
   function pageTrack() {
     var f = D.follow || [];
     if (!f.length) return pn('TRACKING 信号跟进', '', '<p class="dim">最近没有还在跟进的信号。</p>');
-    var groups = [['near', '接近风险线'], ['hold', '持有中'], ['out', '刚离场']];
+    var groups = [['near', '接近风险线'], ['hold', '跟踪中'], ['out', '刚结束跟踪']];
     return groups.map(function (gp) {
       var items = f.filter(function (x) { return x.status === gp[0]; });
       if (!items.length) return '';
       return pn('TRACKING · ' + STN[gp[0]], gp[1] + ' · ' + items.length, '<div class="rows">' + items.map(function (x) {
         var s = ST[x.code] || { code: x.code, name: x.name };
         var bar = isNum(x.dist) ? span(x.dist < 3 ? 'dn' : 'acc', meter(Math.max(0, x.dist) / 15, 10)) + ' ' + x.dist.toFixed(1) + '%' : '';
-        var sub = md(x.sig) + ' 信号 · ' + x.days + ' 天 · 入 ' + px(x.entry) + (x.status === 'out' ? ' · ' + (EXIT[x.reason] || x.reason) : ' · STOP ' + px(x.stop)) +
+        var sub = md(x.sig) + ' 信号 · ' + x.days + ' 天 · 信号价 ' + px(x.entry) + (x.status === 'out' ? ' · ' + (EXIT[x.reason] || x.reason) : ' · 风险线 ' + px(x.stop)) +
           (x.hits && x.hits.length ? ' · <span class="warn">' + esc(x.hits.join('、')) + '</span>' : '');
         return stockBtn(s, '<span class="' + cls(x.ret) + ' b">' + pct(x.ret, 1) + '</span><br><span class="sub">' + (x.status === 'out' ? px(x.last) : bar) + '</span>', sub);
       }).join('') + '</div>');
@@ -229,6 +229,38 @@
     }
     return '<div class="wrow">' + stockBtn(s || { code: c, name: nameOf(c) }, right, sub) + '<button type="button" class="wdel" data-wd="' + c + '" aria-label="从这个文件夹移除 ' + esc(nameOf(c)) + '">×</button></div>';
   }
+  // 文件夹操作都在页面里完成 (不用 prompt / confirm 弹窗：有些手机浏览器会把弹窗挡掉，按了没反应)
+  // WF.mode: new 新文件夹 / ren 改名 / del 确认删除 / exp 导出 / imp 导入；WF.code = 在个股页新建时顺便把这支加进去；WF.msg = 提示
+  var WF = { mode: null, code: null, msg: '' };
+  function wForm(where) {
+    var m = WF.mode, f = curFolder(), h = '';
+    if (!m || (where === 'quote') !== !!WF.code) return WF.msg && where !== 'quote' ? '<p class="warn">' + esc(WF.msg) + '</p>' : '';
+    if (m === 'new' || m === 'ren') h = '<div class="wform"><input id="wf-name" type="text" maxlength="20" autocomplete="off" placeholder="' + (m === 'new' ? '新文件夹名称，例如 科技、银行' : '新的名称') + '" value="' + (m === 'ren' ? esc(f.name) : '') + '">' +
+      '<button type="button" class="ok" data-wa="ok">' + (m === 'new' ? '建立' : '改名') + '</button><button type="button" data-wa="cancel">取消</button></div>';
+    else if (m === 'del') h = '<div class="wform"><span class="dn">删除「' + esc(f.name) + '」和里面 ' + f.codes.length + ' 支？</span><button type="button" class="ok bad" data-wa="ok">确认删除</button><button type="button" data-wa="cancel">取消</button></div>';
+    else if (m === 'exp') h = '<div class="wform col"><span class="dim">长按全选、复制，存在备忘录里；以后在「导入」贴回来就能恢复。</span><textarea id="wf-text" rows="4" readonly>' + esc(JSON.stringify({ folders: W.folders })) + '</textarea><button type="button" data-wa="cancel">完成</button></div>';
+    else if (m === 'imp') h = '<div class="wform col"><span class="dim">贴上之前「导出备份」的整段文字，会取代现在的观察列表。</span><textarea id="wf-text" rows="4" placeholder="{&quot;folders&quot;: …}"></textarea><div><button type="button" class="ok" data-wa="ok">导入</button><button type="button" data-wa="cancel">取消</button></div></div>';
+    return h + (WF.msg ? '<p class="warn">' + esc(WF.msg) + '</p>' : '');
+  }
+  function wSubmit() {
+    var m = WF.mode, f = curFolder(), el = document.getElementById(m === 'imp' ? 'wf-text' : 'wf-name'), v = el ? el.value.trim() : '';
+    WF.msg = '';
+    if (m === 'new') {
+      if (!v) { WF.msg = '请先输入文件夹名称'; return; }
+      var id = 'f' + Date.now().toString(36); W.folders.push({ id: id, name: v.slice(0, 20), codes: WF.code ? [WF.code] : [] });
+      if (!WF.code) W.cur = id;
+    } else if (m === 'ren') { if (!v) { WF.msg = '名称不能是空的'; return; } f.name = v.slice(0, 20); }
+    else if (m === 'del') { if (W.folders.length > 1) { W.folders = W.folders.filter(function (x) { return x.id !== f.id; }); W.cur = W.folders[0].id; } }
+    else if (m === 'imp') {
+      try {
+        var fs = (JSON.parse(v).folders || []).filter(function (x) { return x && x.name && Array.isArray(x.codes); }).map(function (x, i) {
+          return { id: 'f' + i + Date.now().toString(36), name: String(x.name).slice(0, 20), codes: x.codes.map(String).filter(function (c) { return /^[0-9A-Z]{4,6}$/.test(c); }) }; });
+        if (!fs.length) throw new Error('empty');
+        W.folders = fs; W.cur = fs[0].id;
+      } catch (e) { WF.msg = '看不懂这段文字，请贴上完整的导出内容。'; return; }
+    }
+    WF.mode = null; WF.code = null; saveW();
+  }
   function pageWatch() {
     var f = curFolder();
     var tabs = '<div class="opts wtabs" role="group" aria-label="文件夹">' + W.folders.map(function (x) {
@@ -240,52 +272,40 @@
     var tools = '<div class="opts"><button type="button" data-wa="ren">改名</button>' + (W.folders.length > 1 ? '<button type="button" data-wa="del">删除文件夹</button>' : '') +
       '<button type="button" data-wa="exp">导出备份</button><button type="button" data-wa="imp">导入</button></div>' +
       '<p class="dim">观察列表只存在这台设备的浏览器里，换手机或清除网站资料会不见，记得「导出备份」。</p>';
-    return pn('WATCHLIST 观察列表', W.folders.length + ' 个文件夹 · ' + watchCount() + ' 支', tabs) + pn('📁 ' + esc(f.name), f.codes.length + ' 支', add + rows + tools);
+    var topForm = WF.mode === 'new' && !WF.code ? wForm('page') : '', botForm = WF.mode && WF.mode !== 'new' ? wForm('page') : '';
+    return pn('WATCHLIST 观察列表', W.folders.length + ' 个文件夹 · ' + watchCount() + ' 支', tabs + topForm) + pn('📁 ' + esc(f.name), f.codes.length + ' 支', add + rows + tools + botForm);
   }
-  // 个股页上的「加入观察列表」：每个文件夹一个开关
+  // 个股页上的「收藏到观察列表」：每个文件夹一个开关，可以直接在这里开新文件夹并放进去
   function watchToggles(code) {
-    return '<div class="opts wq" role="group" aria-label="观察列表"><span class="dim">观察列表</span>' + W.folders.map(function (f) {
+    return '<div class="opts wq" role="group" aria-label="收藏到观察列表"><span class="dim">收藏到</span>' + W.folders.map(function (f) {
       var on = f.codes.indexOf(code) >= 0;
-      return '<button type="button" data-wt="' + f.id + '" data-v="' + code + '" aria-pressed="' + on + '">' + (on ? '★ ' : '☆ ') + esc(f.name) + '</button>'; }).join('') + '</div>';
+      return '<button type="button" data-wt="' + f.id + '" data-v="' + code + '" aria-pressed="' + on + '">' + (on ? '★ ' : '☆ ') + esc(f.name) + '</button>'; }).join('') +
+      '<button type="button" data-wa="new" data-v="' + code + '">＋ 新文件夹</button></div>' + (WF.mode === 'new' && WF.code === code ? wForm('quote') : '');
   }
   function watchClick(t) {
     var d = t.dataset, f = curFolder();
-    if (d.wf) { W.cur = d.wf; WQ = ''; }
+    if (d.wf) { W.cur = d.wf; WQ = ''; WF.mode = null; WF.msg = ''; }
     else if (d.wadd) { if (f.codes.indexOf(d.wadd) < 0) f.codes.push(d.wadd); WQ = ''; }
     else if (d.wd) { f.codes = f.codes.filter(function (c) { return c !== d.wd; }); }
     else if (d.wt) { var g = W.folders.filter(function (x) { return x.id === d.wt; })[0]; if (g) { var i = g.codes.indexOf(d.v); if (i >= 0) g.codes.splice(i, 1); else g.codes.push(d.v); } }
-    else if (d.wa === 'new') {
-      var nm = (prompt('新文件夹名称 (例如 科技、银行、长期)') || '').trim().slice(0, 20); if (!nm) return;
-      var id = 'f' + Date.now().toString(36); W.folders.push({ id: id, name: nm, codes: [] }); W.cur = id;
-    } else if (d.wa === 'ren') { var n2 = (prompt('文件夹改名', f.name) || '').trim().slice(0, 20); if (!n2) return; f.name = n2; }
-    else if (d.wa === 'del') {
-      if (W.folders.length < 2 || !confirm('删除文件夹「' + f.name + '」(里面 ' + f.codes.length + ' 支股票会一起移除)？')) return;
-      W.folders = W.folders.filter(function (x) { return x.id !== f.id; }); W.cur = W.folders[0].id;
-    } else if (d.wa === 'exp') { prompt('复制下面整段文字保存起来 (导入时贴回去)：', JSON.stringify({ folders: W.folders })); return; }
-    else if (d.wa === 'imp') {
-      var txt = prompt('贴上之前「导出备份」的整段文字：'); if (!txt) return;
-      try {
-        var j = JSON.parse(txt), fs = (j.folders || []).filter(function (x) { return x && x.name && Array.isArray(x.codes); }).map(function (x, i) {
-          return { id: 'f' + i + Date.now().toString(36), name: String(x.name).slice(0, 20), codes: x.codes.map(String).filter(function (c) { return /^[0-9A-Z]{4,6}$/.test(c); }) }; });
-        if (!fs.length) throw new Error('empty');
-        if (!confirm('用导入的 ' + fs.length + ' 个文件夹取代现在的观察列表？')) return;
-        W.folders = fs; W.cur = fs[0].id;
-      } catch (e) { alert('看不懂这段文字，请贴上完整的导出内容。'); return; }
-    }
+    else if (d.wa === 'ok') wSubmit();
+    else if (d.wa === 'cancel') { WF.mode = null; WF.code = null; WF.msg = ''; }
+    else if (d.wa) { WF.mode = d.wa === WF.mode && (d.v || null) === WF.code ? null : d.wa; WF.code = d.v || null; WF.msg = ''; }
     saveW(); render();
+    if (WF.mode === 'new' || WF.mode === 'ren' || WF.mode === 'imp') { var el = document.getElementById(WF.mode === 'imp' ? 'wf-text' : 'wf-name'); if (el) el.focus(); }
   }
   function pageBtLedger() {
     var b = D.bt; if (!b) return pn('BACKTEST 回测', '', '<p class="dim">这次没有回测数据。</p>');
     var a = b.acct, pos = b.position || 20000, R = function (v) { return isNum(v) ? v / 100 * pos : null; };
-    var h = pn('ACCOUNT 账户', esc(b.name || '') + ' · ' + (b.slots || '∞') + ' 仓 · 每笔 RM' + (pos / 1000) + 'K',
+    var h = pn('SIMULATION 模拟统计', esc(b.name || '') + ' · 同时最多 ' + (b.slots || '∞') + ' 笔 · 每笔模拟 RM' + (pos / 1000) + 'K',
       kv([['胜率', isNum(a.win_rate) ? a.win_rate.toFixed(1) + '%' : '—'], ['期望值', pct(a.avg), cls(a.avg)], ['合计', rm(R(a.total)), cls(a.total)], ['最大回撤', rm(R(a.mdd)), 'dn']], true) +
-      kv([['已结算 / 持有', a.closed + ' / ' + a.open], ['持有浮动', pct(a.open_avg), cls(a.open_avg)], ['盈亏比', isNum(a.payoff) ? a.payoff.toFixed(2) : '—'], ['获利因子', isNum(a.pf) ? a.pf.toFixed(2) : '—'],
-        ['平均持有', isNum(a.avg_days) ? a.avg_days + ' 天' : '—'], ['最多连亏', a.max_streak != null ? a.max_streak + ' 笔' : '—'], ['最好', pct(a.best, 1), 'up'], ['最差', pct(a.worst, 1), 'dn']]));
-    if (b.curve && b.curve.length > 1) h += pn('EQUITY 资金曲线', '已平仓累计 · ' + md(b.curve[0][0]) + ' ~ ' + md(b.curve[b.curve.length - 1][0]),
+      kv([['已结束 / 进行中', a.closed + ' / ' + a.open], ['进行中浮动', pct(a.open_avg), cls(a.open_avg)], ['盈亏比', isNum(a.payoff) ? a.payoff.toFixed(2) : '—'], ['获利因子', isNum(a.pf) ? a.pf.toFixed(2) : '—'],
+        ['平均天数', isNum(a.avg_days) ? a.avg_days + ' 天' : '—'], ['最多连亏', a.max_streak != null ? a.max_streak + ' 笔' : '—'], ['最好', pct(a.best, 1), 'up'], ['最差', pct(a.worst, 1), 'dn']]));
+    if (b.curve && b.curve.length > 1) h += pn('EQUITY 模拟累计', '已结束的累计 · ' + md(b.curve[0][0]) + ' ~ ' + md(b.curve[b.curve.length - 1][0]),
       blockChart([0].concat(b.curve.map(function (c) { return R(c[1]); })), { rows: 8, zero: true, label: '账户资金曲线', fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
         color: function (v) { return v >= 0 ? 'acc' : 'dn'; }, dates: [md(b.curve[0][0]), md(b.curve[b.curve.length - 1][0])] }));
     var ex = a.exits || {}, tot = Object.keys(ex).reduce(function (s, k) { return s + ex[k]; }, 0) || 1;
-    h += pn('EXITS 离场原因', a.closed + ' 笔', '<pre class="txt">' + Object.keys(ex).sort(function (x, y) { return ex[y] - ex[x]; }).map(function (k) {
+    h += pn('ENDS 结束原因', a.closed + ' 笔', '<pre class="txt">' + Object.keys(ex).sort(function (x, y) { return ex[y] - ex[x]; }).map(function (k) {
       return cell(esc(EXIT[k] || k), 10) + span('acc', meter(ex[k] / tot, 20)) + ' ' + pad(ex[k], 3, true); }).join('\n') + '</pre>');
     var p = b.paper || {}, ps = p.stats || {};
     if (p.trades && p.trades.length) h += pn('PAPER 模拟账户', md(p.start) + ' 起 · 胜率 ' + (isNum(ps.win_rate) ? ps.win_rate.toFixed(0) + '%' : '—'),
@@ -294,14 +314,14 @@
         return stockBtn(s, '<span class="' + cls(v) + ' b">' + pct(v, 1) + '</span><br><span class="sub">' + rm(R(v)) + '</span>',
           md(t.entry_date) + ' ' + px(t.entry) + ' → ' + px(t.exit) + ' · ' + (EXIT[t.reason] || t.reason) + ' · ' + t.days + ' 天');
       }).join('') + '</div>');
-    if (b.monthly && b.monthly.length) h += pn('EVERY 每个信号都买', (b.every && b.every.closed) + ' 笔 · 胜 ' + (b.every && isNum(b.every.win_rate) ? b.every.win_rate.toFixed(0) + '%' : '—') + ' · 均 ' + pct(b.every && b.every.avg),
+    if (b.monthly && b.monthly.length) h += pn('EVERY 每个信号都计入', (b.every && b.every.closed) + ' 笔 · 胜 ' + (b.every && isNum(b.every.win_rate) ? b.every.win_rate.toFixed(0) + '%' : '—') + ' · 均 ' + pct(b.every && b.every.avg),
       '<pre class="txt">' + span('dim', 'MONTH    N    WIN               AVG') + '\n' + b.monthly.map(function (m) {
         return m[0] + ' ' + pad(m[1], 4, true) + '  ' + span(m[2] >= 50 ? 'up' : m[2] < 30 ? 'dn' : 'acc', meter(m[2] / 100, 10)) + ' ' + pad(m[2].toFixed(0) + '%', 4, true) + ' ' + span(cls(m[3]), pad(pct(m[3], 1), 7, true)); }).join('\n') + '</pre>');
     return h;
   }
 
   // ---------- 自定义回测：自己选进场条件 / 股票 (一支或几支合计) / 时间，在浏览器里用个股 2 年日线 (../stock/<代码>.json) 重算 ----------
-  // 离场是后台规则的简化版：止盈、跌破 EMA20 连 2 天、趋势转坏 (Supertrend / SAR 转空 / 放量抛售 / EMA5<EMA20 坏 2 项)、止损 %、最长持有
+  // 结束条件是后台规则的简化版：涨幅达标、跌破 EMA20 连 2 天、趋势转坏 (Supertrend / SAR 转空 / 放量抛售 / EMA5<EMA20 坏 2 项)、跌幅 %、最长天数
   var CB_RULES = [
     ['sar', 'SAR 转多 (当天翻多)', 1], ['ema20', '价格 > EMA20', 1], ['ema5x20', 'EMA5 > EMA20', 1], ['vol1m', '成交量 ≥ 1M', 1],
     ['st', 'Supertrend(3,1.4) < 价格', 1], ['ema50', '价格 > EMA50 或 EMA5 > EMA50', 1],
@@ -428,7 +448,7 @@
   }
   function cbRun() {
     if (!CB.codes.length) { CB.err = '先加至少一支股票'; render(); return; }
-    if (!CB_RULES.some(function (r) { return CB.rules[r[0]]; })) { CB.err = '至少勾一个进场条件'; render(); return; }
+    if (!CB_RULES.some(function (r) { return CB.rules[r[0]]; })) { CB.err = '至少勾一个信号条件'; render(); return; }
     CB.busy = true; CB.err = ''; CB.res = null; render();
     var cost = (D.bt && isNum(D.bt.cost)) ? D.bt.cost : 0.5;
     Promise.all(CB.codes.map(loadDaily)).then(function (all) {
@@ -464,24 +484,24 @@
       (CB.codes.length ? '<div class="opts">' + CB.codes.map(function (c) { return '<button type="button" class="chip" data-cb="del" data-v="' + c + '" aria-label="移除 ' + esc(name(c)) + '">' + esc(name(c)) + ' ×</button>'; }).join('') + '</div>' : '<p class="dim">还没选股票。一支 = 单支回测，几支 = 合计 + 分别列出 (最多 30 支)。</p>');
     var time = '<div class="opts">' + [['m3', '3 个月'], ['m6', '6 个月'], ['y1', '1 年'], ['all', '全部 (约 2 年)']].map(function (p) { return '<button type="button" data-cb="preset" data-v="' + p[0] + '">' + p[1] + '</button>'; }).join('') + '</div>' +
       '<div class="cb-dates"><label>从 <input type="date" id="cb-from" value="' + esc(CB.from) + '"></label><label>到 <input type="date" id="cb-to" value="' + esc(CB.to) + '"></label></div>';
-    var rules = '<div class="cb-rules">' + CB_RULES.map(function (r) { return '<label><input type="checkbox" data-cbr="' + r[0] + '"' + (CB.rules[r[0]] ? ' checked' : '') + '> ' + esc(r[1]) + '</label>'; }).join('') + '</div><p class="dim">勾的条件全部同时成立的那天，按收盘价进场。默认勾的 6 个 = 后台策略。</p>';
-    var exit = '<div class="cb-exit">' + [['take', '止盈 %', CB.take], ['stop', '止损 % (0 = 不用)', CB.stop], ['hold', '最长持有 (天)', CB.hold]].map(function (x) {
+    var rules = '<div class="cb-rules">' + CB_RULES.map(function (r) { return '<label><input type="checkbox" data-cbr="' + r[0] + '"' + (CB.rules[r[0]] ? ' checked' : '') + '> ' + esc(r[1]) + '</label>'; }).join('') + '</div><p class="dim">勾的条件全部同时成立的那天，以收盘价开始计算。默认勾的 6 个 = 后台策略。</p>';
+    var exit = '<div class="cb-exit">' + [['take', '涨幅达到 % 结束', CB.take], ['stop', '跌幅达到 % 结束 (0 = 不用)', CB.stop], ['hold', '最长天数', CB.hold]].map(function (x) {
       return '<label>' + x[1] + ' <input type="number" inputmode="decimal" min="0" step="1" data-cbn="' + x[0] + '" value="' + x[2] + '"></label>'; }).join('') +
       '<label><input type="checkbox" data-cbx="emab"' + (CB.emab ? ' checked' : '') + '> 收盘跌破 EMA20 连 2 天</label><label><input type="checkbox" data-cbx="combo"' + (CB.combo ? ' checked' : '') + '> 趋势转坏 (Supertrend / SAR / 放量抛售 / EMA5&lt;EMA20 坏 2 项)</label></div>';
     var h = pn('STOCKS 回测股票', CB.codes.length + ' 支', stocks) + pn('PERIOD 回测时间', (CB.from || '最早') + ' ~ ' + (CB.to || '最新'), time) +
-      pn('ENTRY 进场条件', CB_RULES.filter(function (r) { return CB.rules[r[0]]; }).length + ' 项', rules) + pn('EXIT 离场', '', exit) +
+      pn('CONDITIONS 信号条件', CB_RULES.filter(function (r) { return CB.rules[r[0]]; }).length + ' 项', rules) + pn('END 结束条件', '', exit) +
       '<button type="button" class="run" data-cb="run"' + (CB.busy ? ' disabled' : '') + '>' + (CB.busy ? '计算中…' : '▶ 运行回测') + '</button>' + (CB.err ? '<p class="dn">' + esc(CB.err) + '</p>' : '');
     var r = CB.res;
     if (r) {
       var a = r.all;
       h += pn('RESULT 结果', CB.codes.length + ' 支合计 · ' + md(CB.from || r.first) + ' ~ ' + md(CB.to || r.last) + ' · 成本 ' + r.cost + '%',
-        kv([['笔数', a.n + (a.open ? ' (持有 ' + a.open + ')' : '')], ['胜率', isNum(a.win) ? a.win.toFixed(1) + '%' : '—'], ['期望值', pct(a.avg), cls(a.avg)], ['合计', rm(R(a.total)), cls(a.total)]], true) +
-        kv([['最大回撤', rm(R(a.mdd)), 'dn'], ['盈亏比', isNum(a.payoff) ? a.payoff.toFixed(2) : '—'], ['平均持有', isNum(a.days) ? a.days.toFixed(1) + ' 天' : '—'], ['每笔', 'RM' + (pos / 1000) + 'K']]) +
+        kv([['笔数', a.n + (a.open ? ' (进行中 ' + a.open + ')' : '')], ['胜率', isNum(a.win) ? a.win.toFixed(1) + '%' : '—'], ['期望值', pct(a.avg), cls(a.avg)], ['合计', rm(R(a.total)), cls(a.total)]], true) +
+        kv([['最大回撤', rm(R(a.mdd)), 'dn'], ['盈亏比', isNum(a.payoff) ? a.payoff.toFixed(2) : '—'], ['平均天数', isNum(a.days) ? a.days.toFixed(1) + ' 天' : '—'], ['每笔', 'RM' + (pos / 1000) + 'K']]) +
         (a.closed > 1 ? (function () { var cl = r.trades.filter(function (t) { return t.reason !== 'open'; }).sort(function (x, y) { return x.exit_date < y.exit_date ? -1 : 1; }), cum = 0;
           return blockChart([0].concat(cl.map(function (t) { cum += t.net; return R(cum); })), { rows: 6, zero: true, label: '自定义回测资金曲线', fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
             color: function (v) { return v >= 0 ? 'acc' : 'dn'; }, dates: [md(cl[0].exit_date), md(cl[cl.length - 1].exit_date)] }); })() : '') +
         (a.n ? '' : '<p class="dim">这段时间没有任何一天同时满足勾的条件。少勾几个条件或拉长时间试试。</p>'));
-      if (r.per.length > 1) h += pn('BY STOCK 分别', '', '<pre class="txt">' + span('dim', cell('股票', 10) + cell('笔', 4, 1) + cell('胜率', 7, 1) + cell('合计 RM', 10, 1) + cell('买入持有', 10, 1)) + '\n' +
+      if (r.per.length > 1) h += pn('BY STOCK 分别', '', '<pre class="txt">' + span('dim', cell('股票', 10) + cell('笔', 4, 1) + cell('胜率', 7, 1) + cell('合计 RM', 10, 1) + cell('同期涨跌', 10, 1)) + '\n' +
         r.per.map(function (p) { return '<button type="button" class="nm" data-q="' + p.code + '">' + cell(esc(name(p.code)), 10) + '</button>' + (p.none ? span('dim', '没有日线') : pad(p.st.n, 4, true) + pad(isNum(p.st.win) ? p.st.win.toFixed(0) + '%' : '—', 7, true) + span(cls(p.st.total), pad(rm(R(p.st.total)).replace('RM ', ''), 10, true)) + span(cls(p.bh), pad(pct(p.bh, 1), 10, true))); }).join('\n') + '</pre>');
       if (r.trades.length) h += pn('TRADES 逐笔', r.trades.length + ' 笔 (新到旧)', '<div class="rows">' + r.trades.slice(0, 60).map(function (t) {
         var s = ST[t.code] || { code: t.code, name: name(t.code) };
@@ -701,10 +721,10 @@
       kv([['成交量', big(s.vol)], ['成交额', 'RM ' + big(s.to)], ['相对量', isNum(s.rv) ? s.rv.toFixed(2) + '×' : '—', s.rv >= 2 ? 'warn' : ''], ['RSI(14)', isNum(s.rsi) ? s.rsi.toFixed(1) : '—'],
         ['EMA20', px(s.ema), isNum(s.ema) ? (s.p > s.ema ? 'up' : 'dn') : ''], ['50日线', px(s.sma), isNum(s.sma) ? (s.p > s.sma ? 'up' : 'dn') : ''], ['SAR', s.sar == null ? '—' : s.sar ? '多头' : '空头', s.sar ? 'up' : 'dn'], ['ATR', isNum(s.atr) ? s.atr.toFixed(1) + '%' : '—'],
         ['市值', isNum(s.mc) ? 'RM ' + big(s.mc) : '—'], ['股票池', s.sig ? '信号股' : s.pool ? (s.first ? md(s.first) + ' 起 · ' + s.streak + ' 天' : '在池') : '不在池'], ['上市', isNum(s.listed) ? s.listed + ' 天' : '> 90 天'], ['日期', md(D.date)]]));
-    if (sig) h += pn('PLAN 信号计划', 'SAR 转多', kv([['进场', px(sig.price)], ['风险线', px(sig.stop), 'dn'], ['目标', px(sig.target), 'up'], ['R:R', isNum(sig.rr) ? sig.rr.toFixed(1) : '—']]) +
+    if (sig) h += pn('LEVELS 信号参考位', 'SAR 转多', kv([['信号价', px(sig.price)], ['风险线', px(sig.stop), 'dn'], ['参考位', px(sig.target), 'up'], ['R:R', isNum(sig.rr) ? sig.rr.toFixed(1) : '—']]) +
       '<pre class="txt">' + (sig.why || []).map(function (w) { return span('up', '[x]') + ' ' + esc(w); }).join('\n') + '</pre>' + (sig.digest ? '<p class="digest"><b>消息面&gt;</b> ' + esc(sig.digest) + '</p>' : ''));
-    else if (fol) h += pn('TRACKING 信号跟进', STN[fol.status], kv([['信号日', md(fol.sig)], ['进场', px(fol.entry)], ['现价', px(fol.last)], ['收益', pct(fol.ret, 1), cls(fol.ret)],
-      ['持有', fol.days + ' 天'], ['STOP', px(fol.stop), 'dn'], ['离 STOP', isNum(fol.dist) ? fol.dist.toFixed(1) + '%' : '—', fol.dist < 3 ? 'dn' : ''], ['状态', fol.status === 'out' ? (EXIT[fol.reason] || fol.reason) : STN[fol.status]]]) +
+    else if (fol) h += pn('TRACKING 信号跟进', STN[fol.status], kv([['信号日', md(fol.sig)], ['信号价', px(fol.entry)], ['现价', px(fol.last)], ['之后涨跌', pct(fol.ret, 1), cls(fol.ret)],
+      ['天数', fol.days + ' 天'], ['风险线', px(fol.stop), 'dn'], ['距风险线', isNum(fol.dist) ? fol.dist.toFixed(1) + '%' : '—', fol.dist < 3 ? 'dn' : ''], ['状态', fol.status === 'out' ? (EXIT[fol.reason] || fol.reason) : STN[fol.status]]]) +
       (fol.hits && fol.hits.length ? '<p class="warn">趋势检查: ' + esc(fol.hits.join('、')) + '</p>' : ''));
     h += profilePanel(code) + finPanel(code) + extraPanels(code);
     return h;
@@ -816,6 +836,7 @@
   document.addEventListener('keydown', function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey || !D) return;
     var typing = e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
+    if (e.key === 'Enter' && e.target.id === 'wf-name') { e.preventDefault(); wSubmit(); render(); return; }
     if (e.key === 'Escape') { if (typing) e.target.blur(); if (S.code) go(S.page); return; }
     if (typing) return;
     var n = parseInt(e.key, 10);
