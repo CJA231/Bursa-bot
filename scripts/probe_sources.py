@@ -47,7 +47,42 @@ def check_klse():
         print(f"[klse 全市场] ERROR {type(e).__name__}: {e}")
 
 
+LIST_URLS = [  # 全市场最新公告列表 (记录各网站延迟用)，先看哪个网址有、HTML 长什么样
+    ("i3 latest", "https://klse.i3investor.com/web/announcement/latest"),
+    ("i3 announcement", "https://klse.i3investor.com/web/announcement"),
+    ("i3 stock 1155", "https://klse.i3investor.com/web/stock/announcement/1155"),
+    ("msb latest", "https://www.malaysiastock.biz/Latest-Announcement.aspx"),
+    ("msb corporate", "https://www.malaysiastock.biz/Corporate-Announcement.aspx"),
+    ("msb stock 1155", "https://www.malaysiastock.biz/Company-Announcement.aspx?securityCode=1155"),
+]
+
+
+def dump_lists():
+    """印出每个列表页的状态，以及前几条公告附近的 HTML (找日期 / 时间 + 标题的结构)"""
+    for label, url in LIST_URLS:
+        try:
+            r = requests.get(url, headers=UA, timeout=25)
+            body = r.text
+            print(f"[{label}] {r.status_code} len={len(body)} {url}")
+            if r.status_code != 200:
+                continue
+            # 找「日期」出现的位置 (dd Mon yyyy / yyyy-mm-dd / dd/mm/yyyy)，印附近的 HTML
+            hits = [m.start() for m in re.finditer(r"\b(\d{1,2} [A-Z][a-z]{2},? \d{4}|\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})", body)]
+            print(f"    {len(hits)} date-like strings")
+            seen = 0
+            for h in hits[3:]:
+                if seen >= 3:
+                    break
+                print("    ---- " + re.sub(r"\s+", " ", body[max(0, h - 600):h + 700]))
+                seen += 1
+        except Exception as e:
+            print(f"[{label}] ERROR {type(e).__name__}: {e}")
+
+
 def main():
+    if "--lists" in sys.argv:
+        dump_lists()
+        return
     if "--klse" in sys.argv:
         check_klse()
         return
