@@ -96,8 +96,14 @@ def backtest_block(bt, ledger):
             "curve": curve, "monthly": [[m, v[0], round(v[1] / v[0] * 100, 1), round(v[2] / v[0], 2)] for m, v in sorted(months.items(), reverse=True)]}
 
 
+def universe_names(path):
+    """整个马股名单 {代码: 简称} (观察列表可以加报告以外的股票、搜索用)"""
+    rows = _load(path, []) or []
+    return {r["symbol"].split(".")[0]: r.get("name") or r["symbol"].split(".")[0] for r in rows if isinstance(r, dict) and r.get("symbol")}
+
+
 def build(stocks, market, backtest, board, focus_new, state, updated, tz_label, ledger_path, changes_path, pool_index_path,
-          mcaps=None, report_url="../", out_dir=None):
+          mcaps=None, report_url="../", out_dir=None, watchlist_path=os.path.join("data", "watchlist.json")):
     out_dir = out_dir or TERM_DIR
     rows = [s for s in stocks if s.get("data") and not s["data"].get("low_volume")]
     if not rows:
@@ -125,6 +131,7 @@ def build(stocks, market, backtest, board, focus_new, state, updated, tz_label, 
         "stocks": stock_rows(rows, pool_cur, mcaps or {}),
         "board": [{k: b.get(k) for k in ("date", "code", "name", "title", "link", "cat", "signal")} for b in (board or [])[:BOARD_MAX]],
         "changes": changes,
+        "names": universe_names(watchlist_path),
     }
     with open(os.path.join(out_dir, "data.json"), "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))

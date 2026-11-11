@@ -1,19 +1,27 @@
-/* bursa.term — 纯文字终端界面。底色是中性灰 (不带蓝)，字和图用 Nord 的颜色；深色 / 浅色跟系统，按 t 可切换 */
+/* bursa.term — 纯文字终端界面。配色 = 夜幕蓝 #162A46 · 香槟银 #D8D0C1 · 珍珠白 #F8F6F2：
+   深色 = 夜幕蓝底 + 珍珠白字 + 香槟银标题；浅色 = 珍珠白底 + 夜幕蓝字；跑马灯两种模式都用香槟银底衬托。跟系统，按 t 可切换 */
 :root {
-  --bg: #303030; --bg2: #3a3a3a; --fg: #e6e6e6; --mut: #a8a8a8; --line: #5a5a5a;
-  --acc: #88c0d0; --acc2: #81a1c1; --up: #a3be8c; --dn: #e5878f; --warn: #ebcb8b; --sel: #424242;
+  --bg: #162A46; --bg2: #1D3354; --fg: #F8F6F2; --mut: #A9B4C4; --line: #3A5174;
+  --acc: #D8D0C1; --acc2: #C9D6E8; --up: #8FD19E; --dn: #F2949A; --warn: #E8C77D; --sel: #20385C;
+  /* 财报图：各期颜色 (旧 → 新)、利润率面积 / 线、负债 / 股东权益 */
+  --fc1: #4A607F; --fc2: #6B7F9C; --fc3: #8E8C88; --fc4: #B3AA9A; --fc5: #D8D0C1;
+  --fin-area: rgba(216, 208, 193, 0.28); --fin-line: #D8D0C1; --fin-li: #8E8C88; --fin-eq: #D8D0C1;
   --font: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, "PingFang SC", "Noto Sans SC", monospace;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #e8e8e8; --bg2: #dedede; --fg: #2b2b2b; --mut: #555555; --line: #bdbdbd;
-    --acc: #2f6580; --acc2: #4a6d99; --up: #3f6b2c; --dn: #b0414b; --warn: #7a5c0c; --sel: #d6d6d6; color-scheme: light;
+    --bg: #F8F6F2; --bg2: #EFEBE3; --fg: #162A46; --mut: #5B6578; --line: #D8D0C1;
+    --acc: #162A46; --acc2: #2E4D7A; --up: #2D6A3C; --dn: #A3343E; --warn: #7A5A10; --sel: #ECE6DA;
+    --fc1: #C9CFD9; --fc2: #9AA8BE; --fc3: #B3AA9A; --fc4: #5C7194; --fc5: #162A46;
+    --fin-area: rgba(22, 42, 70, 0.14); --fin-line: #162A46; --fin-li: #5C7194; --fin-eq: #D8D0C1; color-scheme: light;
   }
 }
 :root[data-theme="light"] {
-  --bg: #e8e8e8; --bg2: #dedede; --fg: #2b2b2b; --mut: #555555; --line: #bdbdbd;
-  --acc: #2f6580; --acc2: #4a6d99; --up: #3f6b2c; --dn: #b0414b; --warn: #7a5c0c; --sel: #d6d6d6; color-scheme: light;
+  --bg: #F8F6F2; --bg2: #EFEBE3; --fg: #162A46; --mut: #5B6578; --line: #D8D0C1;
+  --acc: #162A46; --acc2: #2E4D7A; --up: #2D6A3C; --dn: #A3343E; --warn: #7A5A10; --sel: #ECE6DA;
+  --fc1: #C9CFD9; --fc2: #9AA8BE; --fc3: #B3AA9A; --fc4: #5C7194; --fc5: #162A46;
+  --fin-area: rgba(22, 42, 70, 0.14); --fin-line: #162A46; --fin-li: #5C7194; --fin-eq: #D8D0C1; color-scheme: light;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); }
@@ -36,10 +44,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 1px solid 
 @keyframes blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cur { animation: none; } }
 .status { margin: 4px 0 8px; white-space: nowrap; overflow: hidden; position: relative; padding: 4px 0; background: var(--tk-bg); color: var(--tk-fg); border: 1px solid var(--tk-bd); font-weight: 500; }
-/* 跑马灯是高亮底色 (深色模式 = Nord 青色底 + 深字；浅色模式 = 深青底 + 白字)，里面的涨跌色换成在这个底色上看得清的版本 */
-:root { --tk-bg: #88c0d0; --tk-fg: #1d2128; --tk-bd: #a9d4e0; --tk-up: #1f5f2c; --tk-dn: #8f1d2c; --tk-mut: #33424a; }
-:root[data-theme="light"] { --tk-bg: #2f6580; --tk-fg: #ffffff; --tk-bd: #24506a; --tk-up: #b9f0a0; --tk-dn: #ffc2c8; --tk-mut: #d3e3ea; }
-@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --tk-bg: #2f6580; --tk-fg: #ffffff; --tk-bd: #24506a; --tk-up: #b9f0a0; --tk-dn: #ffc2c8; --tk-mut: #d3e3ea; } }
+/* 跑马灯：香槟银高亮底 + 夜幕蓝字 (深浅模式一样)，里面的涨跌色换成在香槟银上看得清的深绿 / 深红 */
+:root { --tk-bg: #D8D0C1; --tk-fg: #162A46; --tk-bd: #C4B9A4; --tk-up: #1E5A2E; --tk-dn: #8E2230; --tk-mut: #4A5568; }
 .status b { color: inherit; }
 .status .up { color: var(--tk-up); } .status .dn { color: var(--tk-dn); } .status .dim, .status .g { color: var(--tk-mut); }
 .status .acc, .status .warn { color: inherit; font-weight: 700; }
@@ -166,3 +172,36 @@ pre.txt .nm { font: inherit; }
 .prof-lines li { padding-left: 1.6ch; text-indent: -1.6ch; }
 .prof-lines li::before { content: "▸ "; color: var(--acc); }
 .prof-en { font-size: 12px; line-height: 1.55; margin-top: 4px; }
+
+/* 观察列表：文件夹页签、每行右边的移除键、个股页的文件夹开关 */
+.wtabs button { border: 1px solid var(--line); }
+.wrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; border-bottom: 1px dotted var(--line); }
+.wrow > .row { border-bottom: 0; }
+.wdel { color: var(--mut); padding: 0 4px 0 12px; font-size: 16px; min-width: 36px; }
+.wdel:hover { color: var(--dn); }
+.wq { align-items: center; margin: 2px 0 4px; }
+.wq button[aria-pressed="true"] { background: var(--acc); color: var(--bg); }
+/* 财报：Datawrapper 风格的科目表 (每格 = 数字 + 横条)、利润率小图、资产负债柱 */
+.fin-h { margin: 10px 0 4px; font-size: 12px; color: var(--acc); font-weight: 700; }
+.fin-h .dim { font-weight: 400; margin-left: 6px; }
+.ft { display: grid; gap: 3px 6px; font-size: 10.5px; align-items: center; }
+.ft-h { color: var(--mut); white-space: nowrap; overflow: hidden; display: flex; align-items: center; gap: 3px; }
+.ft-h i { display: inline-block; width: 8px; height: 8px; flex: none; }
+.ft-l { color: var(--mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ft-l.b { color: var(--fg); font-weight: 700; }
+.ft-c { display: grid; gap: 1px; min-width: 0; }
+.ft-v { text-align: right; white-space: nowrap; overflow: hidden; }
+.ft-bar { height: 7px; background: var(--bg2); display: flex; justify-content: flex-end; }
+.ft-bar i { display: block; height: 100%; }
+.fc1 { background: var(--fc1); } .fc2 { background: var(--fc2); } .fc3 { background: var(--fc3); } .fc4 { background: var(--fc4); } .fc5 { background: var(--fc5); }
+.ft-bar i.neg { background: var(--dn); }
+.scs { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; }
+.sc { margin: 0; min-width: 0; }
+.sc figcaption { font-size: 11px; color: var(--mut); display: flex; justify-content: space-between; gap: 4px; }
+.sc svg { display: block; width: 100%; height: 64px; background: var(--bg2); }
+.sc-ax, .ft-x { display: flex; justify-content: space-between; font-size: 10px; color: var(--mut); }
+.ft-x { display: grid; text-align: center; margin-bottom: 6px; }
+.bs { display: block; width: 100%; height: auto; max-height: 150px; }
+.fin-sub { font-size: 11px; color: var(--mut); }
+.sw { display: inline-block; width: 9px; height: 9px; margin: 0 3px 0 8px; vertical-align: -1px; }
+.fin-note { font-size: 11px; margin-top: 8px; }
