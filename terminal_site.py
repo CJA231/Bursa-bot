@@ -15,7 +15,7 @@ TERM_DIR = os.environ.get("TERMINAL_SITE_DIR") or os.path.join("docs", "terminal
 BARS_DAYS = 90
 CHANGES_DAYS = 14
 BOARD_MAX = 80
-ASSETS = ("index.html", "terminal.css", "terminal.js", "terminal_en.js", "legal.html")
+ASSETS = ("index.html", "terminal.css", "terminal.js", "terminal_en.js", "legal.html", "sw.js", "manifest.webmanifest")
 
 
 def _f(v, d=3):
@@ -141,11 +141,19 @@ def build(stocks, market, backtest, board, focus_new, state, updated, tz_label, 
     version = str(abs(hash(updated)) % 10 ** 8)
     for name in ASSETS:
         src = os.path.join(here, "terminal_assets", name)
-        if name.endswith(".html"):
+        if name.endswith(".html") or name == "sw.js":  # sw.js 里也有 __V__ (每次版本号变 → 浏览器装新的离线版本)
             with open(src, encoding="utf-8") as f:
                 page = f.read().replace("__V__", version)
             with open(os.path.join(out_dir, name), "w", encoding="utf-8") as f:
                 f.write(page)
         else:
             shutil.copyfile(src, os.path.join(out_dir, name))
+    # 自托管字体 (JetBrains Mono woff2 + OFL 授权文件)：文件没变就不重写，git 不会每次都看到改动
+    fdir = os.path.join(here, "terminal_assets", "fonts")
+    if os.path.isdir(fdir):
+        os.makedirs(os.path.join(out_dir, "fonts"), exist_ok=True)
+        for name in sorted(os.listdir(fdir)):
+            src, dst = os.path.join(fdir, name), os.path.join(out_dir, "fonts", name)
+            if not os.path.exists(dst) or os.path.getsize(dst) != os.path.getsize(src):
+                shutil.copyfile(src, dst)
     return out_dir

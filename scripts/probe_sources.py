@@ -126,7 +126,106 @@ def dump_nav():
             print(f"[{label}] ERROR {e}")
 
 
+def dump_ipo():
+    """KLSE Screener 的 IPO 页 (/v2/ipos)：印出表格表头、前几行和详情页链接，看看能不能解析"""
+    for url in ("https://www.klsescreener.com/v2/ipos", "https://www.klsescreener.com/v2/ipos/listed"):
+        try:
+            r = requests.get(url, headers=UA, timeout=30)
+        except Exception as e:
+            print(f"[ipo] {url} ERR {e}"); continue
+        h = r.text
+        print(f"==== {url} -> {r.status_code} len={len(h)} final={r.url}")
+        if r.status_code != 200:
+            print(h[:300]); continue
+        tables = re.findall(r"<table.*?</table>", h, re.S | re.I)
+        print(f"tables={len(tables)}")
+        for i, t in enumerate(tables[:4]):
+            ths = [re.sub(r"<[^>]+>|\s+", " ", x).strip() for x in re.findall(r"<th[^>]*>(.*?)</th>", t, re.S | re.I)]
+            rows = re.findall(r"<tr[^>]*>(.*?)</tr>", t, re.S | re.I)
+            print(f"--- table {i}: {len(rows)} rows, th={ths}")
+            for row in rows[:6]:
+                tds = [re.sub(r"<[^>]+>|\s+", " ", x).strip() for x in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S | re.I)]
+                links = re.findall(r'href="([^"]+)"', row)
+                print("   ", tds, links[:3])
+        links = sorted(set(re.findall(r'href="(/v2/ipos?/[^"#?]+)"', h)))
+        print("ipo links:", links[:20])
+        if not tables:
+            from collections import Counter
+            body = re.sub(r"<script.*?</script>|<style.*?</style>", " ", h, flags=re.S | re.I)
+            print("body len (no script/style):", len(body))
+            cls = Counter(c for x in re.findall(r'class="([^"]+)"', body) for c in x.split())
+            print("top classes:", cls.most_common(60))
+            hrefs = Counter(re.sub(r"\d+", "N", x) for x in re.findall(r'href="(/v2/[^"#?]*)', body))
+            print("href patterns:", hrefs.most_common(30))
+            scripts = re.findall(r"<script[^>]*>(.*?)</script>", h, re.S | re.I)
+            for sc in sorted(scripts, key=len, reverse=True)[:3]:
+                print("---- big script len", len(sc), re.sub(r"\s+", " ", sc[:1500]))
+            for kw in ("Listing", "Offer Price", "Closing", "Prospectus", "Oversub", "Market"):
+                k = body.find(kw)
+                print(f"---- around {kw!r} @ {k}:", re.sub(r"\s+", " ", body[max(0, k - 1500):k + 2500]) if k >= 0 else "-")
+    # 详情页 (第一条链接) 的结构
+    try:
+        h = requests.get("https://www.klsescreener.com/v2/ipos", headers=UA, timeout=30).text
+        det = [l for l in re.findall(r'href="(/v2/ipos?/[^"#?]+)"', h) if l.rstrip("/") not in ("/v2/ipos", "/v2/ipo")]
+        if det:
+            u = "https://www.klsescreener.com" + det[0]
+            d = requests.get(u, headers=UA, timeout=30)
+            txt = re.sub(r"\s+", " ", re.sub(r"<script.*?</script>|<style.*?</style>", " ", d.text, flags=re.S))
+            k = txt.find("Offer")
+            print(f"==== detail {u} -> {d.status_code} len={len(d.text)}")
+            print(re.sub(r"<[^>]+>", " | ", txt[max(0, k - 1500):k + 3500]))
+    except Exception as e:
+        print("detail ERR", e)
+
+
+def dump_ipo2():
+    """IPO 第二轮：一张完整卡片的文字、个股页里有没有板块 / 业务 / 认购资料、公告里有没有超额认购"""
+    import os
+    from datetime import datetime
+    h = requests.get("https://www.klsescreener.com/v2/ipos", headers=UA, timeout=30).text
+    body = re.sub(r"<script.*?</script>|<style.*?</style>", " ", h, flags=re.S | re.I)
+    cards = re.split(r'<div class="card mb-3 p-0">', body)[1:]
+    print("cards:", len(cards))
+    years = re.findall(r'<option[^>]*value="(\d{4})"', h)
+    print("year options:", years[:15])
+    for c in cards[:2] + cards[-2:]:
+        print("---- card:", re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " | ", c))[:1500])
+    codes = []
+    for c in cards:
+        m = re.search(r'href="/v2/stocks/view/(\w+)"', c)
+        if m: codes.append(m.group(1))
+    print("codes:", codes[:30])
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import main as m
+    for code in codes[2:5]:
+        r = requests.get(f"https://www.klsescreener.com/v2/stocks/view/{code}", headers=UA, timeout=30)
+        t = re.sub(r"\s+", " ", re.sub(r"<script.*?</script>|<style.*?</style>", " ", r.text, flags=re.S | re.I))
+        print(f"==== stock view {code} -> {r.status_code} len={len(r.text)}")
+        for kw in ("Market", "Sector", "Board", "IPO", "Listing", "ubscri", "Business", "Shariah", "Category"):
+            for k in [x.start() for x in re.finditer(kw, t)][:2]:
+                print(f"  [{kw}]", re.sub(r"<[^>]+>", " | ", t[max(0, k - 200):k + 400]))
+        try:
+            ann = m.fetch_announcements(code + ".KL", datetime.now(m.LOCAL_TZ))
+            items = ann["items"]
+            print(f"  ann {len(items)}:", *(f"\n    {x['date']} [{x['cat']}] {x['title'][:110]} id={x.get('id')}" for x in items[:12]))
+            sub = [x for x in items if re.search(r"subscri|ballot|listing|prospectus", x["title"], re.I)]
+            for x in sub[:2]:
+                if x.get("id"):
+                    v = requests.get(f"https://www.klsescreener.com/v2/announcements/view/{x['id']}", headers=UA, timeout=30).text
+                    vt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", re.sub(r"<script.*?</script>|<style.*?</style>", " ", v, flags=re.S | re.I)))
+                    k = max(vt.find("subscri"), 0)
+                    print(f"  ---- view {x['id']}:", vt[max(0, k - 1200):k + 1800])
+        except Exception as e:
+            print("  ann ERR", e)
+
+
 def main():
+    if "--ipo2" in sys.argv:
+        dump_ipo2()
+        return
+    if "--ipo" in sys.argv:
+        dump_ipo()
+        return
     if "--nav" in sys.argv:
         dump_nav()
         return

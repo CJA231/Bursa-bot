@@ -15,10 +15,10 @@ jobs:
   debug_stock:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -30,6 +30,9 @@ jobs:
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
         run: |
           # symbol 填 PROBE = 检查公告 / 新闻网站在 Actions 上连不连得上 (scripts/probe_sources.py)
+          if [ "${{ github.event.inputs.symbol }}" = "PROBE5" ]; then python scripts/probe_sources.py --ipo; exit 0; fi
+          if [ "${{ github.event.inputs.symbol }}" = "IPO" ]; then python ipo_calendar.py --force && python -c "import json;d=json.load(open('data/ipos.json'));v=d['ipos'];print(len(v),'entries');[print(json.dumps(x,ensure_ascii=False)) for x in sorted(v.values(),key=lambda r:r.get('listing') or '',reverse=True)[:40]]"; exit 0; fi
+          if [ "${{ github.event.inputs.symbol }}" = "PROBE6" ]; then python scripts/probe_sources.py --ipo2; exit 0; fi
           if [ "${{ github.event.inputs.symbol }}" = "PROBE4" ]; then python scripts/probe_sources.py --nav; exit 0; fi
           if [ "${{ github.event.inputs.symbol }}" = "PROBE3" ]; then python scripts/probe_sources.py --views; exit 0; fi
           if [ "${{ github.event.inputs.symbol }}" = "LATENCY" ]; then python scripts/ann_latency.py && python scripts/ann_latency.py --report; exit 0; fi

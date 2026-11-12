@@ -1,12 +1,12 @@
 # 📢 Bursa Bot
 
-🇲🇾 马来西亚全市场自动选股机器人 — 技术指标策略筛选 + K线图 + AI点评 + 手机推送，GitHub Actions 全自动运行
+🇲🇾 马来西亚全市场自动选股机器人 — 技术指标策略筛选 + K线图 + 回测 + 终端版 + AI 公司资讯 / 企业活动日历 + 手机推送，GitHub Actions 全自动运行，中文 / English 双语
 
 [![License](https://img.shields.io/badge/license-All%20Rights%20Reserved-red.svg)](./LICENSE)
 [![Powered by DeepSeek](https://img.shields.io/badge/AI-DeepSeek-blue.svg)](https://www.deepseek.com/)
 [![Charts by TradingView](https://img.shields.io/badge/charts-Lightweight%20Charts-orange.svg)](https://github.com/tradingview/lightweight-charts)
 
-**👉 [查看今日报告](https://cja231.github.io/Bursa-bot/)**
+**👉 [查看今日报告](https://cja231.github.io/Bursa-bot/)** · **[终端版](https://cja231.github.io/Bursa-bot/terminal/)** · [使用条款与免责声明](https://cja231.github.io/Bursa-bot/terminal/legal.html)
 
 ---
 
@@ -15,6 +15,8 @@
 Bursa Bot 每个交易日自动扫描 **马来西亚交易所全部上市股票**（Main + ACE 板，共 1070+ 支，新上市的股票会自动加入），用一套固定的技术指标策略筛选出可能值得关注的股票，生成一份带 K 线图的网页报告，并在有信号时推送到手机。
 
 另外有一个独立的 **美股页面**（[`/us/`](https://cja231.github.io/Bursa-bot/us/)，市值 ≥ 100 亿美元、纽交所 / 纳斯达克挂牌的股票），跟马股页面用同一套策略和网页功能，左上角 ☰ 可以互相切换。网页上还能**自己组合选股条件**、存成模板，在报告里的全部股票中筛选。
+
+同一份数据还有一个 **终端版**（[`/terminal/`](https://cja231.github.io/Bursa-bot/terminal/)）：ASCII 终端风格、键盘操作，分成信号 / 市场 / 观察列表 / 回测 / 股票池 / 公告 / 日历 7 页，另有 DeepSeek 整理的公司资讯、企业活动日历和「✦ AI」问答，整个界面可以切换 **中文 / English**（见下方[终端版](#终端版-terminal)）。
 
 这是一个**个人自用的技术分析工具**，不提供投资建议，也不构成任何形式的证券服务（详见下方[免责声明](#免责声明)）。
 
@@ -124,7 +126,7 @@ Bursa Bot 每个交易日自动扫描 **马来西亚交易所全部上市股票*
 - 标题下方的「**完整图表 · 财报 ›**」：放大看这支股票的图表，并附上近 4 季和近 2 年的财报（见下方）
 
 ### 公司公告
-报告里的股票最近 14 天的公告 (马股 = Bursa 官网公司公告，美股 = SEC EDGAR 申报文件)，每条有日期、股票、分类 (财报、派息·权益、企业活动、持股变动、回购、异常交易、人事、会议·年报) 和标题，点标题看原文、点股票名打开那支股票；上面的分类按钮可以只看某一类。每支股票的完整公告在详情里 (见下方)。
+报告里的股票最近 14 天的公告 (马股 = Bursa Malaysia 的公司公告，经 KLSE Screener 抓取 —— Bursa 官网挡掉了 GitHub Actions 的机器；美股 = SEC EDGAR 申报文件)，每条有日期、股票、分类 (财报、派息·权益、企业活动、持股变动、回购、异常交易、人事、会议·年报) 和标题，点标题看原文、点股票名打开那支股票；上面的分类按钮可以只看某一类。每支股票的完整公告在详情里 (见下方)。
 
 ### 其余股票
 没有命中信号、但成交量达标的股票，仿 TradingView 选股器的紧凑表格：
@@ -150,7 +152,7 @@ Bursa Bot 每个交易日自动扫描 **马来西亚交易所全部上市股票*
 - **K 线图**：跟筛选器卡片同一套图表——5 分钟到月线的周期、图表类型、ƒx 指标和模板都能用，图例点名称改参数。日线最长 2 年、月线最长 10 年；信号股的分时跟卡片同一份 (1 小时线约 6 个月)；表格股票的日内周期是当天的 5 分钟线合成的（没有 1 分钟线，这个按钮显示灰色）
 - **财务报表**：「近 4 季」和「近 2 年 (年报)」两个分页。营业收入、净利润、净利率、经营现金流各一张小柱状图（最新一期标数值，旁边写**环比 (较上季) 和同比 (较去年同季)** / 较上年的变化，季节性行业看同比才准；由盈转亏会直接写「转亏」），下面是完整数字表格：营收、毛利、营业利润、净利润、净利率、EPS、总资产、总负债、股东权益、现金、总债务、经营现金流、自由现金流
 - 数据来自 Yahoo Finance，金额单位按公司报告的货币标示（马股一般是令吉 RM）；Yahoo 没有财报的小公司会注明。完整的年报 PDF 在 Bursa 官网的公司公告里，底下有链接
-- **公司公告**：这支股票最近半年的公告 (马股 Bursa 官网、美股 SEC EDGAR)，日期、分类、标题，点标题看原文；还没抓到时给官方公告页的链接
+- **公司公告**：这支股票最近半年的公告 (马股经 KLSE Screener、美股 SEC EDGAR)，日期、分类、标题，点标题看原文；还没抓到时给官方公告页的链接
 - **最近新闻**：按公司全名搜 Google News (拿不到时用 Yahoo Finance)，列出最近 90 天的 8 条标题、来源和时间，点标题看原文；标题里带别的交易所代码的 (同名的外国公司) 会过滤掉；每支股票半天更新一次
 - **版面**：电脑上左边是正方形 K 线图、右边是财报，公告、新闻在下面；手机上从上到下排
 - 这些数据平时不跟着网页一起下载，打开哪一支才下载哪一支，整页不会因此变慢
@@ -185,12 +187,56 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
 
 所有设置只保存在你自己的浏览器里，不影响其他人，报告每次自动更新后也会保留。
 
+## 终端版 (/terminal/)
+
+[`/terminal/`](https://cja231.github.io/Bursa-bot/terminal/) 用同一次运行的数据，做成 ASCII 终端风格的界面 (深灰底 + Nord 色系，[t] 切换浅色主题)。由 `terminal_site.py` 从 `terminal_assets/` 生成到 `docs/terminal/`，每次跑报告时一起更新。标准报告和终端版可以互相切换 (页脚「⚙ 标准风格」)。
+
+- **顶部跑马灯**：KLCI、涨 / 平 / 跌家数、USD/MYR、更新时间，接着是成交额前 10 和成交量前 10 (价格 < RM0.10 的仙股不算)，卡其色高亮
+- **7 个页面** (键盘 `1`–`7` 切页、`/` 搜索、`k` 空心 / 实心K线、`q` 返回)：
+  1. **信号**：命中后台策略的股票 + 最近信号的追踪 (信号之后走了多少)
+  2. **市场**：大盘、涨跌家数、涨跌榜，以及 **ASCII 热力图** (可以选 24 / 50 / 80 / 全部，按成交额排；点下方的涨跌图例只看那一档，旁边写着每档几支)
+  3. **观察列表**：自己建文件夹分类、加股票、搬到别的文件夹；可以导出 / 导入备份 (换手机时用)；全部存在自己的浏览器
+  4. **回测**：后台账本，或者**自定义回测** —— 自己选进场条件、选一支或几支股票合在一起算、自定回测期间
+  5. **股票池**：成交量 ≥ 1M 的全部股票，名称前有股票代码，各栏可以正 / 反方向排序
+  6. **公告**：最近的公司公告，一排可以左右滑的分类按钮筛选；AI 标出值得注意的公告 (📌 重要事件 / ⚠ 留意事项，**只表示「值得注意」，不代表利好或利空**)
+  7. **日历**：最上面是 **IPO 新股** (招股中 / 待上市的认购、抽签、上市日期和招股价；近 12 个月已上市的超额认购倍数、首日开盘 / 收盘、上市至今的涨跌和汇总统计)，下面是企业活动日历 (会议、派息、财报、企业活动、新上市，IPO 的日期也画在月历上)，月历格子 + 列表，可以按类别筛选 (见下方)
+- **字符 K 线**：默认是**空心K线** (跟 TradingView 一样：收盘 > 开盘画空心框、收盘 < 开盘实心，颜色看收盘比前一天涨还是跌)，图表右下角的按钮或 `k` 切换成全部实心；设置存在自己的浏览器
+- **个股页**：K 线图、关键数字、财报图表 (营收 / 净利润 / 净利率 / 现金流的阶梯图和柱状图 + 完整表格)、**公司简介** (官网链接、背景、业务线)、**AI 公司资讯** (近况、重要事件、留意事项、财报一两句)、公告和新闻
+- **✦ AI 问答**：每一页右下角的 ✦ 按钮，把当前页面的资料附上去问 DeepSeek (见下方[设置](#-ai-问答设置))
+- **中文 / English**：页脚的 EN 按钮切换整个界面，包括数据里的中文 (分类、理由、日历事件、AI 资讯都有英文版)；语言跟标准报告共用同一个设置
+- **离线也能看 (PWA)**：在 iPhone Safari 按「分享 → 添加到主屏幕」，像 app 一样打开。有网时永远先拿最新的；没网 (或 8 秒连不上) 时显示最后一次的页面、日线和新股资料，顶部标「离线 · 显示的是 xx 的数据」。只缓存终端版自己的文件 (约 1MB)，个股财报 / 公告 / 新闻和 AI 问答还是要上网
+- **字体自托管**：JetBrains Mono 完整版 (含 K 线用的方块和框线字符) 放在网站里，不连 Google Fonts，手机上 K 线粗细一致
+- **使用条款**：页脚链接到 [`legal.html`](https://cja231.github.io/Bursa-bot/terminal/legal.html) (中英双语：不构成投资建议、风险、资料来源、AI 内容、责任限制、知识产权、隐私)
+
+## 公司资讯与企业活动日历 (DeepSeek)
+
+`scripts/company_intel.py` 用 DeepSeek 把每家马股公司「最近发生什么事」整理成中英文，**跟每日报告完全分开跑** (`.github/workflows/company_intel.yml`，马来西亚时间平日晚上 7:17 自动跑一次，也可以手动跑，参数 `limit` / `codes` / `force`)：
+
+- **收集**：KLSE Screener 的公告 (标题 + 公告内文)、Google News / Yahoo 新闻、`docs/stock/` 里的季报 (同比 / 环比由程序算好，DeepSeek 只负责描述)、公司简介
+- **输出** (`docs/intel/<代码>.json`)：近况 2~3 句、重要事件、留意事项、财报一两句，每条公告一个标签 (重要 / 留意 / 例行)；全部只陈述事实，提示词要求 + 程序再过滤一次，不出现「利好 / 利空 / 买入 / 卖出」这类字眼
+- **企业活动日历** (`docs/intel/calendar.json`)：从公告里抽出股东大会、特别大会、除权日、权益登记日、派发日、上市日 (权证、红股、附加股) 等日期；另外按季度结束 + 2 个月推算「财报截止日」
+- 输入没变就不再问 DeepSeek，超过 7 天才重新整理；`docs/intel/index.json` 给终端版公告页和日历用
+
+## 新股 IPO 资料 (`ipo_calendar.py`)
+
+马股报告每次运行时顺便更新 (每 6 小时最多抓一次 IPO 页)，状态存在 `data/ipos.json`，终端版读 `docs/terminal/ipo.json`：
+- **KLSE Screener IPO 页** (`/v2/ipos`)：代码、简称、招股价、开始 / 截止认购、抽签、分配、上市日期、发行规模、市值、板块 (Main / ACE / LEAP)、行业 (不登入看得到最近约两年)
+- **超额认购倍数**：同一网站个股页新闻栏的标题 (例如「… IPO oversubscribed 36.46 times」)，标题里要有公司名称才算；找不到就留空，不猜
+- **首日开盘 / 收盘、上市至今**：Yahoo Finance 不复权日线，跟招股价比；首日那根定了就不再改
+- 只记录事实，不评论好坏，也不构成认购建议；手动测试：Debug Stock workflow 的 symbol 填 `IPO`
+
+## ✦ AI 问答设置
+
+网页是公开的静态网站，API 密钥不能放在网页里。两种连法，在 ✦ →「⚙ 设置」里选，设置只存在这台设备的浏览器：
+- **Worker (推荐)**：部署 [`worker/ai-proxy.js`](./worker/ai-proxy.js) 到免费的 Cloudflare Workers，密钥放在 Cloudflare 的 Secret，网页只填 Worker 网址和自己定的通行码。步骤见 [`worker/README.md`](./worker/README.md)
+- **自己的 DeepSeek 密钥**：浏览器直接连 DeepSeek，不用 Cloudflare，但密钥存在手机上
+
 ## 功能特色
 
 - 🔍 **全市场扫描**：覆盖 Bursa Malaysia 全部上市股票，不只是自选股清单
 - 🇺🇸 **美股页面**：另一个独立页面扫描市值 ≥ 100 亿美元的美股（纽交所 / 纳斯达克，日成交额 ≥ 2000 万美元），一样的策略、图表、财报和新闻，时间按美东时间（夏令时自动处理）
 - 🧩 **自定义选股条件**：网页上自己组合条件（下拉选择或写公式，全部满足 / 任一满足），存成模板，在报告里的全部股票中实时筛选；另有 6 个内置选股策略，其中「后台默认策略」跟后台信号结果一致
-- 🎯 **量化策略 (可以自定义)**：默认 `SAR 多头` + `EMA20 < 现价` + `成交量达标` + `T3 形态突破` 四个条件同时满足才算命中；前三个写在 `strategy.json`，可以在网页上回测好再换成自己的条件。成交量门槛按价格分级，越便宜的股票要求越高：
+- 🎯 **量化策略 (可以自定义)**：条件写在 `strategy.json`，可以在网页上回测好再换成自己的条件。现在的一组：SAR 当天转多、价格 > EMA20、EMA5 > EMA20、成交量 ≥ 1M 股、Supertrend(3,1.4) 在价格下面、价格 > EMA50 或 EMA5 > EMA50，另外市值 ≤ RM3B、价格 ≥ RM0.10、最近 40 天不是窄幅横盘 (完整说明在 `strategy.json` 的「说明」)。后台信号和回测另有按价格分级的成交量门槛，越便宜的股票要求越高 (「其余股票」/ 股票池则放进成交量 ≥ 1M 的全部股票)：
 
   | 价格 (RM) | 最低日成交量 |
   |---|---|
@@ -200,7 +246,11 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
   | 0.50 以上 | 50 万 |
 - 🧪 **策略回测 + 风险报酬**：用近 6 个月日线逐日回测后台策略，离场规则可以调 (止损：固定 %、浮动 HL、回调红K；止盈：固定 %、历史高点、近期阻力；SAR 转空、EMA 死叉、最多持有天数)；按月统计 (上个月当基准 + 本月至今)，胜率 Win Rate、期望值 Expectancy (每笔 RM20,000 赚多少)、合计盈亏、获利因子 Profit Factor、最大回撤 Max Drawdown (%) 等中英文对照，跟同期任意一天买进比；自定义回测里按离场原因 / 股票 / 持有天数 / 月份分类、逐笔追溯到 K 线图，交易明细下载 CSV、累计收益曲线下载图片；每张信号卡片标出到离场线的风险和风险报酬比
 - 🌏 **今日市场**：大盘指数、全市场涨跌家数、52 周新高 / 新低、涨跌榜和成交额榜
-- 📢 **公司公告**：马股 Bursa 官网公告、美股 SEC EDGAR 申报，公告栏按分类筛选，每支股票的详情里也有
+- 📢 **公司公告**：马股 Bursa 公告 (经 KLSE Screener)、美股 SEC EDGAR 申报，公告栏按分类筛选，每支股票的详情里也有
+- 🖥 **终端版**：ASCII 终端风格、键盘操作的第二套界面，跑马灯、热力图、观察列表文件夹、自定义回测、股票池、财报图表、公司简介 (见上方)
+- 🗓 **AI 公司资讯 + 企业活动日历**：DeepSeek 整理每家公司的近况、重要事件和留意事项，从公告里抽出股东大会、除权、派息、上市等日期做成日历；只陈述事实、不判断好坏
+- ✦ **AI 问答**：终端版任何一页都能把当前资料附上去问 DeepSeek (经自己的 Cloudflare Worker 或自己的密钥)
+- 🌐 **中文 / English**：标准报告和终端版都能切换英文，版面按英文重新对齐
 - 🧮 **股票计算器**：马股佣金、结算费、印花税、保本卖价，按风险算股数；美股按汇率换成令吉
 - ⭐ **自选股 + 分享链接**：自选股存在自己的浏览器里；每支股票都有自己的网址，可以分享；返回手势先关对话框
 - 📈 **多周期 K 线图**：卡片轮播一次看一支，1 分钟到月线 12 种周期 (1 / 2 / 4 小时线约 6 个月)、11 种图表类型一键切换，指标可放主图或副图，悬停看开高低收
@@ -232,10 +282,25 @@ strategy.json 的条件筛选 (engine.py，跟网页同一套公式) + 成交量
 + docs/charts/table.json (表格股票的 6 个月日线 + 当天 5 分钟线，点开表格或用选股条件时才下载)
 + docs/charts/card/<代码>.json (信号股的分时K线：1 分钟 5 天、5 / 15 分钟 60 天、1 小时 6 个月，选分时周期时才下载)
 + docs/stock/<代码>.json (财报 + 2 年日线 + 10 年月线，每支一周更新一次，每次运行补 30 支)
++ docs/terminal/ (终端版：terminal_site.py 把 data.json / bars.json 和 terminal_assets/ 的页面一起写进去)
         │
         ▼
 提交到仓库 → GitHub Pages 自动发布 → (有信号时) 推送到手机
+
+另一个独立流程 (company_intel.yml，平日晚上一次)：
+KLSE Screener 公告 + 新闻 + 季报 → DeepSeek 整理 → docs/intel/ (公司资讯 + 企业活动日历) → 提交 → 终端版读取
 ```
+
+### 自动化流程 (`.github/workflows/`)
+
+| 文件 | 做什么 | 怎么触发 |
+|---|---|---|
+| `daily.yml` | 跑报告 (马股 / 美股)、生成终端版、提交、推送通知 | cron-job.org 按当地时间调用 (workflow_dispatch，参数 `market`) |
+| `company_intel.yml` | DeepSeek 公司资讯 + 企业活动日历 | 平日 11:17 UTC (马来西亚 19:17)，或手动 |
+| `update-watchlist.yml` | 更新全市场股票清单 | 手动 (平时 daily.yml 每天第一次运行会自动更新) |
+| `debug_stock.yml` | 调试某支股票过去几天的条件；另有 `IPO` (更新并印出新股资料)、`LATENCY` (记录各公告来源的延迟)、`PROBE*` (测试资料来源) | 手动 |
+
+两个会 `git push` 的流程 (`daily.yml`、`company_intel.yml`) 在同一个 concurrency 组，排队跑，不会撞在一起。Actions 用 `actions/checkout@v7`、`actions/setup-python@v7`、`actions/cache@v6` (Node.js 24)。
 
 ## 技术栈
 
@@ -243,7 +308,9 @@ strategy.json 的条件筛选 (engine.py，跟网页同一套公式) + 成交量
 |---|---|
 | 行情数据 | [yfinance](https://github.com/ranaroussi/yfinance) |
 | 技术指标 | [pandas-ta](https://github.com/twopirllc/pandas-ta) |
-| AI 点评 | [DeepSeek](https://www.deepseek.com/) API |
+| AI 点评 / 公司资讯 / 日历 / 问答 | [DeepSeek](https://www.deepseek.com/) API |
+| 公告 / 新股 IPO | KLSE Screener (马股)、SEC EDGAR (美股) |
+| AI 问答中转 (可选) | Cloudflare Workers |
 | K 线图 | [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) v5（Apache 2.0，已自托管在 `docs/vendor/`） |
 | 手机推送 | [ntfy.sh](https://ntfy.sh) |
 | 自动化 | GitHub Actions + 外部定时器 |
@@ -257,22 +324,35 @@ Bursa-bot/
 ├── exports.py                   # 导出 CSV / Excel / PDF 下载文件
 ├── engine.py                    # 选股条件的公式引擎 (网页 report.js 同一套的 Python 版)
 ├── strategy.json                # 后台信号的条件 + 回测离场规则 (可以自己改)
+├── terminal_site.py             # 生成终端版 docs/terminal/ (data.json、bars.json + 页面)
+├── ipo_calendar.py              # 新股 IPO 日历 + 上市表现 (KLSE Screener + Yahoo)，状态在 data/ipos.json
+├── public_site.py               # 生成精简版公开展示站 public_site/ (见最下方)
+├── terminal_assets/             # 终端版页面原稿：index.html、terminal.js、terminal.css、terminal_en.js (英文)、legal.html (使用条款)、sw.js + manifest.webmanifest (离线 PWA)、fonts/ (JetBrains Mono + OFL 授权)
+├── worker/                      # ✦ AI 问答的 Cloudflare Worker 中转 (ai-proxy.js + 设置说明)
 ├── data/watchlist.json          # 全市场股票清单 (1070+ 支)
 ├── docs/index.html              # 生成的报告，GitHub Pages 从这里发布
 ├── docs/report.js               # 报告页的图表、指标、模板和表格脚本
+├── docs/i18n.js                 # 标准报告的英文切换
+├── docs/terminal/               # 生成的终端版 (每次运行更新)
+├── docs/intel/                  # AI 公司资讯 <代码>.json、index.json、企业活动日历 calendar.json (company_intel.yml 生成)
 ├── docs/downloads/              # 最近 7 个交易日的下载文件 (自动生成，自动清理)
 ├── docs/charts/table.json       # "其余股票"点开看完整图表 / 网页选股条件用的 K 线 (每次运行更新)
 ├── docs/charts/card/            # 信号股的分时 K 线 (选分时周期时才下载，每次运行更新，没有信号了自动删除)
 ├── docs/stock/                  # 每支股票的财报 + 长期 K 线 (一周更新一次，30 天没用到自动删除)
 ├── docs/news/                   # 每支股票最近的新闻标题 + 链接 (半天更新一次)
-├── docs/ann/                    # 每支股票的公司公告 (马股 Bursa 官网 / 美股 SEC EDGAR，半天更新一次)
+├── docs/ann/                    # 每支股票的公司公告 (马股经 KLSE Screener / 美股 SEC EDGAR，半天更新一次)
 ├── docs/icons/                  # "添加到主屏幕"用的图标 (manifest.webmanifest 每次运行生成)
 ├── docs/us/                     # 美股页面：index.html + 同样的 downloads / charts / stock / news / ann (MARKET=US 时生成)
 ├── assets/screenshots/          # README 用的界面截图
 ├── scripts/
 │   ├── fetch_watchlist.py       # 更新全市场股票清单
-│   └── debug_stock.py           # 调试工具：查看某支股票过去几天是否符合条件
-└── .github/workflows/           # 自动化流程
+│   ├── debug_stock.py           # 调试工具：查看某支股票过去几天是否符合条件
+│   ├── company_intel.py         # DeepSeek 公司资讯 + 企业活动日历 (company_intel.yml 跑)
+│   ├── ann_latency.py           # 记录 KLSE Screener / i3investor 等公告来源比官方晚多久
+│   └── probe_sources.py         # 测试各资料来源在 Actions 上拿不拿得到
+├── .github/workflows/           # 自动化流程 (见上方表格)
+├── LICENSE                      # 授权 (All Rights Reserved)
+└── NOTICE.md                    # 第三方组件、字体和资料来源的授权 / 使用条款
 ```
 
 更完整的设计笔记（策略细节、历史踩坑、排程调试过程）见 [`bursa-bot.md`](./bursa-bot.md)。
@@ -283,12 +363,15 @@ Bursa-bot/
 
 - **不构成任何投资建议**，仅供个人技术分析学习与参考
 - 所有信号均由固定的技术指标公式自动计算，**不涉及人工投资判断，也不保证准确性或盈利**
-- AI 点评内容为模型生成，可能存在错误，不应作为买卖依据
+- AI 点评、公司资讯、企业活动日历和 ✦ AI 问答都是模型生成，可能存在错误或遗漏，不应作为买卖依据；📌 / ⚠ 只表示「值得注意」，不代表利好或利空
+- 作者不是马来西亚证券监督委员会 (Securities Commission Malaysia) 持牌的投资顾问
 - 使用本项目产生的任何投资决策及后果，由使用者自行承担
+
+完整的使用条款、免责声明与隐私说明 (中英双语)：[terminal/legal.html](https://cja231.github.io/Bursa-bot/terminal/legal.html) (原稿在 [`terminal_assets/legal.html`](./terminal_assets/legal.html))。
 
 ## License
 
-本仓库为 **All Rights Reserved**，详见 [`LICENSE`](./LICENSE)。仓库保持公开是为了使用免费版 GitHub Pages，并不代表开放授权使用；vendor 引入的第三方组件（TradingView Lightweight Charts）保留其原有的 Apache 2.0 授权。
+本仓库为 **All Rights Reserved**，详见 [`LICENSE`](./LICENSE)。仓库保持公开是为了使用免费版 GitHub Pages，并不代表开放授权使用。第三方组件 (TradingView Lightweight Charts 的 Apache 2.0、JetBrains Mono 字体的 OFL 等) 保留各自的授权；资料来源 (Yahoo Finance、KLSE Screener、Bursa Malaysia、FTSE Russell、Google News、DeepSeek) 各有自己的使用条款，详见 [`NOTICE.md`](./NOTICE.md)。
 
 **回测账本 (Backtest ledger)**：后台回测的交易记录固定存在 `docs/backtest_ledger.json` (美股 `docs/us/`)，不会因为每天进报告的股票不同而重算。第一次 (或进场 / 离场规则、成本、仓位数改了) 用手上的日线建账本；之后只加账本建好以后新出现的信号、并让持有中的交易继续走到结算，已结算的交易不再改动。想手动重建，删掉这个文件即可。
 
