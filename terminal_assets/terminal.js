@@ -679,16 +679,32 @@
   }
   function annId(link) { var mm = /(\d+)\D*$/.exec(link || ''); return mm ? mm[1] : null; }
   function tagChip(t) { var x = TAG[t]; return x ? '<span class="tag ' + x[2] + '" title="' + (x[1] || T('重要事件')) + '">' + x[0] + (x[1] ? ' ' + x[1] : '') + '</span>' : ''; }
+  // 要显示哪个版本：你刚编辑、还没核对 → 你的版本；已核对合并 → 合并后的；你按了「恢复成自动版本」→ 原本的 AI 版本
+  function intelView(code) {
+    var r = INTEL[code] && INTEL[code] !== 'loading' ? INTEL[code] : null, o = ovGet(code, 'intel'), own = r && r.owner;
+    if (!r && !o) return null;
+    if (o && !(own && own.intel_at === o.at && !o.pending)) return { v: Object.assign({}, r || {}, o), state: 'edited', o: o, r: r };
+    if (o) return { v: r, state: 'merged', o: o, r: r };
+    if (own && own.intel_at && r.ai) return { v: Object.assign({}, r, r.ai), state: 'auto', r: r };
+    return { v: r, state: 'auto', r: r };
+  }
   function intelPanel(code) {
     if (!(code in INTEL)) {
       INTEL[code] = 'loading';
       fetch((D.report || '../') + 'intel/' + code + '.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
         .then(function (j) { INTEL[code] = j; if (S.code === code) render(); });
     }
-    var r = INTEL[code], title = T('AI 分析');
-    if (r === 'loading') return pn(title, '', '<p class="dim">loading…</p>');
-    if (!r) return pn(title, '', T('<p class="dim">还没分析到这家公司 (每天收盘后陆续补上)。</p>'));
-    var f = r.facts, h = '';
+    var title = T('AI 分析') + edBtn('intel', code);
+    if (INTEL[code] === 'loading') return pn(title, '', '<p class="dim">loading…</p>');
+    var iv = intelView(code);
+    if (!iv) return pn(title, '', T('<p class="dim">还没分析到这家公司 (每天收盘后陆续补上)。</p>'));
+    var r = iv.v, own = iv.r && iv.r.owner, f = r.facts, h = '';
+    if (iv.state === 'edited') h += T('<p class="own-b">✎ 已人工编辑 (') + esc(md(iv.o.at.slice(0, 10)) + iv.o.at.slice(10)) + T(') · 下次 AI 更新时会对照公告核对、合并</p>');
+    else if (iv.state === 'merged') h += T('<p class="own-b">✓ 人工编辑 + AI 新资料，已对照公告核对合并 (') + esc(md(own.merged_at.slice(0, 10)) + own.merged_at.slice(10)) + ')</p>';
+    if (isOwner() && own && (own.conflicts || []).concat(own.unverified || []).length) h += '<div class="own-c">' +
+      ((L(own, 'conflicts') || []).length ? T('<p class="warn">⚠ 跟资料不一致 (已按资料改)：</p><ul>') + L(own, 'conflicts').map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
+      ((L(own, 'unverified') || []).length ? T('<p class="dim">找不到资料佐证 (保留你的写法)：</p><ul>') + L(own, 'unverified').map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
+      T('<p class="dim">只有你 (owner) 看得到这一块。</p></div>');
     if (L(r, 'recent')) h += '<p>' + esc(L(r, 'recent')) + '</p>';
     var nt = L(r, 'notable') || (LANG === 'en' ? [] : r.catalysts) || [], rk = L(r, 'risks') || [];
     if (nt.length || rk.length) h += '<ul class="intel-l">' +
@@ -698,14 +714,14 @@
       T(' · 净利 ') + finNum(f.net_income) + (isNum(f.net_income_yoy) ? T(' (按年 ') + pct(f.net_income_yoy, 1) + ')' : '') + (isNum(f.net_margin) ? T(' · 净利率 ') + f.net_margin + '%' : '') + '</p>';
     if (L(r, 'earnings')) h += '<p>' + esc(L(r, 'earnings')) + '</p>';
     if (LANG === 'en' && r.recent && !r.recent_en) h += '<p class="dim">English version will appear after the next analysis run.</p>';
-    var upc = (r.events || []).filter(function (e) { return e.date >= today(); });
-    if (upc.length) h += T('<h3 class="fin-h">📅 即将到来</h3>') + upc.slice(0, 8).map(function (e) { var t = CAL_T[e.type] || ['corp', e.type];
-      return '<p class="list-ann"><span class="dim">' + md(e.date) + '</span> <span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> ' + esc(L(e, 'what') || '') + (e.src === 'rule' ? T(' <span class="dim">(推算)</span>') : '') + '</p>'; }).join('');
-    var tagged = (r.ann || []).filter(function (a) { return a.tag !== 'routine'; });
+    var upc = evApply(code, (iv.r && iv.r.events) || []).filter(function (e) { return e.date >= today(); });
+    if (upc.length || isOwner()) h += T('<h3 class="fin-h">📅 即将到来') + (isOwner() ? T(' <button type="button" class="ed-b" data-ed="event" data-code="') + esc(code) + T('">＋ 新增</button>') : '') + '</h3>' + upc.slice(0, 8).map(function (e) { var t = CAL_T[e.type] || ['corp', e.type];
+      return '<p class="list-ann"><span class="dim">' + md(e.date) + '</span> <span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> ' + esc(L(e, 'what') || '') + (e.src === 'rule' ? T(' <span class="dim">(推算)</span>') : '') + (e.src === 'owner' ? T(' <span class="dim">✎ 人工</span>') : '') + (e.src !== 'rule' ? edBtn('event', code, e) : '') + '</p>'; }).join('');
+    var tagged = ((iv.r && iv.r.ann) || []).filter(function (a) { return a.tag !== 'routine'; });
     if (tagged.length) h += T('<h3 class="fin-h">标记的公告 <span class="dim">📌 重要事件 · ⚠ 需留意</span></h3>') + tagged.slice(0, 10).map(function (a) {
       return '<p class="list-ann"><span class="dim">' + md(a.date) + '</span> ' + tagChip(a.tag) + '<a href="' + esc(a.link) + '" target="_blank" rel="noopener">' + esc(a.title) + '</a>' + (L(a, 'why') ? ' <span class="dim">· ' + esc(L(a, 'why')) + '</span>' : '') + '</p>'; }).join('');
-    h += T('<p class="dim intel-note">AI 生成 (DeepSeek)，只整理公开的公告、新闻和财报，可能有错漏，不构成投资建议 · 更新 ') + esc(r.updated) + '</p>';
-    return pn(title, T('公告 ') + (r.ann || []).length + T(' · 新闻 ') + (r.news || []).length, h);
+    h += T('<p class="dim intel-note">AI 生成 (DeepSeek)') + (iv.state !== 'auto' ? T('，经网站管理员编辑') : '') + T('，只整理公开的公告、新闻和财报，可能有错漏，不构成投资建议 · 更新 ') + esc(r.updated || (iv.o && iv.o.at) || '—') + '</p>';
+    return pn(title, T('公告 ') + ((iv.r && iv.r.ann) || []).length + T(' · 新闻 ') + ((iv.r && iv.r.news) || []).length, h);
   }
 
   // ---------- 新股 IPO (ipo_calendar.py：KLSE Screener IPO 页 + 新闻标题里的超额认购 + Yahoo 日线)：日历页顶部 ----------
@@ -746,9 +762,16 @@
     loadIpo();
     if (!IPO) return pn(T('IPO 新股'), '', '<p class="dim">loading…</p>');
     if (!IPO.length) return '';
-    var td = today(), yago = addDays(td, -365);
-    var up = IPO.filter(function (r) { return !r.listing || r.listing > td; }).sort(function (a, b) { return (a.listing || a.close || '') < (b.listing || b.close || '') ? -1 : 1; });
-    var done = IPO.filter(function (r) { return r.listing && r.listing <= td && r.listing >= yago; });  // 已经按上市日新到旧
+    var td = today(), yago = addDays(td, -365), ipoWarn = [];
+    var LIST0 = IPO.map(function (r) {
+      var o = ovGet(r.code, 'ipo'); if (!o) return r;
+      var x = Object.assign({}, r, { own: o });
+      if (o.oversub != null) { x.oversub = o.oversub; if (isNum(r.oversub) && Math.abs(r.oversub - o.oversub) > 0.01) ipoWarn.push(r.ticker + T('：你填 ') + o.oversub + T('×，自动找到 ') + r.oversub + '×'); }
+      if (o.listing) { x.listing = o.listing; if (r.listing && r.listing !== o.listing) ipoWarn.push(r.ticker + T('：你填上市日 ') + md(o.listing) + T('，KLSE Screener 写 ') + md(r.listing)); }
+      return x;
+    });
+    var up = LIST0.filter(function (r) { return !r.listing || r.listing > td; }).sort(function (a, b) { return (a.listing || a.close || '') < (b.listing || b.close || '') ? -1 : 1; });
+    var done = LIST0.filter(function (r) { return r.listing && r.listing <= td && r.listing >= yago; }).sort(function (a, b) { return a.listing < b.listing ? 1 : -1; });  // 上市日新到旧
     var h = T('<h3 class="fin-h">招股中 / 待上市 · ') + up.length + '</h3>';
     h += up.length ? up.map(function (r) {
       var st = ipoStatus(r, td), steps = [];
@@ -756,7 +779,7 @@
       if (r.ballot) steps.push(T('抽签 ') + md(r.ballot));
       if (r.listing) { var dd = Math.round((Date.parse(r.listing) - Date.parse(td)) / 864e5); steps.push(T('上市 ') + md(r.listing) + ' (' + (dd === 0 ? T('今天') : dd + T(' 天后')) + ')'); }
       var info = [r.sector && r.sector !== r.subsector ? r.sector + ' / ' + r.subsector : r.sector || r.subsector, isNum(r.mcap) ? T('市值 ') + 'RM' + (r.mcap / 1e6).toFixed(0) + 'M' : null].filter(Boolean).join(' · ');
-      return '<p class="list-ann ipo-r"><span class="cal-t cg-list">' + st[1] + '</span> ' + ipoName(r) + ' <span class="dim">' + esc(r.name) + '</span> · ' + esc([ipoBoard(r.board), ipoPx(r.price)].filter(function (x) { return x && x !== '—'; }).join(' · ')) +
+      return '<p class="list-ann ipo-r"><span class="cal-t cg-list">' + st[1] + '</span> ' + ipoName(r) + edBtn('ipo', r.code) + ' <span class="dim">' + esc(r.name) + '</span> · ' + esc([ipoBoard(r.board), ipoPx(r.price)].filter(function (x) { return x && x !== '—'; }).join(' · ')) +
         '<br><span class="dim">' + esc(steps.join(' · ')) + (info ? '<br>' + esc(info) : '') + '</span></p>';
     }).join('') : T('<p class="dim">目前没有招股中或待上市的新股。</p>');
     // 近 12 个月汇总
@@ -773,15 +796,17 @@
     h += T('<h3 class="fin-h">已上市 · 近 12 个月</h3>') + '<p class="ipo-stat">' + stat.join('<br>') + '</p>';
     if (done.length) {
       var rows = S.ipoAll ? done : done.slice(0, 12);
-      var hd = cell(T('股票'), 10) + cell(T('上市日'), 6) + cell(T('招股'), 6, true) + cell(T('认购'), 7, true) + cell(T('首日开'), 7, true) + cell(T('首日收'), 7, true) + cell(T('至今'), 7, true);
+      var hd = cell(T('股票'), isOwner() ? 12 : 10) + cell(T('上市日'), 6) + cell(T('招股'), 6, true) + cell(T('认购'), 7, true) + cell(T('首日开'), 7, true) + cell(T('首日收'), 7, true) + cell(T('至今'), 7, true);
       h += '<pre class="txt ipo-t"><span class="dim">' + hd + '</span>\n' + rows.map(function (r) {
         var o = ipoChg(r.d1_open, r.price), c = ipoChg(r.d1_close, r.price), n = ipoChg(r.last, r.price);
-        return cell(ipoName(r), 10) + cell(md(r.listing), 6) + cell(isNum(r.price) ? r.price.toFixed(r.price < 1 ? 3 : 2).replace(/0$/, '') : '—', 6, true) +
-          cell(isNum(r.oversub) ? r.oversub.toFixed(r.oversub < 100 ? 1 : 0) + '×' : r.under ? T('不足') : '—', 7, true) +
+        return cell(ipoName(r) + edBtn('ipo', r.code), isOwner() ? 12 : 10) + cell(md(r.listing), 6) + cell(isNum(r.price) ? r.price.toFixed(r.price < 1 ? 3 : 2).replace(/0$/, '') : '—', 6, true) +
+          cell((isNum(r.oversub) ? r.oversub.toFixed(r.oversub < 100 ? 1 : 0) + '×' : r.under ? T('不足') : '—') + (r.own ? '✎' : ''), 7, true) +
           cell(span(cls(o), pctS(o)), 7, true) + cell(span(cls(c), pctS(c)), 7, true) + cell(span(cls(n), pctS(n)), 7, true);
       }).join('\n') + '</pre>';
       if (done.length > 12) h += '<button type="button" class="more" data-ipo="all">' + (S.ipoAll ? T('收起') : T('全部 ') + done.length + T(' 家')) + '</button>';
     }
+    if (isOwner() && ipoWarn.length) h += T('<div class="own-c"><p class="warn">⚠ 你填的跟自动找到的不一样 (页面用你填的)：</p><ul>') + ipoWarn.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + T('</ul><p class="dim">只有你 (owner) 看得到这一块。</p></div>');
+    if (LIST0.some(function (r) { return r.own; })) h += T('<p class="dim">✎ = 网站管理员填写或更正的资料。</p>');
     h += T('<p class="dim intel-note">资料：KLSE Screener IPO 页 (日期、招股价、板块)、新闻标题 (超额认购倍数，找不到就留空)、Yahoo Finance 日线 (首日开盘 / 收盘、最新收盘，跟招股价比)。日期以招股书和交易所公告为准。过去的新股表现不代表将来，这里不构成认购或买卖建议 · 更新 ') + esc(IPO.updated || '—') + '</p>';
     return pn(T('IPO 新股'), up.length + T(' 家待上市'), h);
   }
@@ -803,7 +828,8 @@
     var t = CAL_T[e.type] || ['corp', e.type];
     var nm = e.ipo && !NAMES[e.code] ? '<b class="acc">' + esc(e.name || e.code) + '</b>' : '<button type="button" data-q="' + esc(e.code) + '" class="acc">' + esc(e.name || e.code) + '</button>';
     return '<p class="list-ann cal-r"><span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> ' + nm + ' ' +
-      esc(L(e, 'what') || '') + (e.link ? ' <a href="' + esc(e.link) + T('" target="_blank" rel="noopener" aria-label="公告原文">↗</a>') : '') + (e.src === 'rule' ? T(' <span class="dim">(推算)</span>') : '') + '</p>';
+      esc(L(e, 'what') || '') + (e.link ? ' <a href="' + esc(e.link) + T('" target="_blank" rel="noopener" aria-label="公告原文">↗</a>') : '') + (e.src === 'rule' ? T(' <span class="dim">(推算)</span>') : '') +
+      (e.src === 'owner' ? T(' <span class="dim">✎ 人工</span>') : '') + (e.ipo ? edBtn('ipo', e.code) : e.src !== 'rule' ? edBtn('event', e.code, e) : '') + '</p>';
   }
   function pageCal() {
     loadCal();
@@ -814,7 +840,12 @@
     // 公告整理出来的日期 + IPO 日期；同一支同一天的「上市」只留 IPO 那条
     var ipoEv = ipoEvents(addDays(today(), -7)), ipoKey = {};
     ipoEv.forEach(function (e) { if (e.type === 'ipo_listing') ipoKey[e.code + e.date] = 1; });
-    var ALL = CAL.filter(function (e) { return !(e.type === 'listing' && ipoKey[e.code + e.date]); }).concat(ipoEv).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    var ALL = CAL.filter(function (e) { return !(e.type === 'listing' && ipoKey[e.code + e.date]); });
+    var ovCodes = {}; [OV || {}, OVP].forEach(function (o) { Object.keys(o).forEach(function (c) { if (ovGet(c, 'events')) ovCodes[c] = 1; }); });
+    Object.keys(ovCodes).forEach(function (c) {  // 管理员的新增 / 更正 / 删除
+      ALL = ALL.filter(function (e) { return e.code !== c; }).concat(evApply(c, ALL.filter(function (e) { return e.code === c; })).filter(function (e) { return e.date >= addDays(today(), -7); }));
+    });
+    ALL = ALL.concat(ipoEv).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
     var ev = ALL.filter(function (e) { return (!g || (CAL_T[e.type] || [])[0] === g) && (!mine || wset[e.code]); });
     var btn = function (k, label, on, attr) { return '<button type="button" ' + attr + '="' + k + '" aria-pressed="' + on + '">' + label + '</button>'; };
     var bar = T('<div class="fbar" role="group" aria-label="筛选日历">') + btn('', T('全部'), !g, 'data-calg') + '<div class="fscroll">' +
@@ -916,7 +947,8 @@
       h += T('<div class="ai-set"><p class="dim">选择连线方式 (只存在这台设备的浏览器)：</p>') +
         '<div class="opts"><button type="button" data-ai="mode" data-v="worker" aria-pressed="' + (md0 === 'worker') + T('">Worker (推荐)</button><button type="button" data-ai="mode" data-v="key" aria-pressed="') + (md0 === 'key') + T('">自己的 DeepSeek 密钥</button></div>') +
         (md0 === 'worker' ? T('<label>Worker 网址<input id="ai-url" type="url" autocomplete="off" placeholder="https://bursa-ai.xxx.workers.dev" value="') + esc(AI.cfg.url || '') + '"></label>' +
-          T('<label>通行码<input id="ai-pass" type="password" autocomplete="off" value="') + esc(AI.cfg.pass || '') + T('"></label><p class="dim">设置方法见仓库 worker/README.md：密钥放在 Cloudflare，网页上看不到。</p>')
+          T('<label>通行码<input id="ai-pass" type="password" autocomplete="off" value="') + esc(AI.cfg.pass || '') + T('"></label><p class="dim">设置方法见仓库 worker/README.md：密钥放在 Cloudflare，网页上看不到。</p>') +
+          T('<label>编辑通行码 (只有网站管理员需要，可留空)<input id="ai-edit" type="password" autocomplete="off" value="') + esc(AI.cfg.edit || '') + T('"></label><p class="dim">填了之后，AI 资讯、公司简介、日历和 IPO 旁边会出现 ✎，可以用 AI 改写后发布到网站。</p>')
           : T('<label>DeepSeek API 密钥<input id="ai-key" type="password" autocomplete="off" placeholder="sk-…" value="') + esc(AI.cfg.key || '') + T('"></label><p class="dim">密钥只存在这台手机，问问题时浏览器直接连 DeepSeek。建议用另外开的、设了用量上限的密钥。</p>')) +
         T('<div class="opts"><button type="button" class="ok" data-ai="save">保存</button>') + (aiReady() ? T('<button type="button" data-ai="setup">取消</button>') : '') + '</div></div>';
     } else {
@@ -967,7 +999,7 @@
     else if (a === 'setup') AI.setup = !AI.setup;
     else if (a === 'mode') { AI.cfg.mode = t.dataset.v; AI.setup = true; }
     else if (a === 'save') {
-      if (AI.cfg.mode !== 'key') { AI.cfg.mode = 'worker'; AI.cfg.url = (document.getElementById('ai-url') || {}).value || ''; AI.cfg.pass = (document.getElementById('ai-pass') || {}).value || ''; }
+      if (AI.cfg.mode !== 'key') { AI.cfg.mode = 'worker'; AI.cfg.url = (document.getElementById('ai-url') || {}).value || ''; AI.cfg.pass = (document.getElementById('ai-pass') || {}).value || ''; AI.cfg.edit = (document.getElementById('ai-edit') || {}).value || ''; OV = null; ovLoading = false; loadOv(); }
       else AI.cfg.key = (document.getElementById('ai-key') || {}).value || '';
       aiSave(); AI.setup = !aiReady();
     } else if (a === 'clear') AI.msgs = [];
@@ -980,6 +1012,193 @@
     var box = document.createElement('section'); box.id = 'ai-panel'; box.hidden = true; box.setAttribute('aria-label', T('AI 问答'));
     document.body.appendChild(box); document.body.appendChild(fab);
   })();
+  // ---------- owner 编辑：网站管理员在网页上 (可以用 AI) 修改 AI 资讯 / 公司简介 / 日历 / IPO，经 worker 提交到 docs/terminal/overrides.json ----------
+  // 只有在 ✦ AI ⚙ 设置里填了「编辑通行码」才出现 ✎ 按钮；真正的权限检查在 worker (编辑通行码 + GitHub 令牌都在 Cloudflare)。
+  // 保存后 GitHub Pages 约 1–2 分钟才更新，这段时间先用这台设备存着的版本 (OVP) 显示，服务器版本追上了就删掉。
+  // 资讯 / 日历：下次 scripts/company_intel.py 整理那家公司时，AI 新版本和你的版本会对照公告核对、合并 (结果在 docs/intel/<代码>.json 的 owner)。
+  var OV = null, ovLoading = false;
+  var OVP = (function () { try { return JSON.parse(localStorage.getItem('bterm_ov_pending') || '{}'); } catch (e) { return {}; } })();
+  function ovSavePending() { try { localStorage.setItem('bterm_ov_pending', JSON.stringify(OVP)); } catch (e) {} }
+  function isOwner() { return AI.cfg.mode === 'worker' && !!AI.cfg.url && !!AI.cfg.pass && !!AI.cfg.edit; }
+  function loadOv() {
+    if (OV || ovLoading) return; ovLoading = true;
+    fetch('overrides.json?' + (isOwner() ? 't=' + Date.now() : 'v=' + V)).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
+      .then(function (j) {
+        OV = (j && j.codes) || {};
+        Object.keys(OVP).forEach(function (code) {  // 服务器已经是这个版本 (或更新) 的，本地那份就不用了
+          Object.keys(OVP[code]).forEach(function (k) {
+            var p = OVP[code][k], s = OV[code] && OV[code][k];
+            if (p.data ? s && s.at >= p.at : !s) delete OVP[code][k];
+          });
+          if (!Object.keys(OVP[code]).length) delete OVP[code];
+        });
+        ovSavePending(); render();
+      });
+  }
+  function ovGet(code, kind) {
+    var p = OVP[code] && OVP[code][kind];
+    if (p) return p.data ? Object.assign({ at: p.at, pending: 1 }, p.data) : null;
+    return (OV && OV[code] && OV[code][kind]) || null;
+  }
+  // 日历：管理员的新增 / 更正 / 删除套在 AI 整理的事件上 (只在页面上套，calendar.json 本身不改)
+  function evApply(code, list) {
+    var ops = (ovGet(code, 'events') || {}).items || [];
+    if (!ops.length) return list;
+    var out = list.slice();
+    var same = function (e, ref) { return e.date === ref.date && e.type === ref.type && (!ref.what || (e.what || '') === ref.what); };
+    ops.forEach(function (o) {
+      var mine = { date: o.date, type: o.type, what: o.what, what_en: o.what_en, link: o.link || null, code: code, name: nameOf(code), src: 'owner', oid: o.id, ref: o.ref || null };
+      if (o.op === 'add') { out.push(mine); return; }
+      var i = -1;
+      out.forEach(function (e, k) { if (i < 0 && e.src !== 'owner' && same(e, o.ref || {})) i = k; });
+      if (o.op === 'del') { if (i >= 0) out.splice(i, 1); return; }
+      if (i >= 0) out[i] = Object.assign({}, out[i], mine, { link: o.link || out[i].link }); else out.push(mine);  // 原来那条已经不在：照样显示你的版本
+    });
+    return out.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  }
+  var EVREG = [];  // 这次画面上每个日历事件的编号 → 事件 (✎ 按钮用)
+  function edBtn(kind, code, extra) {
+    if (!isOwner()) return '';
+    var id = '';
+    if (extra) { EVREG.push(extra); id = ' data-ev="' + (EVREG.length - 1) + '"'; }
+    return ' <button type="button" class="ed-b" data-ed="' + kind + '" data-code="' + esc(code) + '"' + id + T('" aria-label="编辑">✎</button>');
+  }
+  var ED_F = {
+    intel: [['recent', T('近况'), 'area', 3], ['recent_en', T('近况 (English)'), 'area', 3], ['notable', T('📌 重要事件 (一行一条)'), 'list', 3], ['notable_en', T('重要事件 (English)'), 'list', 3],
+      ['risks', T('⚠ 留意事项 (一行一条)'), 'list', 3], ['risks_en', T('留意事项 (English)'), 'list', 3], ['earnings', T('财报'), 'area', 2], ['earnings_en', T('财报 (English)'), 'area', 2],
+      ['refs', T('参考资料 (可选：贴公告原文 / 新闻 / 网址，AI 改写和每次核对合并时用来查证。页面上不显示，但会存在仓库公开的 overrides.json 里，不要贴私人资料或整篇付费文章)'), 'area', 4]],
+    profile: [['zh', T('中文介绍'), 'area', 4], ['lines', T('业务线 (一行一条)'), 'list', 4], ['lines_en', T('业务线 (English)'), 'list', 4], ['website', T('官网'), 'url']],
+    event: [['date', T('日期'), 'date'], ['type', T('类型'), 'type'], ['what', T('内容 (20 字以内)'), 'text'], ['what_en', T('内容 (English)'), 'text'], ['link', T('公告链接 (可选)'), 'url']],
+    ipo: [['oversub', T('超额认购倍数'), 'num'], ['src', T('来源网址'), 'url'], ['listing', T('上市日 (更正用，可留空)'), 'date'], ['note', T('备注 (例如：TheStar 11/05)'), 'text']]
+  };
+  var ED_TITLE = { intel: T('AI 资讯'), profile: T('公司简介'), event: T('日历事件'), ipo: T('新股 IPO') };
+  var ED = null;
+  function edCurrent(kind, code, ev) {
+    if (kind === 'intel') {
+      var iv = intelView(code), base = (iv && iv.v) || {}, o = ovGet(code, 'intel');
+      var d = {}; ED_F.intel.forEach(function (f) { d[f[0]] = base[f[0]] != null ? base[f[0]] : (f[2] === 'list' ? [] : ''); }); d.refs = (o && o.refs) || '';
+      return d;
+    }
+    if (kind === 'profile') { var p = Object.assign({}, PROF[code] || {}, ovGet(code, 'profile') || {}); return { zh: p.zh || '', lines: p.lines || [], lines_en: p.lines_en || [], website: p.website || '' }; }
+    if (kind === 'event') return ev ? { date: ev.date, type: ev.type, what: ev.what || '', what_en: ev.what_en || '', link: ev.link || '' } : { date: today(), type: 'corporate', what: '', what_en: '', link: '' };
+    var row = (IPO || []).filter(function (x) { return x.code === code; })[0] || {}, oi = ovGet(code, 'ipo') || {};
+    return { oversub: oi.oversub != null ? oi.oversub : row.oversub != null ? row.oversub : '', src: oi.src || '', listing: oi.listing || '', note: oi.note || '' };
+  }
+  function edOpen(kind, code, ev) {
+    AI.open = false; aiRender();
+    ED = { kind: kind, code: code, name: nameOf(code), ev: ev || null, data: edCurrent(kind, code, ev), prev: null, changed: {}, note: '', msg: '', err: '', soft: [], hard: [], busy: false };
+    edRender();
+  }
+  function edVal(f, v) { return f[2] === 'list' ? (v || []).join('\n') : v == null ? '' : String(v); }
+  function edRead() {  // 表单 → ED.data
+    if (!ED) return;
+    ED_F[ED.kind].forEach(function (f) {
+      var el = document.getElementById('ed-' + f[0]); if (!el) return;
+      ED.data[f[0]] = f[2] === 'list' ? el.value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean) : el.value;
+    });
+    var ins = document.getElementById('ed-ins'), rf = document.getElementById('ed-refs');
+    if (ins) ED.ins = ins.value; if (rf) ED.refs = rf.value;
+  }
+  function edRender() {
+    var box = document.getElementById('ed-panel'); if (!box) return;
+    box.hidden = !ED; if (!ED) return;
+    var tn = CAL_T, k = ED.kind, own = k === 'event' ? ED.ev && ED.ev.src === 'owner' : !!ovGet(ED.code, k === 'event' ? 'events' : k);
+    var h = '<div class="ai-top"><b>✎ ' + ED_TITLE[k] + '</b><span class="dim">' + esc(ED.name) + ' ' + esc(ED.code) + '</span><button type="button" data-edx="close" aria-label="' + T('关闭') + '">×</button></div><div class="ed-body">';
+    h += T('<p class="dim">改完按「保存并发布」：经你的 Worker 提交到 GitHub，约 1–2 分钟后所有人看得到。只写事实，不写好坏评价或买卖建议。</p>');
+    h += T('<div class="ed-ai"><b>✦ 用 AI 改</b><input id="ed-ins" type="text" placeholder="例如：把近况缩短成两句 / 加上 11/10 公告的合约金额 / 英文跟着中文改" value="') + esc(ED.ins || '') + '">' +
+      (k === 'intel' ? '' : T('<textarea id="ed-refs" rows="2" placeholder="参考资料 (可选)：贴公告原文或新闻">') + esc(ED.refs || '') + '</textarea>') +
+      '<div class="opts"><button type="button" data-edx="ai"' + (ED.busy ? ' disabled' : '') + '>' + (ED.busy === 'ai' ? T('AI 改写中…') : T('✦ AI 改写')) + '</button>' +
+      (ED.prev ? T('<button type="button" data-edx="undo">↩ 撤销 AI 改动</button>') : '') + '</div>' + (ED.note ? '<p class="dim">AI：' + esc(ED.note) + '</p>' : '') + '</div>';
+    ED_F[k].forEach(function (f) {
+      var v = esc(edVal(f, ED.data[f[0]])), cls = ED.changed[f[0]] ? ' class="chg"' : '', inp;
+      if (f[2] === 'area' || f[2] === 'list') inp = '<textarea id="ed-' + f[0] + '" rows="' + f[3] + '"' + cls + '>' + v + '</textarea>';
+      else if (f[2] === 'type') inp = '<select id="ed-' + f[0] + '"' + cls + '>' + ['agm', 'egm', 'ex_date', 'entitlement', 'payment', 'results', 'listing', 'corporate'].map(function (t) { return '<option value="' + t + '"' + (ED.data.type === t ? ' selected' : '') + '>' + esc((tn[t] || [, t])[1]) + '</option>'; }).join('') + '</select>';
+      else inp = '<input id="ed-' + f[0] + '" type="' + (f[2] === 'num' ? 'number" step="0.01" min="0' : f[2] === 'date' ? 'date' : f[2] === 'url' ? 'url' : 'text') + '" value="' + v + '"' + cls + '>';
+      h += '<label>' + f[1] + (ED.changed[f[0]] ? T(' <span class="warn">· AI 改过</span>') : '') + inp + '</label>';
+    });
+    if (ED.hard.length) h += T('<p class="dn">不能用这些字眼 (会被当成好坏评价或买卖建议)：') + esc(ED.hard.join('、')) + T('。请改写后再保存。</p>');
+    if (ED.soft.length) h += T('<p class="warn">这些字眼可能被当成建议：') + esc(ED.soft.join('、')) + T('。如果是在陈述事实 (例如「大股东卖出 500 万股」「董事会建议派息」)，可以确认后保存。</p><div class="opts"><button type="button" data-edx="save-soft">确认是陈述事实，仍然保存</button></div>');
+    if (ED.err) h += '<p class="dn">' + esc(ED.err) + '</p>';
+    if (ED.msg) h += '<p class="up">' + ED.msg + '</p>';
+    h += '<div class="opts ed-act"><button type="button" class="ok" data-edx="save"' + (ED.busy ? ' disabled' : '') + '>' + (ED.busy === 'save' ? T('提交中…') : T('保存并发布')) + '</button>' +
+      (k === 'event' && ED.ev ? T('<button type="button" data-edx="del">删除这条</button>') : '') +
+      (k !== 'event' && own ? T('<button type="button" data-edx="restore">恢复成自动版本</button>') : '') +
+      T('<button type="button" data-edx="close">取消</button></div></div>');
+    box.innerHTML = h;
+  }
+  function edCall(path, body) {
+    return fetch(AI.cfg.url.replace(/\/$/, '') + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pass': AI.cfg.pass, 'X-Edit-Pass': AI.cfg.edit }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().catch(function () { return { error: 'HTTP ' + r.status }; }).then(function (j) { if (!r.ok && !j.error) j.error = 'HTTP ' + r.status; return j; }); });
+  }
+  function edContext() {  // 给 AI 的页面资料：这家公司已有的公告、新闻、财报、日历、IPO
+    var r = INTEL[ED.code] && INTEL[ED.code] !== 'loading' ? INTEL[ED.code] : {}, c = {};
+    if (r.ann) c.公告 = r.ann.slice(0, 20).map(function (a) { return a.date + ' ' + a.title; });
+    if (r.news) c.新闻 = r.news.slice(0, 8).map(function (n) { return (n.date || '') + ' ' + n.title; });
+    if (r.facts) c.财报 = r.facts;
+    if (r.events) c.日历 = r.events.map(function (e) { return e.date + ' ' + e.type + ' ' + (e.what || ''); });
+    if (PROF[ED.code]) c.简介 = { 英文: PROF[ED.code].summary, 行业: PROF[ED.code].industry };
+    var ip = (IPO || []).filter(function (x) { return x.code === ED.code; })[0]; if (ip) c.IPO = ip;
+    return c;
+  }
+  function edEventsPayload(remove) {  // 日历：整份「你的更正」清单 (新增 / 更正 / 删除)
+    var items = ((ovGet(ED.code, 'events') || {}).items || []).slice(), ev = ED.ev, d = ED.data;
+    if (ev && ev.src === 'owner') items = items.filter(function (o) { return o.id !== ev.oid; });
+    var ref = ev ? (ev.src === 'owner' ? ev.ref : { date: ev.date, type: ev.type, what: ev.what || '' }) : null;
+    if (remove) { if (ref) items.push({ op: 'del', ref: ref }); }
+    else items.push(Object.assign({ op: ref ? 'fix' : 'add', date: d.date, type: d.type, what: d.what, what_en: d.what_en, link: d.link }, ref ? { ref: ref } : {}));
+    return { items: items };
+  }
+  function edSave(opts) {
+    edRead();
+    var kind = ED.kind === 'event' ? 'events' : ED.kind, data;
+    if (opts.restore) data = null;
+    else if (ED.kind === 'event') data = edEventsPayload(opts.del);
+    else data = Object.assign({}, ED.data);
+    if (ED.kind === 'ipo' && data) data.oversub = data.oversub === '' ? null : +data.oversub;
+    ED.busy = 'save'; ED.err = ED.msg = ''; ED.hard = []; if (!opts.soft) ED.soft = []; edRender();
+    edCall('/edit/save', { code: ED.code, name: ED.name, kind: kind, data: data, confirm_soft: !!opts.soft }).then(function (j) {
+      ED.busy = false;
+      if (j.error) ED.err = T('保存失败：') + j.error;
+      else if (!j.ok) { ED.hard = j.hard || []; ED.soft = j.soft || []; }
+      else {
+        OVP[ED.code] = OVP[ED.code] || {}; OVP[ED.code][kind] = { at: j.at, data: data }; ovSavePending();
+        ED.soft = []; ED.msg = T('✓ 已提交 (') + esc((j.commit || '').slice(0, 7)) + T(')，约 1–2 分钟后所有人看得到；这台设备现在就显示新版本。');
+        if (ED.kind === 'event') ED.ev = null;
+        render();
+      }
+      edRender();
+    }).catch(function (e) { ED.busy = false; ED.err = T('连不上 Worker：') + e.message; edRender(); });
+  }
+  function edClick(t) {
+    var a = t.dataset.edx;
+    if (a === 'close') { ED = null; edRender(); return; }
+    if (a === 'save') return edSave({});
+    if (a === 'save-soft') return edSave({ soft: true });
+    if (a === 'del') { if (ED.ev) edSave({ del: true }); return; }
+    if (a === 'restore') return edSave({ restore: true });
+    if (a === 'undo') { if (ED.prev) { ED.data = ED.prev; ED.prev = null; ED.changed = {}; ED.note = ''; } edRender(); return; }
+    if (a === 'ai') {
+      edRead();
+      if (!(ED.ins || '').trim()) { ED.err = T('先写下要 AI 怎么改。'); edRender(); return; }
+      ED.busy = 'ai'; ED.err = ''; edRender();
+      var cur = Object.assign({}, ED.data);
+      if (ED.kind === 'event' && ED.ev) { cur.op = ED.ev.src === 'owner' ? 'add' : 'fix'; cur.ref = { date: ED.ev.date, type: ED.ev.type }; }
+      edCall('/edit/ai', { kind: ED.kind, code: ED.code, name: ED.name, current: cur, instruction: ED.ins, refs: ED.kind === 'intel' ? ED.data.refs : ED.refs, context: edContext() }).then(function (j) {
+        ED.busy = false;
+        if (j.error) { ED.err = T('AI 改写失败：') + j.error; edRender(); return; }
+        ED.prev = Object.assign({}, ED.data); ED.changed = {};
+        ED_F[ED.kind].forEach(function (f) {
+          var nv = j.proposal[f[0]]; if (nv === undefined) return;
+          if (JSON.stringify(nv) !== JSON.stringify(ED.data[f[0]])) ED.changed[f[0]] = 1;
+          ED.data[f[0]] = nv;
+        });
+        ED.note = j.note || ''; ED.hard = j.hard || []; ED.soft = [];
+        edRender();
+      }).catch(function (e) { ED.busy = false; ED.err = T('连不上 Worker：') + e.message; edRender(); });
+    }
+  }
+  (function () { var box = document.createElement('section'); box.id = 'ed-panel'; box.hidden = true; box.setAttribute('aria-label', T('编辑')); document.body.appendChild(box); })();
+
   // 个股：字符 K 线 + 数字 + (信号 / 观察列表) + 公告和新闻
   var EXTRA = {};
 
@@ -1060,8 +1279,9 @@
   // 公司简介：官网、行业、员工、中文背景 + 业务线 (DeepSeek 按 Yahoo 英文介绍写的)，英文原文收在 ➡️ 里
   function profilePanel(code) {
     if (!(code in PROF)) { loadDaily(code).then(function () { if (S.code === code) render(); }); return pn(T('PROFILE 公司简介'), '', '<p class="dim">loading…</p>'); }
-    var p = PROF[code];
-    if (!p) return pn(T('PROFILE 公司简介'), '', T('<p class="dim">还没有这家公司的资料 (每天会陆续补上)。</p>'));
+    var op = ovGet(code, 'profile'), p = PROF[code];
+    if (op) { p = Object.assign({}, p || {}); ['zh', 'website'].forEach(function (k) { if (op[k]) p[k] = op[k]; }); ['lines', 'lines_en'].forEach(function (k) { if (op[k] && op[k].length) p[k] = op[k]; }); }
+    if (!p) return pn(T('PROFILE 公司简介') + edBtn('profile', code), '', T('<p class="dim">还没有这家公司的资料 (每天会陆续补上)。</p>'));
     var host = p.website ? p.website.replace(/^https?:\/\//i, '').replace(/\/$/, '') : '';
     var h = (PROF[code + '_name'] ? '<p><b>' + esc(PROF[code + '_name']) + '</b></p>' : '') +
       (p.sector || p.industry ? T('<p><span class="acc">行业</span> ') + esc([p.sector, p.industry].filter(Boolean).join(' / ')) + '</p>' : '') +
@@ -1075,7 +1295,8 @@
       else if (p.summary) h += T('<p class="dim">中文介绍还在生成，先看英文原文：</p>');
       if (p.summary) h += '<details class="info"' + (p.zh ? '' : ' open') + '><summary>English <span class="arw" aria-hidden="true">➡️</span></summary><p class="dim prof-en">' + esc(p.summary) + '</p></details>';
     }
-    return pn(T('PROFILE 公司简介'), T('来源 Yahoo Finance'), h);
+    if (op) h += T('<p class="own-b">✎ 已人工编辑 (') + esc(md(op.at.slice(0, 10))) + ')</p>';
+    return pn(T('PROFILE 公司简介') + edBtn('profile', code), T('来源 Yahoo Finance') + (op ? T(' · 人工编辑') : ''), h);
   }
   function pageQuote(code) {
     var s = ST[code];
@@ -1152,7 +1373,7 @@
   function stdUrl() { return (D.report || '../') + '?ui=std'; }
   function render() {
     if (!D) return;
-    keys();
+    keys(); EVREG = [];
     document.getElementById('prompt-arg').textContent = S.code ? 'quote ' + S.code : '--' + S.page;
     var fn = { cal: pageCal, sig: pageSig, watch: pageWatch, bt: pageBt, pool: pagePool, mkt: pageMkt, ann: pageAnn }[S.page] || pageSig;
     var focusId = document.activeElement && /^(grep|cb-q)$/.test(document.activeElement.id) ? document.activeElement.id : null, focusGrep = !!focusId, pos = focusGrep ? document.activeElement.selectionStart : null;
@@ -1186,6 +1407,8 @@
     var ai = e.target.closest('[data-ai]'); if (ai) { aiClick(ai); return; }
     var ct = e.target.closest('[data-calg],[data-calw],[data-calm],[data-cald]'); if (ct) { calClick(ct); return; }
     if (e.target.closest('[data-candle]')) { toggleCandle(); return; }
+    var edb = e.target.closest('[data-ed]'); if (edb) { edOpen(edb.dataset.ed, edb.dataset.code, edb.dataset.ev != null ? EVREG[+edb.dataset.ev] : null); return; }
+    var edx = e.target.closest('[data-edx]'); if (edx) { edClick(edx); return; }
     if (e.target.closest('[data-ipo]')) { S.ipoAll = !S.ipoAll; render(); return; }
     var hbx = e.target.closest('[data-hb]'); if (hbx) { S.hb = S.hb === hbx.dataset.hb ? null : hbx.dataset.hb; render(); return; }
     var t = e.target.closest('[data-page],[data-q],[data-back],[data-flt],[data-sort],[data-more],[data-cat],[data-heat]');
@@ -1282,7 +1505,7 @@
   document.addEventListener('click', function (e) { if (e.target.closest('[data-reload]')) location.reload(); });
 
   fetch('data.json?v=' + V).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); OFFLINE = r.headers.get('x-bterm-offline') === '1'; return r.json(); }).then(function (j) {
-    D = j; ingest(); fromHash(); offlineBar();
+    D = j; ingest(); fromHash(); offlineBar(); loadOv();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { CW = null; render(); });  // 网页字体到了再量一次字宽
     document.getElementById('status').innerHTML = status();
     var tk = document.querySelector('#status .tick > span');  // 速度固定约每秒 40px，内容长短不影响快慢

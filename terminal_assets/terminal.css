@@ -320,3 +320,22 @@ html[data-lang="en"] .keys button { padding: 9px 8px; }
 html[data-lang="en"] .kv > div > span:first-child { font-size: 12px; }
 html[data-lang="en"] .ft { font-size: 10px; }
 #lang-btn { color: var(--acc2); }
+
+/* owner 编辑：✎ 按钮、标记、编辑面板 (跟 AI 面板同一套外框) */
+.ed-b { font: inherit; font-size: 12px; padding: 0 4px; margin-left: 2px; color: var(--acc2); background: none; border: 1px dashed var(--line); cursor: pointer; vertical-align: baseline; }
+h2 .ed-b { font-size: 11px; }
+.own-b { font-size: 11.5px; color: var(--acc2); border-left: 2px solid var(--acc2); padding-left: 6px; margin: 2px 0 6px; }
+.own-c { border: 1px dashed var(--warn); padding: 4px 8px; margin: 6px 0; font-size: 12px; }
+.own-c ul { margin: 2px 0 4px; padding-left: 1.2em; }
+#ed-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; max-height: 86vh; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg); border-top: 3px double var(--acc); box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.35); }
+#ed-panel[hidden] { display: none; }
+@media (min-width: 780px) { #ed-panel { left: auto; width: 520px; right: 14px; bottom: 14px; max-height: 88vh; border: 3px double var(--acc); } }
+.ed-body { display: grid; gap: 8px; overflow-y: auto; }
+.ed-body label { display: grid; gap: 4px; color: var(--mut); font-size: 12px; }
+.ed-body textarea, .ed-body input, .ed-body select { font: inherit; font-size: 16px; color: var(--fg); background: var(--bg2); border: 1px solid var(--line); padding: 6px 8px; border-radius: 0; width: 100%; box-sizing: border-box; }
+.ed-body textarea { resize: vertical; line-height: 1.45; }
+.ed-body .chg { border-color: var(--warn); }
+.ed-ai { display: grid; gap: 6px; border: 1px dashed var(--acc); padding: 6px 8px; }
+.ed-act .ok { border: 1px solid var(--acc); color: var(--acc); font-weight: 700; }
+.ed-body .opts button { min-height: 40px; }
