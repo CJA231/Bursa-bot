@@ -699,8 +699,6 @@
     var iv = intelView(code);
     if (!iv) return pn(title, '', T('<p class="dim">还没分析到这家公司 (每天收盘后陆续补上)。</p>'));
     var r = iv.v, own = iv.r && iv.r.owner, f = r.facts, h = '';
-    if (iv.state === 'edited') h += T('<p class="own-b">✎ 已人工编辑 (') + esc(md(iv.o.at.slice(0, 10)) + iv.o.at.slice(10)) + T(') · 下次 AI 更新时会对照公告核对、合并</p>');
-    else if (iv.state === 'merged') h += T('<p class="own-b">✓ 人工编辑 + AI 新资料，已对照公告核对合并 (') + esc(md(own.merged_at.slice(0, 10)) + own.merged_at.slice(10)) + ')</p>';
     if (isOwner() && own && (own.conflicts || []).concat(own.unverified || []).length) h += '<div class="own-c">' +
       ((L(own, 'conflicts') || []).length ? T('<p class="warn">⚠ 跟资料不一致 (已按资料改)：</p><ul>') + L(own, 'conflicts').map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
       ((L(own, 'unverified') || []).length ? T('<p class="dim">找不到资料佐证 (保留你的写法)：</p><ul>') + L(own, 'unverified').map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
@@ -716,11 +714,11 @@
     if (LANG === 'en' && r.recent && !r.recent_en) h += '<p class="dim">English version will appear after the next analysis run.</p>';
     var upc = evApply(code, (iv.r && iv.r.events) || []).filter(function (e) { return e.date >= today(); });
     if (upc.length || isOwner()) h += T('<h3 class="fin-h">📅 即将到来') + (isOwner() ? T(' <button type="button" class="ed-b" data-ed="event" data-code="') + esc(code) + T('">＋ 新增</button>') : '') + '</h3>' + upc.slice(0, 8).map(function (e) { var t = CAL_T[e.type] || ['corp', e.type];
-      return '<p class="list-ann"><span class="dim">' + md(e.date) + '</span> <span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> ' + esc(L(e, 'what') || '') + (e.src === 'rule' ? T(' <span class="dim">(推算)</span>') : '') + (e.src === 'owner' ? T(' <span class="dim">✎ 人工</span>') : '') + (e.src !== 'rule' ? edBtn('event', code, e) : '') + '</p>'; }).join('');
+      return '<p class="list-ann"><span class="dim">' + md(e.date) + '</span> <span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> ' + esc(L(e, 'what') || '') + (e.src === 'rule' ? T(' <span class="dim">(推算)</span>') : '') + (e.src !== 'rule' ? edBtn('event', code, e) : '') + '</p>'; }).join('');
     var tagged = ((iv.r && iv.r.ann) || []).filter(function (a) { return a.tag !== 'routine'; });
     if (tagged.length) h += T('<h3 class="fin-h">标记的公告 <span class="dim">📌 重要事件 · ⚠ 需留意</span></h3>') + tagged.slice(0, 10).map(function (a) {
       return '<p class="list-ann"><span class="dim">' + md(a.date) + '</span> ' + tagChip(a.tag) + '<a href="' + esc(a.link) + '" target="_blank" rel="noopener">' + esc(a.title) + '</a>' + (L(a, 'why') ? ' <span class="dim">· ' + esc(L(a, 'why')) + '</span>' : '') + '</p>'; }).join('');
-    h += T('<p class="dim intel-note">AI 生成 (DeepSeek)') + (iv.state !== 'auto' ? T('，经网站管理员编辑') : '') + T('，只整理公开的公告、新闻和财报，可能有错漏，不构成投资建议 · 更新 ') + esc(r.updated || (iv.o && iv.o.at) || '—') + '</p>';
+    h += T('<p class="dim intel-note">AI 生成 (DeepSeek)') + T('，只整理公开的公告、新闻和财报，可能有错漏，不构成投资建议 · 更新 ') + esc(r.updated || (iv.o && iv.o.at) || '—') + '</p>';
     return pn(title, T('公告 ') + ((iv.r && iv.r.ann) || []).length + T(' · 新闻 ') + ((iv.r && iv.r.news) || []).length, h);
   }
 
@@ -800,13 +798,12 @@
       h += '<pre class="txt ipo-t"><span class="dim">' + hd + '</span>\n' + rows.map(function (r) {
         var o = ipoChg(r.d1_open, r.price), c = ipoChg(r.d1_close, r.price), n = ipoChg(r.last, r.price);
         return cell(ipoName(r) + edBtn('ipo', r.code), isOwner() ? 12 : 10) + cell(md(r.listing), 6) + cell(isNum(r.price) ? r.price.toFixed(r.price < 1 ? 3 : 2).replace(/0$/, '') : '—', 6, true) +
-          cell((isNum(r.oversub) ? r.oversub.toFixed(r.oversub < 100 ? 1 : 0) + '×' : r.under ? T('不足') : '—') + (r.own ? '✎' : ''), 7, true) +
+          cell(isNum(r.oversub) ? r.oversub.toFixed(r.oversub < 100 ? 1 : 0) + '×' : r.under ? T('不足') : '—', 7, true) +
           cell(span(cls(o), pctS(o)), 7, true) + cell(span(cls(c), pctS(c)), 7, true) + cell(span(cls(n), pctS(n)), 7, true);
       }).join('\n') + '</pre>';
       if (done.length > 12) h += '<button type="button" class="more" data-ipo="all">' + (S.ipoAll ? T('收起') : T('全部 ') + done.length + T(' 家')) + '</button>';
     }
     if (isOwner() && ipoWarn.length) h += T('<div class="own-c"><p class="warn">⚠ 你填的跟自动找到的不一样 (页面用你填的)：</p><ul>') + ipoWarn.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + T('</ul><p class="dim">只有你 (owner) 看得到这一块。</p></div>');
-    if (LIST0.some(function (r) { return r.own; })) h += T('<p class="dim">✎ = 网站管理员填写或更正的资料。</p>');
     h += T('<p class="dim intel-note">资料：KLSE Screener IPO 页 (日期、招股价、板块)、新闻标题 (超额认购倍数，找不到就留空)、Yahoo Finance 日线 (首日开盘 / 收盘、最新收盘，跟招股价比)。日期以招股书和交易所公告为准。过去的新股表现不代表将来，这里不构成认购或买卖建议 · 更新 ') + esc(IPO.updated || '—') + '</p>';
     return pn(T('IPO 新股'), up.length + T(' 家待上市'), h);
   }
@@ -829,7 +826,7 @@
     var nm = e.ipo && !NAMES[e.code] ? '<b class="acc">' + esc(e.name || e.code) + '</b>' : '<button type="button" data-q="' + esc(e.code) + '" class="acc">' + esc(e.name || e.code) + '</button>';
     return '<p class="list-ann cal-r"><span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> ' + nm + ' ' +
       esc(L(e, 'what') || '') + (e.link ? ' <a href="' + esc(e.link) + T('" target="_blank" rel="noopener" aria-label="公告原文">↗</a>') : '') + (e.src === 'rule' ? T(' <span class="dim">(推算)</span>') : '') +
-      (e.src === 'owner' ? T(' <span class="dim">✎ 人工</span>') : '') + (e.ipo ? edBtn('ipo', e.code) : e.src !== 'rule' ? edBtn('event', e.code, e) : '') + '</p>';
+      (e.ipo ? edBtn('ipo', e.code) : e.src !== 'rule' ? edBtn('event', e.code, e) : '') + '</p>';
   }
   function pageCal() {
     loadCal();
@@ -1104,7 +1101,7 @@
     box.hidden = !ED; if (!ED) return;
     var tn = CAL_T, k = ED.kind, own = k === 'event' ? ED.ev && ED.ev.src === 'owner' : !!ovGet(ED.code, k === 'event' ? 'events' : k);
     var h = '<div class="ai-top"><b>✎ ' + ED_TITLE[k] + '</b><span class="dim">' + esc(ED.name) + ' ' + esc(ED.code) + '</span><button type="button" data-edx="close" aria-label="' + T('关闭') + '">×</button></div><div class="ed-body">';
-    h += T('<p class="dim">改完按「保存并发布」：经你的 Worker 提交到 GitHub，约 1–2 分钟后所有人看得到。只写事实，不写好坏评价或买卖建议。</p>');
+    h += T('<p class="dim">更正后按「保存并发布」：经你的 Worker 提交到 GitHub，约 1–2 分钟后所有人看到的就是更正后的资料 (页面上不会标示)。只写事实，不写好坏评价或买卖建议。</p>');
     h += T('<div class="ed-ai"><b>✦ 用 AI 改</b><input id="ed-ins" type="text" placeholder="例如：把近况缩短成两句 / 加上 11/10 公告的合约金额 / 英文跟着中文改" value="') + esc(ED.ins || '') + '">' +
       (k === 'intel' ? '' : T('<textarea id="ed-refs" rows="2" placeholder="参考资料 (可选)：贴公告原文或新闻">') + esc(ED.refs || '') + '</textarea>') +
       '<div class="opts"><button type="button" data-edx="ai"' + (ED.busy ? ' disabled' : '') + '>' + (ED.busy === 'ai' ? T('AI 改写中…') : T('✦ AI 改写')) + '</button>' +
@@ -1295,8 +1292,7 @@
       else if (p.summary) h += T('<p class="dim">中文介绍还在生成，先看英文原文：</p>');
       if (p.summary) h += '<details class="info"' + (p.zh ? '' : ' open') + '><summary>English <span class="arw" aria-hidden="true">➡️</span></summary><p class="dim prof-en">' + esc(p.summary) + '</p></details>';
     }
-    if (op) h += T('<p class="own-b">✎ 已人工编辑 (') + esc(md(op.at.slice(0, 10))) + ')</p>';
-    return pn(T('PROFILE 公司简介') + edBtn('profile', code), T('来源 Yahoo Finance') + (op ? T(' · 人工编辑') : ''), h);
+    return pn(T('PROFILE 公司简介') + edBtn('profile', code), T('来源 Yahoo Finance'), h);
   }
   function pageQuote(code) {
     var s = ST[code];

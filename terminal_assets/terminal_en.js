@@ -483,7 +483,7 @@ window.TERM_EN = {
 "新股 IPO": "IPO",
 "关闭": "Close",
 "编辑": "Edit",
-"<p class=\"dim\">改完按「保存并发布」：经你的 Worker 提交到 GitHub，约 1–2 分钟后所有人看得到。只写事实，不写好坏评价或买卖建议。</p>": "<p class=\"dim\">When done, press “Save & publish”: your Worker commits it to GitHub and everyone sees it in about 1–2 minutes. Facts only — no good/bad judgements or trading advice.</p>",
+"<p class=\"dim\">更正后按「保存并发布」：经你的 Worker 提交到 GitHub，约 1–2 分钟后所有人看到的就是更正后的资料 (页面上不会标示)。只写事实，不写好坏评价或买卖建议。</p>": "<p class=\"dim\">Press “Save & publish”: your Worker commits the correction to GitHub and in about 1–2 minutes everyone sees the corrected information (not marked on the page). Facts only — no good/bad judgements or trading advice.</p>",
 "<div class=\"ed-ai\"><b>✦ 用 AI 改</b><input id=\"ed-ins\" type=\"text\" placeholder=\"例如：把近况缩短成两句 / 加上 11/10 公告的合约金额 / 英文跟着中文改\" value=\"": "<div class=\"ed-ai\"><b>✦ Edit with AI</b><input id=\"ed-ins\" type=\"text\" placeholder=\"e.g. shorten the recent summary / add the contract value from the 11/10 announcement / update the English\" value=\"",
 "<textarea id=\"ed-refs\" rows=\"2\" placeholder=\"参考资料 (可选)：贴公告原文或新闻\">": "<textarea id=\"ed-refs\" rows=\"2\" placeholder=\"Reference material (optional): paste announcement text or news\">",
 "AI 改写中…": "AI rewriting…",
