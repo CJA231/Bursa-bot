@@ -210,7 +210,11 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
 
 ## 公司资讯与企业活动日历 (DeepSeek)
 
-`scripts/company_intel.py` 用 DeepSeek 把每家马股公司「最近发生什么事」整理成中英文，**跟每日报告完全分开跑** (`.github/workflows/company_intel.yml`，马来西亚时间平日晚上 7:17 自动跑一次，也可以手动跑，参数 `limit` / `codes` / `force`)：
+`scripts/company_intel.py` 用 DeepSeek 把每家马股公司「最近发生什么事」整理成中英文，跟每日报告分开跑 (`.github/workflows/company_intel.yml`)：
+- **新公告模式**：每次报告跑完自动接着跑 (`workflow_run`)，读全市场最新公告，只重新整理有新的非例行公告的公司 (持股变动、股份回购不算)，每次最多 20 家 —— 公告出来后大约 30 分钟内反映到 AI 资讯和日历；收盘后大部分公告在 5pm 以后发布，所以 cron-job.org 晚上也排了几次报告
+- **完整轮换**：马来西亚时间平日晚上 7:17，补还没有资讯、或超过 7 天没更新的公司 (最多 120 家)；也可以手动跑，参数 `new_only` / `limit` / `codes` / `force`
+
+每家公司的处理：
 
 - **收集**：KLSE Screener 的公告 (标题 + 公告内文)、Google News / Yahoo 新闻、`docs/stock/` 里的季报 (同比 / 环比由程序算好，DeepSeek 只负责描述)、公司简介
 - **输出** (`docs/intel/<代码>.json`)：近况 2~3 句、重要事件、留意事项、财报一两句，每条公告一个标签 (重要 / 留意 / 例行)；全部只陈述事实，提示词要求 + 程序再过滤一次，不出现「利好 / 利空 / 买入 / 卖出」这类字眼
@@ -305,7 +309,7 @@ KLSE Screener 公告 + 新闻 + 季报 → DeepSeek 整理 → docs/intel/ (公�
 | 文件 | 做什么 | 怎么触发 |
 |---|---|---|
 | `daily.yml` | 跑报告 (马股 / 美股)、生成终端版、提交、推送通知 | cron-job.org 按当地时间调用 (workflow_dispatch，参数 `market`) |
-| `company_intel.yml` | DeepSeek 公司资讯 + 企业活动日历 | 平日 11:17 UTC (马来西亚 19:17)，或手动 |
+| `company_intel.yml` | DeepSeek 公司资讯 + 企业活动日历 | 每次报告跑完 (新公告模式，最多 20 家)；平日 19:17 完整轮换；或手动 |
 | `update-watchlist.yml` | 更新全市场股票清单 | 手动 (平时 daily.yml 每天第一次运行会自动更新) |
 | `debug_stock.yml` | 调试某支股票过去几天的条件；另有 `IPO` (更新并印出新股资料)、`LATENCY` (记录各公告来源的延迟)、`PROBE*` (测试资料来源) | 手动 |
 

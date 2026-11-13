@@ -19,8 +19,14 @@ B 有根据的照 B 写、A 的新事件补进去、跟资料矛盾的用资料�
 输入没变 (公告、新闻、最新一季财报都一样) 就不再问 DeepSeek；超过 REFRESH_DAYS 天才重新抓。
 文字只整理公开资料，不给买卖建议 (提示词要求 + strip_trade_advice 再过滤一次)。
 
+「新公告」模式 (--new，每次报告跑完由 company_intel.yml 的 workflow_run 自动接着跑)：
+读 KLSE Screener 全市场最新公告，找出最近 3 天、还不在那家公司 AI 资讯里的非例行公告 (持股变动、股份回购这类例行的不算)，
+只重新整理这些公司 (每次最多 --limit 家，默认 20)，公告出来后大约 30 分钟内 AI 资讯和日历就会更新。
+全市场公告列表只有公司全名，用 docs/stock/、docs/intel/ 里存的全名对回代码；对不上的等每晚的完整轮换。
+
 用法:
   python scripts/company_intel.py                 # 补 / 更新最多 --limit 家 (默认 120)
+  python scripts/company_intel.py --new --limit 20   # 只做有新公告的公司
   python scripts/company_intel.py --codes 5335,1155 --force
   python scripts/company_intel.py --limit 30 --dry-run   # 只收集资料、不调用 DeepSeek
 在 Actions 跑: .github/workflows/company_intel.yml (手动或每天一次)
@@ -58,6 +64,8 @@ CAL_PATH = os.path.join(INTEL_DIR, "calendar.json")
 CAL_BACK, CAL_AHEAD = 7, 180  # 日历放过去 7 天到未来 180 天
 OVR_PATH = os.path.join("docs", "terminal", "overrides.json")  # 管理员在网页上的编辑 (worker 提交)
 INTEL_FIELDS = ("recent", "notable", "risks", "earnings", "recent_en", "notable_en", "risks_en", "earnings_en")
+NEW_DAYS = 3                           # 「新公告」模式只看最近 3 天的公告
+ROUTINE_CATS = ("holding", "buyback")  # 持股变动、股份回购：每天很多、内容例行，不触发重新整理
 
 SYSTEM_PROMPT = """你是马来西亚上市公司的资料整理助手，帮投资者快速看懂一家公司最近发生了什么。
 你会拿到：公司名称和简介、最近的公告标题 (有编号)、最近的新闻标题、程序算好的财报变化。
@@ -350,6 +358,61 @@ def pick(universe, priority, limit, force, now, ovr=None):
     return (first + todo)[:max(limit, len(first))]
 
 
+def norm_name(name):
+    """公司全名对比用：大写、去掉 BERHAD / BHD、合并空白 (JAG BERHAD = Jag Bhd)"""
+    t = m.html.unescape(str(name or "")).upper().replace("&", " AND ")
+    t = re.sub(r"\b(BERHAD|BHD)\b\.?", " ", t)
+    return " ".join(re.sub(r"[^A-Z0-9 ]", " ", t).split())
+
+
+def name_map():
+    """公司全名 → 代码 (从个股文件和 AI 资讯文件里存的全名)"""
+    out = {}
+    for d in (m.DETAIL_DIR, INTEL_DIR):
+        if not os.path.isdir(d):
+            continue
+        for fn in os.listdir(d):
+            if fn.endswith(".json") and fn not in ("index.json", "calendar.json"):
+                ln = (read_json(os.path.join(d, fn), {}) or {}).get("long_name")
+                if ln:
+                    out.setdefault(norm_name(ln), fn[:-5])
+    return out
+
+
+def pick_new(universe, priority, limit, now, ovr=None):
+    """有新公告 (还不在 AI 资讯里) 的公司；管理员编辑过还没核对的照样最先做。回传 (todo, 统计)"""
+    items = m.klse_announcements()
+    since = (now - timedelta(days=NEW_DAYS)).strftime("%Y-%m-%d")
+    names, known, fresh, unknown, routine = name_map(), {}, {}, 0, 0
+    for it in items:
+        if it["date"] < since:
+            continue
+        if it.get("cat") in ROUTINE_CATS:
+            routine += 1
+            continue
+        code = names.get(norm_name(it.get("company")))
+        if not code or code not in universe:
+            unknown += 1
+            continue
+        if code not in known:
+            rec = read_json(os.path.join(INTEL_DIR, f"{code}.json"), None) or {}
+            known[code] = {a["id"] for a in rec.get("ann") or []}
+        if it["id"] not in known[code]:
+            fresh.setdefault(code, []).append(it["id"])
+    first = []
+    owned = set(ovr or {}) | {fn[:-5] for fn in os.listdir(INTEL_DIR) if fn.endswith(".json")} if os.path.isdir(INTEL_DIR) else set(ovr or {})
+    for code in sorted(c for c in owned if c in universe):  # 管理员编辑过、还没核对合并的 (跟 pick() 同一个条件)
+        rec = read_json(os.path.join(INTEL_DIR, f"{code}.json"), None)
+        stamp = owner_stamp((ovr or {}).get(code))
+        if (stamp and (not rec or (rec.get("owner") or {}).get("stamp") != stamp)) or (not stamp and rec and rec.get("owner")):
+            first.append(code)
+    order = {c: i for i, c in enumerate(priority)}
+    rest = sorted((c for c in fresh if c not in first), key=lambda c: (order.get(c, 1e9), c))
+    todo = (first + rest)[:max(limit, len(first))]
+    stats = {"list": len(items), "new_companies": len(fresh), "routine": routine, "unknown": unknown, "skipped": max(0, len(first) + len(rest) - len(todo))}
+    return [(c, universe[c]) for c in todo], stats
+
+
 def write_index(now):
     since = (now - timedelta(days=INDEX_TAG_DAYS)).strftime("%Y-%m-%d")
     items = {}
@@ -390,6 +453,7 @@ def main():
     ap.add_argument("--codes", default="")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--new", action="store_true", help="只做有新公告 (还不在 AI 资讯里) 的公司")
     a = ap.parse_args()
     now = datetime.now(m.LOCAL_TZ)
     os.makedirs(INTEL_DIR, exist_ok=True)
@@ -399,8 +463,19 @@ def main():
         want = [c.strip() for c in a.codes.split(",") if c.strip()]
         universe = {c: universe.get(c, c) for c in want}
     term = read_json(os.path.join("docs", "terminal", "data.json"), {})
-    priority = [s[0] for s in sorted(term.get("stocks") or [], key=lambda s: -(s[5] or 0))]  # 报告里的股票按成交额
-    todo = pick(universe, priority, a.limit, a.force or bool(a.codes), now, ovr)
+    priority = [s[0] for s in sorted(term.get("stocks") or [], key=lambda s: (-(s[11] or 0), -(s[5] or 0)))]  # 信号股在前，其余按成交额
+    if a.new:
+        try:
+            todo, st = pick_new(universe, priority, a.limit, now, ovr)
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ 全市场最新公告抓取失败 ({type(e).__name__}: {e})，这次不做")
+            return
+        print(f"🆕 新公告：列表 {st['list']} 条，有新公告的公司 {st['new_companies']} 家 (例行公告 {st['routine']} 条不算、对不上代码 {st['unknown']} 条)，"
+              f"这次处理 {len(todo)} 家，留到下次 {st['skipped']} 家")
+        if not todo:
+            return  # 没事做就不重写 index / calendar (不产生 commit)
+    else:
+        todo = pick(universe, priority, a.limit, a.force or bool(a.codes), now, ovr)
     print(f"🧠 公司情报：名单 {len(universe)} 家，这次处理 {len(todo)} 家")
     with ThreadPoolExecutor(FETCH_WORKERS) as pool:
         collected = list(pool.map(lambda cn: collect(cn[0], cn[1], now), todo))

@@ -1,12 +1,23 @@
-# 公司情报 (AI 分析)：DeepSeek 逐家整理「最近发生什么事」，写到 docs/intel/。跟每日筛选完全分开 (cron-job.org 只触发 daily.yml)。
-# 每天收盘后自动跑一次 (GitHub 的定时可能晚一点，没关系)，也可以在 Actions 手动跑。一次最多 limit 家，没变的不重复问 DeepSeek。
+# 公司情报 (AI 分析)：DeepSeek 逐家整理「最近发生什么事」，写到 docs/intel/。跟每日筛选分开跑 (cron-job.org 只触发 daily.yml)。
+# 两种：
+#  - 每次报告 (daily.yml) 跑完就自动接着跑「新公告」模式 (workflow_run)：只重新整理有新的非例行公告的公司，每次最多 20 家，
+#    所以盘中和晚上的报告时段 (cron-job.org) 一跑，公告大约 30 分钟内就反映到 AI 资讯和日历
+#  - 每天晚上 19:17 一次完整轮换 (没有资讯 / 超过 7 天没更新的公司)，最多 limit 家
+# 也可以在 Actions 手动跑。资料没变的不重复问 DeepSeek。
 name: Company intel (DeepSeek)
 
 on:
   schedule:
     - cron: "17 11 * * 1-5"   # 马来西亚时间 19:17 (收盘后)，周一到周五
+  workflow_run:               # 每次报告跑完 → 新公告模式
+    workflows: ["DeepSeek Stock Bot"]
+    types: [completed]
   workflow_dispatch:
     inputs:
+      new_only:
+        description: '只做有新公告的公司 (跟报告跑完后自动跑的一样)'
+        type: boolean
+        default: false
       limit:
         description: '这次最多处理几家 (约 1,100 家，每家 1 次 DeepSeek)'
         default: '120'
@@ -28,6 +39,8 @@ concurrency:
 
 jobs:
   intel:
+    # 报告失败 / 被取消就不跟着跑
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -41,11 +54,12 @@ jobs:
         env:
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
           PYTHONUNBUFFERED: '1'
-          LIMIT: ${{ github.event.inputs.limit || '120' }}
+          NEW: ${{ (github.event_name == 'workflow_run' || github.event.inputs.new_only == 'true') && '--new' || '' }}
+          LIMIT: ${{ github.event.inputs.limit || (github.event_name == 'workflow_run' && '20' || '120') }}
           CODES: ${{ github.event.inputs.codes || '' }}
           FORCE: ${{ github.event.inputs.force == 'true' && '--force' || '' }}
         run: |
-          python scripts/company_intel.py --limit "$LIMIT" --codes "$CODES" $FORCE | tee intel_log.txt
+          python scripts/company_intel.py $NEW --limit "$LIMIT" --codes "$CODES" $FORCE | tee intel_log.txt
           { echo '### 公司情报'; echo '```'; tail -n 40 intel_log.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Publish
         run: |
