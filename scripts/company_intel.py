@@ -10,6 +10,12 @@ DeepSeek 输出 (JSON)：近况 2~3 句、重要事件 / 留意事项各几条�
 全部只陈述事实，不判断好坏 (不写「利好」「利空」这类会被当成买卖信号的字眼)。
 
 写到 docs/intel/<代码>.json，另外 docs/intel/index.json 放每家公司的更新日期、重要事件 / 留意事项条数和最近公告的标签 (终端版公告页用)。
+
+网站管理员 (owner) 在终端版网页上编辑过的内容 (docs/terminal/overrides.json，经 worker/ai-proxy.js 提交)：
+重新整理那家公司时，AI 先照常整理出新版本 (A)，再把 A、管理员的版本 (B) 和原始资料一起交给 DeepSeek 核对：
+B 有根据的照 B 写、A 的新事件补进去、跟资料矛盾的用资料的数字并列进 conflicts、找不到根据的保留并列进 unverified。
+合并结果写进 docs/intel/<代码>.json，原本的 AI 版本放在 "ai"，核对结果放在 "owner" (终端版只给管理员看 conflicts / unverified)。
+管理员一有新的编辑，下次运行就会优先重新核对那家公司。
 输入没变 (公告、新闻、最新一季财报都一样) 就不再问 DeepSeek；超过 REFRESH_DAYS 天才重新抓。
 文字只整理公开资料，不给买卖建议 (提示词要求 + strip_trade_advice 再过滤一次)。
 
@@ -50,6 +56,8 @@ EVENT_MAX, EVENT_BODY = 6, 2200
 EVENT_TYPES = ("agm", "egm", "ex_date", "entitlement", "payment", "results", "listing", "corporate")
 CAL_PATH = os.path.join(INTEL_DIR, "calendar.json")
 CAL_BACK, CAL_AHEAD = 7, 180  # 日历放过去 7 天到未来 180 天
+OVR_PATH = os.path.join("docs", "terminal", "overrides.json")  # 管理员在网页上的编辑 (worker 提交)
+INTEL_FIELDS = ("recent", "notable", "risks", "earnings", "recent_en", "notable_en", "risks_en", "earnings_en")
 
 SYSTEM_PROMPT = """你是马来西亚上市公司的资料整理助手，帮投资者快速看懂一家公司最近发生了什么。
 你会拿到：公司名称和简介、最近的公告标题 (有编号)、最近的新闻标题、程序算好的财报变化。
@@ -153,12 +161,20 @@ def ann_body(ann_id):
     return t[:end if end > 0 else len(t)].strip()[:EVENT_BODY]
 
 
-def input_hash(c):
-    key = json.dumps([[a["id"] for a in c["ann"]], [n["title"] for n in c["news"]], (c["facts"] or {}).get("period"), 3], ensure_ascii=False)  # 3 = 加了日历 + 英文版之后的版本
+def owner_stamp(ov):
+    """管理员编辑的时间戳 (资讯 + 日历)；没有编辑就是空字符串"""
+    ov = ov or {}
+    return "|".join(x for x in ((ov.get("intel") or {}).get("at"), (ov.get("events") or {}).get("at")) if x)
+
+
+def input_hash(c, ov=None):
+    # 管理员编辑过就算输入变了 → 下次重新核对合并
+    key = json.dumps([[a["id"] for a in c["ann"]], [n["title"] for n in c["news"]], (c["facts"] or {}).get("period"), 3, owner_stamp(ov)], ensure_ascii=False)  # 3 = 加了日历 + 英文版之后的版本
     return hashlib.sha1(key.encode()).hexdigest()[:16]
 
 
-def ask(c):
+def source_lines(c):
+    """给 DeepSeek 的原始资料 (公司、公告、新闻、公告内文、财报)；整理和核对合并共用"""
     facts = c["facts"]
     lines = [f"公司: {c['long_name'] or c['name']} ({c['name']}, {c['code']})"]
     if c["industry"]:
@@ -175,10 +191,65 @@ def ask(c):
     if facts:
         lines.append("财报 (程序算好的，单位 " + facts["currency"] + "): " + json.dumps(
             {k: v for k, v in facts.items() if k != "currency" and v is not None}, ensure_ascii=False))
+    return lines
+
+
+def ask(c):
     r = m.client.chat.completions.create(
         model="deepseek-chat", temperature=0.1, max_tokens=2400, response_format={"type": "json_object"},
-        messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": "\n".join(lines)}])
+        messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": "\n".join(source_lines(c))}])
     return json.loads(r.choices[0].message.content or "{}")
+
+
+MERGE_PROMPT = """你是资料核对员。同一家马来西亚上市公司有两份「近况整理」：
+A = AI 根据最新的公告、新闻、财报整理的版本；B = 网站管理员 (owner) 人工编辑的版本，可能附有管理员提供的参考资料。
+任务：对照「原始资料」(公告、新闻、公告内文、财报数字、管理员参考资料) 核实 A 和 B，合并成一份最终版本。规则：
+1. B 的内容有原始资料或管理员参考资料支持的，保留 B 的写法 (管理员的措辞优先)。
+2. A 有、B 没有的事件 (通常是 B 编辑之后才出现的新公告)，补进最终版本。
+3. B 跟原始资料矛盾的 (例如金额、日期、股数不一样)，最终版本用原始资料的数字，并在 conflicts 写一句：B 写的是什么、资料写的是什么、根据哪条资料。
+4. B 有、但原始资料和参考资料都找不到根据的，保留在最终版本，但在 unverified 写一句是哪一点。
+5. owner_events 是管理员对企业活动日历的新增 / 更正 / 删除，逐条对照公告内文；跟资料矛盾的写进 conflicts，找不到根据的写进 unverified。
+6. 只陈述事实，不用「利好」「利空」「看好」「正面」「负面」之类的评价，不给任何买卖建议；数字只能用资料里有的。
+7. B 为空时，最终版本 = A，conflicts / unverified 只看 owner_events。
+8. conflicts / unverified 是写给管理员看的，不要用 A / B 称呼，中文用「你的编辑」「AI 新整理的」，英文用 "your edit" / "the new AI summary"。
+输出 JSON：recent, notable[] (最多 3 条), risks[] (最多 3 条), earnings, recent_en, notable_en[], risks_en[], earnings_en,
+conflicts[] (中文，每条一句), conflicts_en[], unverified[], unverified_en[]。只输出 JSON。"""
+
+
+def merge_owner(c, rec, ov, now):
+    """把管理员的版本 (B) 跟这次 AI 版本 (A) 对照原始资料核对、合并；失败就回传原本的 rec (页面会继续直接显示管理员的版本)"""
+    intel, events = (ov.get("intel") or {}), ((ov.get("events") or {}).get("items") or [])
+    a = {k: rec.get(k) for k in INTEL_FIELDS}
+    b = {k: intel.get(k) for k in INTEL_FIELDS} if intel else {}
+    lines = source_lines(c)
+    if intel.get("refs"):
+        lines += ["管理员参考资料:", intel["refs"][:6000]]
+    lines += ["A (AI 版本):", json.dumps(a, ensure_ascii=False), "B (管理员版本):", json.dumps(b, ensure_ascii=False) if b else "(空)",
+              "owner_events:", json.dumps(events, ensure_ascii=False) if events else "(没有)"]
+    try:
+        r = m.client.chat.completions.create(
+            model="deepseek-chat", temperature=0.1, max_tokens=2400, response_format={"type": "json_object"},
+            messages=[{"role": "system", "content": MERGE_PROMPT}, {"role": "user", "content": "\n".join(lines)}])
+        out = json.loads(r.choices[0].message.content or "{}")
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️ {c['code']} 管理员版本核对合并失败 ({type(e).__name__}: {e})")
+        return rec
+
+    def zh_list(k, n=3):
+        return [x for x in (clean(s) for s in (out.get(k) or [])[:n]) if x]
+
+    def en_list(k, n=3):
+        return [x for x in (clean_en(s) for s in (out.get(k) or [])[:n]) if x]
+    merged = dict(rec)
+    merged["ai"] = a  # 原本的 AI 版本 (管理员按「恢复成 AI 自动版本」时用)
+    merged.update({"recent": clean(out.get("recent")) or rec.get("recent"), "notable": zh_list("notable"), "risks": zh_list("risks"),
+                   "earnings": clean(out.get("earnings")) if c["facts"] else "", "recent_en": clean_en(out.get("recent_en")) or rec.get("recent_en"),
+                   "notable_en": en_list("notable_en"), "risks_en": en_list("risks_en"), "earnings_en": clean_en(out.get("earnings_en")) if c["facts"] else ""})
+    merged["owner"] = {"stamp": owner_stamp(ov), "intel_at": intel.get("at"), "events_at": (ov.get("events") or {}).get("at"),
+                       "merged_at": now.strftime("%Y-%m-%d %H:%M"),
+                       "conflicts": zh_list("conflicts", 8), "conflicts_en": en_list("conflicts_en", 8),
+                       "unverified": zh_list("unverified", 8), "unverified_en": en_list("unverified_en", 8)}
+    return merged
 
 
 JUDGE_RE = re.compile(r"利好|利空|看好|看淡|看涨|看跌|正面消息|负面消息|bullish|bearish", re.I)
@@ -264,16 +335,19 @@ def read_json(path, default):
         return default
 
 
-def pick(universe, priority, limit, force, now):
-    """先做报告里的股票 (priority 顺序)，再做其余；没有文件 / 超过 REFRESH_DAYS 天的才做"""
+def pick(universe, priority, limit, force, now, ovr=None):
+    """管理员编辑过、还没核对合并的最先做；再做报告里的股票 (priority 顺序)，再做其余；没有文件 / 超过 REFRESH_DAYS 天的才做"""
     cut = (now - timedelta(days=REFRESH_DAYS)).strftime("%Y-%m-%d")
     order = {c: i for i, c in enumerate(priority)}
-    todo = []
+    first, todo = [], []
     for code, name in sorted(universe.items(), key=lambda kv: (order.get(kv[0], 1e9), kv[0])):
         rec = read_json(os.path.join(INTEL_DIR, f"{code}.json"), None)
-        if force or not rec or rec.get("updated", "")[:10] < cut:
+        stamp = owner_stamp((ovr or {}).get(code))
+        if (stamp and (not rec or (rec.get("owner") or {}).get("stamp") != stamp)) or (not stamp and rec and rec.get("owner")):  # 新编辑 / 恢复成自动版本
+            first.append((code, name))
+        elif force or not rec or rec.get("updated", "")[:10] < cut:
             todo.append((code, name))
-    return todo[:limit]
+    return (first + todo)[:max(limit, len(first))]
 
 
 def write_index(now):
@@ -320,22 +394,23 @@ def main():
     now = datetime.now(m.LOCAL_TZ)
     os.makedirs(INTEL_DIR, exist_ok=True)
     universe = {r["symbol"].split(".")[0]: r.get("name") or r["symbol"] for r in read_json(m.WATCHLIST_PATH, []) if r.get("symbol", "").endswith(".KL")}
+    ovr = {k: v for k, v in (read_json(OVR_PATH, {}).get("codes") or {}).items() if owner_stamp(v)}  # 管理员编辑过资讯 / 日历的公司
     if a.codes:
         want = [c.strip() for c in a.codes.split(",") if c.strip()]
         universe = {c: universe.get(c, c) for c in want}
     term = read_json(os.path.join("docs", "terminal", "data.json"), {})
     priority = [s[0] for s in sorted(term.get("stocks") or [], key=lambda s: -(s[5] or 0))]  # 报告里的股票按成交额
-    todo = pick(universe, priority, a.limit, a.force or bool(a.codes), now)
+    todo = pick(universe, priority, a.limit, a.force or bool(a.codes), now, ovr)
     print(f"🧠 公司情报：名单 {len(universe)} 家，这次处理 {len(todo)} 家")
     with ThreadPoolExecutor(FETCH_WORKERS) as pool:
         collected = list(pool.map(lambda cn: collect(cn[0], cn[1], now), todo))
-    done = same = failed = 0
+    done = same = failed = merged = 0
     for (code, name), c in zip(todo, collected):
         if c is None:
             failed += 1
             continue
         path = os.path.join(INTEL_DIR, f"{code}.json")
-        h, old = input_hash(c), read_json(path, None)
+        h, old = input_hash(c, ovr.get(code)), read_json(path, None)
         if old and old.get("hash") == h and not a.force:
             old["updated"] = now.strftime("%Y-%m-%d %H:%M")  # 资料没变：不再问 DeepSeek，只更新检查时间
             due = results_due(old.get("facts"), now)
@@ -351,12 +426,15 @@ def main():
             except Exception as e:
                 print(f"⚠️ DeepSeek 失败 {code} ({type(e).__name__}: {e})，这次先停")
                 break  # 多半是限流 / 额度问题
+            if code in ovr:  # 管理员编辑过：AI 新版本 + 管理员版本 对照资料核对合并
+                rec = merge_owner(c, rec, ovr[code], now)
+                merged += 1
             done += 1
             time.sleep(0.5)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(rec, f, ensure_ascii=False, separators=(",", ":"))
     n = write_index(now)
-    print(f"🧠 完成：DeepSeek 分析 {done} 家，资料没变沿用 {same} 家，抓取失败 {failed} 家；index 共 {n} 家")
+    print(f"🧠 完成：DeepSeek 分析 {done} 家 (其中跟管理员版本核对合并 {merged} 家)，资料没变沿用 {same} 家，抓取失败 {failed} 家；index 共 {n} 家")
 
 
 if __name__ == "__main__":

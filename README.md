@@ -217,6 +217,15 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
 - **企业活动日历** (`docs/intel/calendar.json`)：从公告里抽出股东大会、特别大会、除权日、权益登记日、派发日、上市日 (权证、红股、附加股) 等日期；另外按季度结束 + 2 个月推算「财报截止日」
 - 输入没变就不再问 DeepSeek，超过 7 天才重新整理；`docs/intel/index.json` 给终端版公告页和日历用
 
+## 在网页上编辑内容 (owner)
+
+网站管理员可以在终端版直接修改 **AI 公司资讯、公司中文简介、企业活动日历、IPO 超额认购 / 上市日**：
+- ✦ AI → ⚙ 设置里填「编辑通行码」后，各模块旁边出现 ✎；一般访客看不到，Worker 也会检查通行码
+- 编辑框里可以直接改，也可以写指令叫 AI 改写 (例如「把近况缩短成两句」「加上 11/10 公告的合约金额」)，可以贴公告原文当参考资料；AI 改过的栏位会标出来，可以撤销
+- 按「保存并发布」：Worker 把你的版本提交到 `docs/terminal/overrides.json`，约 1–2 分钟后所有人看到的就是更正后的资料 (你这台设备马上显示)；页面上不另外标示
+- **自动更新时核对合并**：`company_intel.py` 优先重新整理你编辑过的公司，AI 新版本和你的版本对照公告、新闻、财报核实后合并：你的写法有根据就保留，AI 找到的新事件补进去，跟资料矛盾的按资料改、找不到根据的保留，两种都列在只有你看得到的方框里；IPO 你填的倍数 / 日期跟自动抓到的不一样也会提示
+- 「恢复成自动版本」删掉你的编辑；设置步骤见 [`worker/README.md`](./worker/README.md)
+
 ## 新股 IPO 资料 (`ipo_calendar.py`)
 
 马股报告每次运行时顺便更新 (每 6 小时最多抓一次 IPO 页)，状态存在 `data/ipos.json`，终端版读 `docs/terminal/ipo.json`：
@@ -328,12 +337,12 @@ Bursa-bot/
 ├── ipo_calendar.py              # 新股 IPO 日历 + 上市表现 (KLSE Screener + Yahoo)，状态在 data/ipos.json
 ├── public_site.py               # 生成精简版公开展示站 public_site/ (见最下方)
 ├── terminal_assets/             # 终端版页面原稿：index.html、terminal.js、terminal.css、terminal_en.js (英文)、legal.html (使用条款)、sw.js + manifest.webmanifest (离线 PWA)、fonts/ (JetBrains Mono + OFL 授权)
-├── worker/                      # ✦ AI 问答的 Cloudflare Worker 中转 (ai-proxy.js + 设置说明)
+├── worker/                      # Cloudflare Worker：✦ AI 问答中转 + owner 编辑 (AI 改写、提交到 GitHub)
 ├── data/watchlist.json          # 全市场股票清单 (1070+ 支)
 ├── docs/index.html              # 生成的报告，GitHub Pages 从这里发布
 ├── docs/report.js               # 报告页的图表、指标、模板和表格脚本
 ├── docs/i18n.js                 # 标准报告的英文切换
-├── docs/terminal/               # 生成的终端版 (每次运行更新)
+├── docs/terminal/               # 生成的终端版 (每次运行更新)；overrides.json = 管理员在网页上的编辑 (Worker 提交)
 ├── docs/intel/                  # AI 公司资讯 <代码>.json、index.json、企业活动日历 calendar.json (company_intel.yml 生成)
 ├── docs/downloads/              # 最近 7 个交易日的下载文件 (自动生成，自动清理)
 ├── docs/charts/table.json       # "其余股票"点开看完整图表 / 网页选股条件用的 K 线 (每次运行更新)
