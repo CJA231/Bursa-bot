@@ -178,6 +178,23 @@ def dump_ipo():
         print("detail ERR", e)
 
 
+def dump_annlist():
+    """全市场最新公告列表：一条的原始 HTML (看有没有股票代码)、翻页参数能不能用"""
+    for url in ("https://www.klsescreener.com/v2/announcements", "https://www.klsescreener.com/v2/announcements?page=2",
+                "https://www.klsescreener.com/v2/announcements/index/page:2", "https://www.klsescreener.com/v2/announcements?offset=30"):
+        try:
+            r = requests.get(url, headers=UA, timeout=30)
+        except Exception as e:
+            print(url, "ERR", e); continue
+        ids = re.findall(r'href="/v2/announcements/view/(\d+)"', r.text)
+        print(f"==== {url} -> {r.status_code} len={len(r.text)} items={len(ids)} first={ids[:3]} last={ids[-2:]}")
+        if url.endswith("announcements"):
+            k = r.text.find('class="announcement-item"')
+            print(re.sub(r"\s+", " ", r.text[max(0, k - 400):k + 1800]))
+            print("stock links in page:", sorted(set(re.findall(r'/v2/stocks/view/(\w+)', r.text)))[:20])
+            print("pager:", re.findall(r'href="([^"]*(?:page|offset)[^"]*)"', r.text)[:10], re.findall(r"(?:loadMore|offset|page)\s*[=:]\s*[^;]{0,80}", r.text)[:6])
+
+
 def dump_ipo2():
     """IPO 第二轮：一张完整卡片的文字、个股页里有没有板块 / 业务 / 认购资料、公告里有没有超额认购"""
     import os
@@ -220,6 +237,9 @@ def dump_ipo2():
 
 
 def main():
+    if "--annlist" in sys.argv:
+        dump_annlist()
+        return
     if "--ipo2" in sys.argv:
         dump_ipo2()
         return
