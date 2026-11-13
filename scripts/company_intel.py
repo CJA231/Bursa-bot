@@ -65,6 +65,7 @@ CAL_BACK, CAL_AHEAD = 7, 180  # 日历放过去 7 天到未来 180 天
 OVR_PATH = os.path.join("docs", "terminal", "overrides.json")  # 管理员在网页上的编辑 (worker 提交)
 INTEL_FIELDS = ("recent", "notable", "risks", "earnings", "recent_en", "notable_en", "risks_en", "earnings_en")
 NEW_DAYS = 3                           # 「新公告」模式只看最近 3 天的公告
+NEW_PAGES = 8                          # 全市场公告列表一页 30 条，最多翻 8 页 (收盘后公告多的时候也不会漏)
 ROUTINE_CATS = ("holding", "buyback")  # 持股变动、股份回购：每天很多、内容例行，不触发重新整理
 
 SYSTEM_PROMPT = """你是马来西亚上市公司的资料整理助手，帮投资者快速看懂一家公司最近发生了什么。
@@ -365,8 +366,9 @@ def norm_name(name):
     return " ".join(re.sub(r"[^A-Z0-9 ]", " ", t).split())
 
 
-def name_map():
-    """公司全名 → 代码 (从个股文件和 AI 资讯文件里存的全名)"""
+def name_map(universe=None):
+    """公司全名 → 代码：个股文件和 AI 资讯文件里存的全名、新股名单的全名，
+    另外加上「去掉空格的简称」(公告列表的 SRKK AI BERHAD → SRKKAI)，对不上全名时用"""
     out = {}
     for d in (m.DETAIL_DIR, INTEL_DIR):
         if not os.path.isdir(d):
@@ -376,21 +378,50 @@ def name_map():
                 ln = (read_json(os.path.join(d, fn), {}) or {}).get("long_name")
                 if ln:
                     out.setdefault(norm_name(ln), fn[:-5])
+    for r in (read_json(os.path.join("data", "ipos.json"), {}).get("ipos") or {}).values():
+        if r.get("name") and r.get("code"):
+            out.setdefault(norm_name(r["name"]), r["code"])
+    for code, short in (universe or {}).items():
+        out.setdefault("~" + re.sub(r"[^A-Z0-9]", "", str(short).upper()), code)
+    return out
+
+
+def code_for(names, company):
+    n = norm_name(company)
+    return names.get(n) or names.get("~" + n.replace(" ", ""))
+
+
+def market_announcements(since):
+    """全市场最新公告，一页一页往回翻，翻到 since 以前就停 (最多 NEW_PAGES 页)"""
+    out, seen = [], set()
+    today = datetime.now(m.LOCAL_TZ).date()
+    for page in range(1, NEW_PAGES + 1):
+        r = m.requests.get(m.KLSE_ANN_LIST + (f"?page={page}" if page > 1 else ""), headers=m.KLSE_HEADERS, timeout=20)
+        r.raise_for_status()
+        items = [it for it in m.parse_klse_announcements(r.text, today) if it["id"] not in seen]
+        if not items:
+            if page == 1 and "announcement-item" in r.text:
+                raise ValueError("KLSE Screener 公告格式认不出来 (网站可能改版了)")
+            break
+        seen.update(it["id"] for it in items)
+        out += items
+        if min(it["date"] for it in items) < since:
+            break
     return out
 
 
 def pick_new(universe, priority, limit, now, ovr=None):
     """有新公告 (还不在 AI 资讯里) 的公司；管理员编辑过还没核对的照样最先做。回传 (todo, 统计)"""
-    items = m.klse_announcements()
     since = (now - timedelta(days=NEW_DAYS)).strftime("%Y-%m-%d")
-    names, known, fresh, unknown, routine = name_map(), {}, {}, 0, 0
+    items = market_announcements(since)
+    names, known, fresh, unknown, routine = name_map(universe), {}, {}, 0, 0
     for it in items:
         if it["date"] < since:
             continue
         if it.get("cat") in ROUTINE_CATS:
             routine += 1
             continue
-        code = names.get(norm_name(it.get("company")))
+        code = code_for(names, it.get("company"))
         if not code or code not in universe:
             unknown += 1
             continue
