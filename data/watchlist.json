@@ -188,10 +188,6 @@
     "name": "AP"
   },
   {
-    "symbol": "0075.KL",
-    "name": "LYC"
-  },
-  {
     "symbol": "0078.KL",
     "name": "GDEX"
   },
@@ -454,10 +450,6 @@
   {
     "symbol": "0158.KL",
     "name": "SCC"
-  },
-  {
-    "symbol": "0160.KL",
-    "name": "HHHCORP"
   },
   {
     "symbol": "0161.KL",
@@ -984,10 +976,6 @@
     "name": "TOPMIX"
   },
   {
-    "symbol": "03021.KL",
-    "name": "ETH"
-  },
-  {
     "symbol": "0303.KL",
     "name": "ALPHA"
   },
@@ -1006,14 +994,6 @@
   {
     "symbol": "0306.KL",
     "name": "SMART"
-  },
-  {
-    "symbol": "03061.KL",
-    "name": "TPTEC"
-  },
-  {
-    "symbol": "03065.KL",
-    "name": "LPCGRP"
   },
   {
     "symbol": "0307.KL",
@@ -2120,10 +2100,6 @@
     "name": "KSL"
   },
   {
-    "symbol": "5040.KL",
-    "name": "MERIDIAN"
-  },
-  {
     "symbol": "5041.KL",
     "name": "PBA"
   },
@@ -3140,10 +3116,6 @@
     "name": "STAR"
   },
   {
-    "symbol": "6114.KL",
-    "name": "MKH"
-  },
-  {
     "symbol": "6139.KL",
     "name": "TAKAFUL"
   },
@@ -3592,6 +3564,10 @@
     "name": "TXCD"
   },
   {
+    "symbol": "7145PA.KL",
+    "name": "TXCD-PA"
+  },
+  {
     "symbol": "7146.KL",
     "name": "AEM"
   },
@@ -3744,10 +3720,6 @@
     "name": "HEXRTL"
   },
   {
-    "symbol": "7203.KL",
-    "name": "WANGZNG"
-  },
-  {
     "symbol": "7204.KL",
     "name": "D&O"
   },
@@ -3798,10 +3770,6 @@
   {
     "symbol": "7219.KL",
     "name": "AIZO"
-  },
-  {
-    "symbol": "7219PA.KL",
-    "name": "AIZO-PA"
   },
   {
     "symbol": "7221.KL",
@@ -4382,10 +4350,6 @@
   {
     "symbol": "9954.KL",
     "name": "RGTBHD"
-  },
-  {
-    "symbol": "9962.KL",
-    "name": "GMUTUAL"
   },
   {
     "symbol": "9997.KL",
