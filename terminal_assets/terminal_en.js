@@ -526,5 +526,15 @@ window.TERM_EN = {
 "<p class=\"dim\">✎ = 网站管理员填写或更正的资料。</p>": "<p class=\"dim\">✎ = entered or corrected by the site owner.</p>",
 " · 人工编辑": " · owner edited",
 "<label>编辑通行码 (只有网站管理员需要，可留空)<input id=\"ai-edit\" type=\"password\" autocomplete=\"off\" value=\"": "<label>Edit passcode (site owner only; leave blank otherwise)<input id=\"ai-edit\" type=\"password\" autocomplete=\"off\" value=\"",
-"\"></label><p class=\"dim\">填了之后，AI 资讯、公司简介、日历和 IPO 旁边会出现 ✎，可以用 AI 改写后发布到网站。</p>": "\"></label><p class=\"dim\">With it, ✎ buttons appear next to AI intel, the company profile, calendar and IPO, so you can rewrite with AI and publish.</p>"
+"\"></label><p class=\"dim\">填了之后，AI 资讯、公司简介、日历和 IPO 旁边会出现 ✎，可以用 AI 改写后发布到网站。</p>": "\"></label><p class=\"dim\">With it, ✎ buttons appear next to AI intel, the company profile, calendar and IPO, so you can rewrite with AI and publish.</p>",
+"不在报告": "not in report",
+"今日信号": "Signals today",
+"盘中": "Live",
+"已收盘": "Closed",
+"<p class=\"dim\">今天没有信号</p>": "<p class=\"dim\">No signals today</p>",
+"<p class=\"dim\">观察列表是空的 (在完整终端里加)</p>": "<p class=\"dim\">Watchlist is empty (add stocks in the full terminal)</p>",
+"成交额前 5": "Top 5 by turnover",
+"接下来 7 天": "Next 7 days",
+"<p class=\"dim\">没有 IPO 日期或观察列表公司的活动</p>": "<p class=\"dim\">No IPO dates or watchlist company events</p>",
+" · 每 5 分钟自动更新 · <a href=\"./\" target=\"bterm\">完整终端 ↗</a></p>": " · refreshes every 5 min · <a href=\"./\" target=\"bterm\">Full terminal ↗</a></p>"
 };

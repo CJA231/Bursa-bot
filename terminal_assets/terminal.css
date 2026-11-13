@@ -339,3 +339,25 @@ h2 .ed-b { font-size: 11px; }
 .ed-ai { display: grid; gap: 6px; border: 1px dashed var(--acc); padding: 6px 8px; }
 .ed-act .ok { border: 1px solid var(--acc); color: var(--acc); font-weight: 700; }
 .ed-body .opts button { min-height: 40px; }
+
+/* 桌面小工具 (widget.html)：窄窗口、紧凑行距；不要页签、AI 按钮 */
+.wg .prompt, .wg #keys, .wg #ai-fab, .wg #ai-panel, .wg #ed-panel { display: none !important; }
+.wg .term { max-width: 520px; padding: 0 10px 10px; }
+.wg .top { padding-top: 6px; }
+.wg .status { margin: 0 0 4px; font-size: 12px; }
+.wg main { display: block; padding-top: 4px; }
+.wg .foot { margin-top: 8px; padding-top: 6px; padding-bottom: 6px; }
+.wg .foot p { font-size: 10.5px; }
+.wg-top { margin: 2px 0 4px; font-size: 13px; }
+.wg-h { font-size: 12px; color: var(--acc); margin: 10px 0 2px; padding-bottom: 2px; border-bottom: 1px solid var(--line); font-weight: 700; }
+.wg-h .dim { font-weight: 400; }
+.wg-r { display: grid; grid-template-columns: minmax(0, 1fr) auto 6.5ch 7.5ch; gap: 8px; align-items: baseline; width: 100%; padding: 3px 2px; margin: 0;
+  font: inherit; font-size: 13px; color: var(--fg); text-align: left; background: none; border: 0; cursor: pointer; }
+.wg-r:hover, .wg-r:focus-visible { background: var(--sel); }
+.wg-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wg-p, .wg-c { text-align: right; font-variant-numeric: tabular-nums; }
+.wg-s { font-size: 11px; }
+.wg-f { margin: 2px 0 4px; }
+.wg-f button { font-size: 11px; padding: 2px 6px; }
+.wg-e { margin: 2px 0; font-size: 12px; }
+.wg-foot { font-size: 11px; margin: 10px 0 0; }

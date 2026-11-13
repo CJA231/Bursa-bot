@@ -15,7 +15,7 @@ TERM_DIR = os.environ.get("TERMINAL_SITE_DIR") or os.path.join("docs", "terminal
 BARS_DAYS = 90
 CHANGES_DAYS = 14
 BOARD_MAX = 80
-ASSETS = ("index.html", "terminal.css", "terminal.js", "terminal_en.js", "legal.html", "sw.js", "manifest.webmanifest")
+ASSETS = ("index.html", "terminal.css", "terminal.js", "terminal_en.js", "legal.html", "sw.js", "manifest.webmanifest", "widget.html", "manifest-widget.webmanifest")
 
 
 def _f(v, d=3):

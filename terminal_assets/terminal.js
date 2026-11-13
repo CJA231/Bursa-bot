@@ -1341,6 +1341,53 @@
 
   // ---------- 外框 ----------
   // 顶部跑马灯：KLCI、涨 / 平 / 跌家数、USD/MYR、更新时间，后面接成交额前 10、成交量前 10 的涨跌 (不含仙股)；内容复制一份接在后面，无缝循环
+  // ---------- 桌面小工具 (widget.html)：一个小窗口看今天的重点，每 5 分钟自动更新；点股票在完整终端打开 ----------
+  var WIDGET = !!window.BTERM_WIDGET;
+  function wgRow(code, extra) {
+    var s = ST[code], nm = (s && s.name) || nameOf(code);
+    return '<button type="button" class="wg-r" data-q="' + esc(code) + '"><span class="wg-n">' + esc(nm) + (extra ? ' <small class="dim">' + extra + '</small>' : '') + '</span>' +
+      '<span class="wg-s dim">' + (s ? sparkFor(code, 10) : '') + '</span><span class="wg-p">' + (s ? px(s.p) : '—') + '</span>' +
+      '<span class="wg-c ' + (s ? cls(s.c) : 'dim') + '">' + (s ? pct(s.c, 1) : T('不在报告')) + '</span></button>';
+  }
+  function wgHead(t, sub) { return '<h3 class="wg-h">' + t + (sub != null ? ' <span class="dim">' + sub + '</span>' : '') + '</h3>'; }
+  function pageWidget() {
+    loadCal(); loadIpo();
+    var m = D.market || {}, ix = m.index, b = m.breadth, td = today(), end = addDays(td, 7), h = '';
+    var st = { live: T('盘中'), pre: T('开市前'), closed: T('已收盘') }[D.state] || D.state;
+    h += '<p class="wg-top">' + (ix ? '<b>KLCI</b> ' + ix.last.toLocaleString('en', { minimumFractionDigits: 2 }) + ' <span class="' + cls(ix.chg) + '">' + pct(ix.pct) + '</span> ' : '') +
+      (b ? '<span class="up">▲' + b.up + '</span> <span class="dim">■' + b.flat + '</span> <span class="dn">▼' + b.down + '</span>' : '') + '</p>';
+    var sg = D.signals || [];
+    h += wgHead(T('今日信号'), sg.length) + (sg.length ? sg.slice(0, 6).map(function (x) { return wgRow(x.code); }).join('') : T('<p class="dim">今天没有信号</p>'));
+    var f = curFolder();
+    h += wgHead('★ ' + esc(T(f.name)), f.codes.length) + (W.folders.length > 1 ? '<div class="opts wg-f">' + W.folders.map(function (x) {
+      return '<button type="button" data-wgf="' + esc(x.id) + '" aria-pressed="' + (x.id === f.id) + '">' + esc(T(x.name)) + '</button>'; }).join('') + '</div>' : '') +
+      (f.codes.length ? f.codes.slice(0, 12).map(function (c) { return wgRow(c); }).join('') : T('<p class="dim">观察列表是空的 (在完整终端里加)</p>'));
+    var liq = LIST.filter(function (x) { return isNum(x.c) && isNum(x.p) && x.p >= 0.1; }).sort(function (x, y) { return (y.to || 0) - (x.to || 0); }).slice(0, 5);
+    h += wgHead(T('成交额前 5')) + liq.map(function (x) { return wgRow(x.code); }).join('');
+    // 接下来 7 天：IPO 日期 + 观察列表公司的企业活动
+    var wset = {}; W.folders.forEach(function (x) { x.codes.forEach(function (c) { wset[c] = 1; }); });
+    var ev = (IPO ? ipoEvents(td) : []).filter(function (e) { return e.date <= end; });
+    if (CAL) Object.keys(wset).forEach(function (c) { ev = ev.concat(evApply(c, CAL.filter(function (e) { return e.code === c; })).filter(function (e) { return e.date >= td && e.date <= end; })); });
+    ev.sort(function (a, b2) { return a.date < b2.date ? -1 : a.date > b2.date ? 1 : 0; });
+    h += wgHead(T('接下来 7 天'), ev.length) + (ev.length ? ev.slice(0, 8).map(function (e) {
+      var t = CAL_T[e.type] || ['corp', e.type];
+      return '<p class="wg-e"><span class="dim">' + md(e.date) + '</span> <span class="cal-t cg-' + t[0] + '">' + t[1] + '</span> ' + esc(e.name || e.code) + '</p>'; }).join('') :
+      T('<p class="dim">没有 IPO 日期或观察列表公司的活动</p>'));
+    h += '<p class="dim wg-foot">' + esc(md(D.updated.slice(0, 10)) + D.updated.slice(10)) + ' ' + esc(D.tz || '') + ' · ' + st + T(' · 每 5 分钟自动更新 · <a href="./" target="bterm">完整终端 ↗</a></p>');
+    return h;
+  }
+  if (WIDGET) {  // 自动更新：窗口看得到时每 5 分钟重新读 data.json；从别的窗口切回来、超过 5 分钟也马上更新
+    var wgLast = Date.now();
+    var wgRefresh = function () {
+      if (document.visibilityState !== 'visible' || !D) return;
+      wgLast = Date.now();
+      fetch('data.json?t=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+        if (!j) return; D = j; ingest(); document.getElementById('status').innerHTML = status(); BARS = null; barsLoading = false; CAL = null; calLoading = false; render();
+      }).catch(function () {});
+    };
+    setInterval(wgRefresh, 5 * 60e3);
+    document.addEventListener('visibilitychange', function () { if (Date.now() - wgLast > 5 * 60e3) wgRefresh(); });
+  }
   function status() {
     var m = D.market || {}, ix = m.index, b = m.breadth, st = { live: T('盘中 LIVE'), pre: T('开市前'), closed: T('收盘 CLOSED') }[D.state] || D.state, sep = ' <span class="g">│</span> ';
     var parts = [];
@@ -1373,7 +1420,7 @@
     document.getElementById('prompt-arg').textContent = S.code ? 'quote ' + S.code : '--' + S.page;
     var fn = { cal: pageCal, sig: pageSig, watch: pageWatch, bt: pageBt, pool: pagePool, mkt: pageMkt, ann: pageAnn }[S.page] || pageSig;
     var focusId = document.activeElement && /^(grep|cb-q)$/.test(document.activeElement.id) ? document.activeElement.id : null, focusGrep = !!focusId, pos = focusGrep ? document.activeElement.selectionStart : null;
-    main.innerHTML = S.code ? pageQuote(S.code) : fn();
+    main.innerHTML = WIDGET ? pageWidget() : S.code ? pageQuote(S.code) : fn();
     if (focusGrep) { var g = document.getElementById(focusId); if (g) { g.focus(); try { g.setSelectionRange(pos, pos); } catch (e) {} } }
     if (!BARS) loadBars();
     if (AI.open && !AI.busy && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#ai-panel'))) aiRender();
@@ -1393,6 +1440,10 @@
 
   // ---------- 操作 ----------
   document.addEventListener('click', function (e) {
+    if (WIDGET) {
+      var wq = e.target.closest('[data-q]'); if (wq) { window.open('./#q-' + wq.dataset.q, 'bterm'); return; }
+      var wf = e.target.closest('[data-wgf]'); if (wf) { W.cur = wf.dataset.wgf; saveW(); render(); return; }
+    }
     var wt = e.target.closest('[data-wf],[data-wa],[data-wadd],[data-wd],[data-wt]'); if (wt) { watchClick(wt); return; }
     var fb = e.target.closest('[data-fin]'); if (fb) { S.fin = fb.dataset.fin; render(); return; }
     var ab = e.target.closest('[data-af]'); if (ab) {  // 换筛选后把选中的那个滑到看得见的位置

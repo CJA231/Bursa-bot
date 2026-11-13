@@ -2,6 +2,7 @@
   "name": "bursa.term · 马股终端",
   "short_name": "bursa.term",
   "lang": "zh",
+  "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

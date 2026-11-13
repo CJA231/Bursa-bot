@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN" class="wg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#303030" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F8F6F2" media="(prefers-color-scheme: light)">
+<meta name="robots" content="noindex">
+<title>bursa.widget</title>
+<!-- 桌面小工具：终端版的精简画面 (大盘、信号、观察列表、成交额前 5、接下来 7 天的 IPO / 日历)，每 5 分钟自动更新。
+     用 Chrome / Edge 打开后「安装」成 app，就是一个可以放在桌面角落的小窗口；点股票会在完整终端里打开。 -->
+<link rel="manifest" href="manifest-widget.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="bursa.widget">
+<link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+<link rel="preload" href="fonts/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="terminal.css?v=__V__">
+<script>window.BTERM_WIDGET = 1;</script>
+</head>
+<body>
+<div class="term">
+  <header class="top">
+    <p class="prompt"><span id="prompt-arg"></span></p>
+    <p class="status" id="status">loading…</p>
+    <nav class="keys" id="keys" aria-label="页面"></nav>
+  </header>
+  <main id="main" tabindex="-1"><p class="dim">读取数据中…</p></main>
+  <footer class="foot">
+    <p class="dim" id="disclaimer">仅供研究参考，不构成投资建议</p>
+    <p class="dim legal-line"><a id="legal-link" href="legal.html" target="bterm">使用条款与免责声明</a><button type="button" id="theme-btn" hidden></button><button type="button" id="lang-btn" hidden></button><a id="full-report" hidden></a><span id="keys-help" hidden></span></p>
+  </footer>
+</div>
+<script src="terminal_en.js?v=__V__"></script>
+<script src="terminal.js?v=__V__"></script>
+</body>
+</html>

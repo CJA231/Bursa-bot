@@ -6,7 +6,7 @@
 var V = '__V__';
 var SHELL = 'bterm-shell-' + V, DATA = 'bterm-data', FONT = 'bterm-font-1';
 var SCOPE = new URL(self.registration.scope);
-var PRE = ['./', 'terminal.css?v=' + V, 'terminal_en.js?v=' + V, 'terminal.js?v=' + V, 'legal.html', 'manifest.webmanifest'];
+var PRE = ['./', 'widget.html', 'terminal.css?v=' + V, 'terminal_en.js?v=' + V, 'terminal.js?v=' + V, 'legal.html', 'manifest.webmanifest', 'manifest-widget.webmanifest'];
 var DATA_FILES = ['data.json', 'bars.json', 'ipo.json', 'overrides.json'];
 var FONTS = ['fonts/JetBrainsMono-Regular.woff2', 'fonts/JetBrainsMono-Medium.woff2', 'fonts/JetBrainsMono-Bold.woff2'];
 var WAIT_MS = 8000;
