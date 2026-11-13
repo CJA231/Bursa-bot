@@ -2,12 +2,12 @@
 // - 页面、data.json、bars.json、ipo.json (新股)：先上网拿最新的 (成功就存一份)；连不上或 8 秒没回应才用存着的那份，回应头加 x-bterm-offline 让页面显示「离线」
 // - terminal.css / terminal.js 这些带 ?v= 版本号的：版本号没变就直接用存着的
 // - 字体：存一次一直用 (文件名不变，另外一个缓存，不会每次更新都重下载)
-// 每次生成报告 17189569 都会变，浏览器就会装新版本的 sw.js，并删掉旧版本的页面缓存。
-var V = '17189569';
+// 每次生成报告 90079358 都会变，浏览器就会装新版本的 sw.js，并删掉旧版本的页面缓存。
+var V = '90079358';
 var SHELL = 'bterm-shell-' + V, DATA = 'bterm-data', FONT = 'bterm-font-1';
 var SCOPE = new URL(self.registration.scope);
 var PRE = ['./', 'terminal.css?v=' + V, 'terminal_en.js?v=' + V, 'terminal.js?v=' + V, 'legal.html', 'manifest.webmanifest'];
-var DATA_FILES = ['data.json', 'bars.json', 'ipo.json'];
+var DATA_FILES = ['data.json', 'bars.json', 'ipo.json', 'overrides.json'];
 var FONTS = ['fonts/JetBrainsMono-Regular.woff2', 'fonts/JetBrainsMono-Medium.woff2', 'fonts/JetBrainsMono-Bold.woff2'];
 var WAIT_MS = 8000;
 
