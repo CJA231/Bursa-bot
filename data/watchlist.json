@@ -716,10 +716,6 @@
     "name": "FLEXI"
   },
   {
-    "symbol": "0232.KL",
-    "name": "VOLCANO"
-  },
-  {
     "symbol": "0233.KL",
     "name": "PEKAT"
   },
@@ -998,6 +994,10 @@
   {
     "symbol": "0307.KL",
     "name": "KENERGY"
+  },
+  {
+    "symbol": "03071.KL",
+    "name": "NOESIS"
   },
   {
     "symbol": "0308.KL",
@@ -2420,6 +2420,10 @@
     "name": "CYBERE"
   },
   {
+    "symbol": "5167.KL",
+    "name": "TURBO"
+  },
+  {
     "symbol": "5168.KL",
     "name": "HARTA"
   },
@@ -3448,10 +3452,6 @@
     "name": "LIIHEN"
   },
   {
-    "symbol": "7091.KL",
-    "name": "UNIMECH"
-  },
-  {
     "symbol": "7094.KL",
     "name": "EUROSP"
   },
@@ -3466,10 +3466,6 @@
   {
     "symbol": "7097.KL",
     "name": "TAWIN"
-  },
-  {
-    "symbol": "7099.KL",
-    "name": "MAYU"
   },
   {
     "symbol": "7100.KL",
@@ -3852,6 +3848,10 @@
     "name": "CITAGLB"
   },
   {
+    "symbol": "7245PA.KL",
+    "name": "CITAGLB-PA"
+  },
+  {
     "symbol": "7246.KL",
     "name": "SIGN"
   },
@@ -3890,10 +3890,6 @@
   {
     "symbol": "7315.KL",
     "name": "AHB"
-  },
-  {
-    "symbol": "7323.KL",
-    "name": "KEN"
   },
   {
     "symbol": "7374.KL",
