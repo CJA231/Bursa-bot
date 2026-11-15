@@ -178,6 +178,56 @@ def dump_ipo():
         print("detail ERR", e)
 
 
+def dump_esg():
+    """公司官网：连不连得上、找不找得到可持续发展报告 / 年报 PDF、PDF 能不能下载 (ESG 抽取用)"""
+    import json
+    import os
+    from urllib.parse import urljoin
+    picks = ["1155", "5347", "7113", "0024", "5335", "0138", "4707", "5398"]
+    kw = re.compile(r"sustainab|annual[\s_-]*report|investor|\bir\b|esg", re.I)
+    for code in picks:
+        try:
+            d = json.load(open(os.path.join("docs", "stock", code + ".json")))
+        except Exception:
+            print(f"[{code}] no stock file"); continue
+        site = ((d.get("profile") or {}).get("website") or "").strip()
+        print(f"==== {code} {d.get('long_name')} {site}")
+        if not site:
+            continue
+        try:
+            r = requests.get(site, headers=UA, timeout=25)
+        except Exception as e:
+            print("   home ERR", type(e).__name__, str(e)[:120]); continue
+        print("   home", r.status_code, len(r.text), r.url)
+        links = re.findall(r'<a[^>]+href="([^"#]+)"[^>]*>(.*?)</a>', r.text, re.S | re.I)
+        cand = []
+        for href, txt in links:
+            t = re.sub(r"<[^>]+>|\s+", " ", txt).strip()
+            if kw.search(href) or kw.search(t):
+                cand.append((urljoin(r.url, href), t[:50]))
+        cand = list(dict.fromkeys(cand))[:12]
+        print("   ir/sustainability links:", cand[:8])
+        pdfs = [c for c in cand if c[0].lower().split("?")[0].endswith(".pdf")]
+        for u, _ in [c for c in cand if not c[0].lower().split("?")[0].endswith(".pdf")][:3]:
+            try:
+                p2 = requests.get(u, headers=UA, timeout=25)
+                for h2, t2 in re.findall(r'<a[^>]+href="([^"#]+\.pdf[^"]*)"[^>]*>(.*?)</a>', p2.text, re.S | re.I):
+                    t2 = re.sub(r"<[^>]+>|\s+", " ", t2).strip()
+                    if kw.search(h2) or kw.search(t2) or re.search(r"20\d\d", h2 + t2):
+                        pdfs.append((urljoin(p2.url, h2), t2[:50]))
+            except Exception as e:
+                print("   sub ERR", u, type(e).__name__)
+        pdfs = list(dict.fromkeys(pdfs))[:8]
+        print("   pdfs:", pdfs[:6])
+        for u, _ in pdfs[:1]:
+            try:
+                g = requests.get(u, headers=UA, timeout=60, stream=True)
+                head = next(g.iter_content(2048), b"")
+                print("   pdf GET", g.status_code, g.headers.get("Content-Type"), g.headers.get("Content-Length"), head[:5])
+            except Exception as e:
+                print("   pdf ERR", type(e).__name__, str(e)[:100])
+
+
 def dump_annlist():
     """全市场最新公告列表：一条的原始 HTML (看有没有股票代码)、翻页参数能不能用"""
     for url in ("https://www.klsescreener.com/v2/announcements", "https://www.klsescreener.com/v2/announcements?page=2",
@@ -237,6 +287,9 @@ def dump_ipo2():
 
 
 def main():
+    if "--esg" in sys.argv:
+        dump_esg()
+        return
     if "--annlist" in sys.argv:
         dump_annlist()
         return
