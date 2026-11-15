@@ -42,7 +42,7 @@ jobs:
     # 报告失败 / 被取消就不跟着跑
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -61,12 +61,24 @@ jobs:
         run: |
           python scripts/company_intel.py $NEW --limit "$LIMIT" --codes "$CODES" $FORCE | tee intel_log.txt
           { echo '### 公司情报'; echo '```'; tail -n 40 intel_log.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # 主要股东持股 (程序读公告，不用 AI)、原始财报文件索引 (只存 Bursa 原文网址)、业务板块动态 (DeepSeek)；任何一个失败都不影响发布
+      - name: Shareholders, filings, segments
+        continue-on-error: true
+        env:
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+          PYTHONUNBUFFERED: '1'
+          CODES: ${{ github.event.inputs.codes || '' }}
+        run: |
+          python scripts/holders.py --codes "$CODES" --limit 25 | tee extra_log.txt
+          python scripts/filings.py --codes "$CODES" --limit 25 | tee -a extra_log.txt
+          python scripts/segments.py --codes "$CODES" --limit 12 | tee -a extra_log.txt
+          { echo '### 股东 / 财报文件 / 业务板块'; echo '```'; grep -v '^   ' extra_log.txt | tail -n 20; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Publish
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A docs/intel
+          git add -A docs/intel docs/holders docs/filings docs/segments
           git diff --staged --quiet && exit 0
-          git commit -m "Update company intel"
+          git commit -m "Update company intel, shareholders, filings, segments"
           git pull --rebase origin "${GITHUB_REF_NAME}"
           git push

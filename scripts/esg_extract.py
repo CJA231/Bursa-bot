@@ -181,7 +181,7 @@ def ask(code, name, entry, pages, sel):
     lines.append("页面:")
     lines += [f"【第 {p} 页】 {pages[p - 1][:PAGE_CHARS]}" for p in sel]
     r = m.client.chat.completions.create(
-        model="deepseek-chat", temperature=0.1, max_tokens=3000, response_format={"type": "json_object"},
+        model=m.AI_MODEL, temperature=0.1, max_tokens=3000, response_format={"type": "json_object"},
         messages=[{"role": "system", "content": PROMPT}, {"role": "user", "content": "\n".join(lines)}])
     return json.loads(r.choices[0].message.content or "{}")
 

@@ -205,7 +205,7 @@ def source_lines(c):
 
 def ask(c):
     r = m.client.chat.completions.create(
-        model="deepseek-chat", temperature=0.1, max_tokens=2400, response_format={"type": "json_object"},
+        model=m.AI_MODEL, temperature=0.1, max_tokens=2400, response_format={"type": "json_object"},
         messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": "\n".join(source_lines(c))}])
     return json.loads(r.choices[0].message.content or "{}")
 
@@ -237,7 +237,7 @@ def merge_owner(c, rec, ov, now):
               "owner_events:", json.dumps(events, ensure_ascii=False) if events else "(没有)"]
     try:
         r = m.client.chat.completions.create(
-            model="deepseek-chat", temperature=0.1, max_tokens=2400, response_format={"type": "json_object"},
+            model=m.AI_MODEL, temperature=0.1, max_tokens=2400, response_format={"type": "json_object"},
             messages=[{"role": "system", "content": MERGE_PROMPT}, {"role": "user", "content": "\n".join(lines)}])
         out = json.loads(r.choices[0].message.content or "{}")
     except Exception as e:  # noqa: BLE001

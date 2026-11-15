@@ -32,6 +32,12 @@ jobs:
           # symbol 填 PROBE = 检查公告 / 新闻网站在 Actions 上连不连得上 (scripts/probe_sources.py)
           if [ "${{ github.event.inputs.symbol }}" = "PROBE5" ]; then python scripts/probe_sources.py --ipo; exit 0; fi
           if [ "${{ github.event.inputs.symbol }}" = "ESG" ]; then python scripts/esg_extract.py --dry-run --force; exit 0; fi
+          # HOLDERS / FILINGS / SEGMENTS (可加 :代码，例如 SEGMENTS:7113) = 试跑、只印结果不提交
+          case "${{ github.event.inputs.symbol }}" in
+            HOLDERS*) python scripts/holders.py --dry-run --codes "$(echo '${{ github.event.inputs.symbol }}:5347,7113' | cut -d: -f2)"; exit 0;;
+            FILINGS*) python scripts/filings.py --dry-run --codes "$(echo '${{ github.event.inputs.symbol }}:5347,7113' | cut -d: -f2)"; exit 0;;
+            SEGMENTS*) python scripts/segments.py --dry-run --codes "$(echo '${{ github.event.inputs.symbol }}:5347,7113' | cut -d: -f2)"; exit 0;;
+          esac
           if [ "${{ github.event.inputs.symbol }}" = "PROBE12" ]; then python scripts/probe_sources.py --qr; exit 0; fi
           if [ "${{ github.event.inputs.symbol }}" = "PROBE11" ]; then python scripts/probe_sources.py --fin2; exit 0; fi
           if [ "${{ github.event.inputs.symbol }}" = "PROBE10" ]; then python scripts/probe_sources.py --holders; exit 0; fi

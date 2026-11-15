@@ -227,6 +227,9 @@ client = OpenAI(
     api_key=DEEPSEEK_KEY,               # 从 GitHub Secrets 读取密码
     base_url="https://api.deepseek.com" # 👈 这里指定连接 DeepSeek
 )
+# 模型名称统一在这里改 (环境变量 DEEPSEEK_MODEL 可以覆盖)。2026-11 实测：deepseek-chat 由 DeepSeek V4.1 Flash 回答 (非思考模式，
+# 直接输出 JSON)；写成 deepseek-flash 会开「思考」模式，先用掉输出额度，JSON 可能被截断，所以默认维持 deepseek-chat
+AI_MODEL = os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat"
 
 # === T3 形态 ===
 # 过去 2~5 天前某天放量(成交量 > 前20日均量)创出当天最高价 High1，
@@ -1683,7 +1686,7 @@ def add_profile_zh(stocks):
             continue  # 中文介绍和英文业务线都有了
         try:
             r = client.chat.completions.create(
-                model="deepseek-chat",
+                model=AI_MODEL,
                 messages=[{"role": "system", "content": PROFILE_SYSTEM_PROMPT},
                           {"role": "user", "content": f"公司: {d.get('long_name') or s['name']}\n行业: {prof.get('sector')} / {prof.get('industry')}\n介绍:\n{prof['summary'][:3000]}"}],
                 temperature=0.1, max_tokens=800, response_format={"type": "json_object"})
@@ -2381,7 +2384,7 @@ def ask_deepseek(code, name, headlines):
     lines = "\n".join(f"- {d} [{src}] {t}" for d, src, t in headlines)
     try:
         response = client.chat.completions.create(
-            model="deepseek-chat",
+            model=AI_MODEL,
             messages=[{"role": "system", "content": DEEPSEEK_SYSTEM_PROMPT},
                       {"role": "user", "content": f"股票: {name} ({code})\n最近 {DIGEST_DAYS} 天的标题:\n{lines}"}],
             temperature=0.1, max_tokens=300, response_format={"type": "json_object"})
