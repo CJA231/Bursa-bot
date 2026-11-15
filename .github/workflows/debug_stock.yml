@@ -32,6 +32,7 @@ jobs:
           # symbol 填 PROBE = 检查公告 / 新闻网站在 Actions 上连不连得上 (scripts/probe_sources.py)
           if [ "${{ github.event.inputs.symbol }}" = "PROBE5" ]; then python scripts/probe_sources.py --ipo; exit 0; fi
           if [ "${{ github.event.inputs.symbol }}" = "ESG" ]; then python scripts/esg_extract.py --dry-run --force; exit 0; fi
+          if [ "${{ github.event.inputs.symbol }}" = "PROBE12" ]; then python scripts/probe_sources.py --qr; exit 0; fi
           if [ "${{ github.event.inputs.symbol }}" = "PROBE11" ]; then python scripts/probe_sources.py --fin2; exit 0; fi
           if [ "${{ github.event.inputs.symbol }}" = "PROBE10" ]; then python scripts/probe_sources.py --holders; exit 0; fi
           if [ "${{ github.event.inputs.symbol }}" = "PROBE9" ]; then python scripts/probe_sources.py --fin; exit 0; fi

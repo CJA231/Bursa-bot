@@ -436,7 +436,52 @@ def dump_fin2():
             print("   view ERR", e)
 
 
+def dump_qr():
+    """PROBE12：最新一季财报的附件 PDF 下不下载得到 (业务板块分析用)"""
+    import io
+    import os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import main as m
+    for code in ("5347", "7113", "5398"):
+        try:
+            v = requests.get(f"https://www.klsescreener.com/v2/stocks/view/{code}", headers=m.KLSE_HEADERS, timeout=20).text
+            dates = list(dict.fromkeys(re.findall(r'/v2/stock/financial-report/' + code + r'/(\d{4}-\d{2}-\d{2})', v)))
+            dates.sort(reverse=True)
+            print(f"[{code}] quarters {len(dates)} newest {dates[:3]}")
+            fr = requests.get(f"https://www.klsescreener.com/v2/stock/financial-report/{code}/{dates[0]}", headers=m.KLSE_HEADERS, timeout=20)
+            att = list(dict.fromkeys(re.findall(r'href="([^"]*FileAccess[^"]*)"', fr.text)))
+            names = re.findall(r'(?is)<a[^>]+href="[^"]*FileAccess[^"]*"[^>]*>(.*?)</a>', fr.text)
+            names = [" ".join(re.sub(r"<[^>]+>", " ", n).split())[:60] for n in names[:6]]
+            print(f"   report page {fr.status_code} attachments: {att[:6]} names: {names}")
+            ann = re.findall(r'announcement_details\?ann_id=(\d+)', fr.text)
+            print("   bursa ann ids:", ann[:3])
+            for a in att[:3]:
+                a = a.replace("&amp;", "&")
+                for u in (("https://www.klsescreener.com" + a) if a.startswith("/") else a, "https://disclosure.bursamalaysia.com" + a if a.startswith("/") else None):
+                    if not u:
+                        continue
+                    try:
+                        g = requests.get(u, headers=m.KLSE_HEADERS, timeout=40)
+                        print(f"   GET {u[:110]} -> {g.status_code} {g.headers.get('Content-Type')} {len(g.content)}B {g.content[:5]!r}")
+                        if g.content[:4] == b"%PDF":
+                            from pypdf import PdfReader
+                            pages = [p.extract_text() or "" for p in PdfReader(io.BytesIO(g.content)).pages]
+                            txt = " ".join(pages)
+                            print(f"   PDF pages {len(pages)} chars {len(txt)}")
+                            for kw in ("Review of performance", "REVIEW OF PERFORMANCE", "Segment", "SEGMENT", "Prospects", "PROSPECTS"):
+                                k = txt.find(kw)
+                                if k >= 0:
+                                    print(f"   [{kw}] {' '.join(txt[k:k + 700].split())}")
+                            break
+                    except Exception as e:  # noqa: BLE001
+                        print(f"   GET {u[:110]} ERR {type(e).__name__}: {str(e)[:100]}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[{code}] ERR {type(e).__name__}: {e}")
+
+
 def main():
+    if "--qr" in sys.argv:
+        return dump_qr()
     if "--fin2" in sys.argv:
         return dump_fin2()
     if "--holders" in sys.argv:
