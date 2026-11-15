@@ -221,6 +221,8 @@ pre.txt .nm { font: inherit; }
 .ft-v { text-align: right; white-space: nowrap; overflow: hidden; }
 .ft-bar { height: 7px; background: var(--bg2); display: flex; justify-content: flex-end; }
 .ft-bar i { display: block; height: 100%; }
+.hc1 { color: var(--acc); } .hc2 { color: var(--warn); } .hc3 { color: var(--fc2); } .hc4 { color: var(--fc4); } .hc5 { color: var(--fc3); }  /* 主要股东持股条：颜色 + 不同字符区分 */
+pre.fl a { color: var(--acc2); text-decoration: none; } pre.fl a:hover { color: var(--acc); text-decoration: underline; }
 .fc1 { background: var(--fc1); } .fc2 { background: var(--fc2); } .fc3 { background: var(--fc3); } .fc4 { background: var(--fc4); } .fc5 { background: var(--fc5); }
 .ft-bar i.neg { background: var(--dn); }
 .scs { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; }
@@ -339,3 +341,78 @@ h2 .ed-b { font-size: 11px; }
 .ed-ai { display: grid; gap: 6px; border: 1px dashed var(--acc); padding: 6px 8px; }
 .ed-act .ok { border: 1px solid var(--acc); color: var(--acc); font-weight: 700; }
 .ed-body .opts button { min-height: 40px; }
+
+/* 桌面小工具 (widget.html)：窄窗口、紧凑行距；不要页签、AI 按钮 */
+.wg .prompt, .wg #keys, .wg #ai-fab, .wg #ai-panel, .wg #ed-panel { display: none !important; }
+.wg .term { max-width: 520px; padding: 0 10px 10px; }
+.wg .top { padding-top: 6px; }
+.wg .status { margin: 0 0 4px; font-size: 12px; }
+.wg main { display: block; padding-top: 4px; }
+.wg .foot { margin-top: 8px; padding-top: 6px; padding-bottom: 6px; }
+.wg .foot p { font-size: 10.5px; }
+.wg-top { margin: 2px 0 4px; font-size: 13px; }
+.wg-h { font-size: 12px; color: var(--acc); margin: 10px 0 2px; padding-bottom: 2px; border-bottom: 1px solid var(--line); font-weight: 700; }
+.wg-h .dim { font-weight: 400; }
+.wg-r { display: grid; grid-template-columns: minmax(0, 1fr) auto 6.5ch 7.5ch; gap: 8px; align-items: baseline; width: 100%; padding: 3px 2px; margin: 0;
+  font: inherit; font-size: 13px; color: var(--fg); text-align: left; background: none; border: 0; cursor: pointer; }
+.wg-r:hover, .wg-r:focus-visible { background: var(--sel); }
+.wg-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wg-p, .wg-c { text-align: right; font-variant-numeric: tabular-nums; }
+.wg-s { font-size: 11px; }
+.wg-f { margin: 2px 0 4px; }
+.wg-f button { font-size: 11px; padding: 2px 6px; }
+.wg-e { margin: 2px 0; font-size: 12px; }
+.wg-foot { font-size: 11px; margin: 10px 0 0; }
+
+/* IR + ESG 页面 (ir.html) 和官网嵌入小工具 (ir-widget.html) */
+.ir-wrap { display: block; max-width: 860px; margin: 0 auto; padding: 14px 16px 40px; }
+.ir-h { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px; border-bottom: 3px double var(--acc); padding-bottom: 10px; }
+.ir-h h1 { font-size: 20px; margin: 0 0 4px; color: var(--acc); }
+.ir-h p { margin: 0; font-size: 12px; }
+.ir-tools { display: flex; gap: 6px; }
+.ir-tools button, .ir-pick button { font: inherit; font-size: 12px; padding: 6px 10px; color: var(--acc2); background: none; border: 1px solid var(--line); cursor: pointer; }
+.ir-s { margin-top: 18px; }
+.ir-s h2 { font-size: 14px; color: var(--acc); margin: 0 0 6px; padding-bottom: 3px; border-bottom: 1px solid var(--line); }
+.ir-s h3 { font-size: 12.5px; color: var(--acc2); margin: 12px 0 4px; }
+.ir-s p { margin: 4px 0; line-height: 1.6; }
+.ir-l { margin: 4px 0; padding-left: 1.2em; line-height: 1.55; }
+.ir-l li { margin: 2px 0; }
+.ir-l a { color: var(--fg); }
+.ir-t { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 4px 0; }
+.ir-t th { text-align: left; font-weight: 400; color: var(--mut); border-bottom: 1px solid var(--line); padding: 4px 6px; white-space: nowrap; }
+.ir-t td { border-bottom: 1px dashed var(--line); padding: 5px 6px; vertical-align: top; }
+.ir-t .r { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ir-t tr.me td { background: var(--sel); font-weight: 700; }
+.ir-t details summary { cursor: pointer; color: var(--acc2); white-space: nowrap; }
+.ir-t q { display: block; font-size: 11.5px; color: var(--mut); margin-top: 4px; quotes: "“" "”"; }
+.ir-note { font-size: 11.5px; margin-top: 2px; }
+.ir-scroll { overflow-x: auto; }
+.ir-int, .ir-src { font-size: 11.5px; }
+.ir-k { display: inline-block; font-size: 11px; padding: 0 4px; border: 1px solid var(--line); color: var(--acc2); margin-right: 2px; }
+.ir-own { display: flex; height: 18px; border: 1px solid var(--line); background: var(--bg2); margin: 4px 0; overflow: hidden; }
+.ir-o { display: block; height: 100%; }
+.o0 { background: var(--bg2); border: 1px solid var(--line); } .o1 { background: var(--acc); } .o2 { background: var(--warn); } .o3 { background: var(--fc2); } .o4 { background: var(--fc4); } .o5 { background: var(--fc3); }
+.ir-leg { list-style: none; padding: 0; margin: 4px 0 10px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; }
+.ir-sw { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }
+.ir-hbc { width: 30%; min-width: 60px; }
+.ir-hb { display: block; height: 10px; background: var(--acc2); margin-top: 4px; }
+.ir-t .c { text-align: center; }
+.ir-fl a { text-decoration: none; }
+.ir-f { margin-top: 26px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.6; }
+.ir-pick input { font: inherit; font-size: 16px; width: 8em; padding: 6px 8px; color: var(--fg); background: var(--bg2); border: 1px solid var(--line); }
+.irw .ir-wrap { max-width: none; padding: 10px 12px; }
+.irw-h { border-bottom: 2px solid var(--acc); padding-bottom: 4px; }
+.irw h3 { font-size: 12px; color: var(--acc); margin: 10px 0 2px; }
+.irw .ir-l { font-size: 12.5px; padding-left: 1em; }
+.irw-f { font-size: 10.5px; margin-top: 10px; }
+@media print {
+  :root, :root[data-theme] { --bg: #fff; --bg2: #f4f4f4; --fg: #111; --mut: #555; --line: #bbb; --acc: #162A46; --acc2: #2E4D7A; --sel: #eee; }
+  body { background: #fff; color: #111; }
+  .ir-tools, #ai-fab { display: none !important; }
+  .ir-wrap { max-width: none; padding: 0; }
+  .ir-s { break-inside: avoid-page; }
+  .ir-t details > q { display: none; }
+  .ir-own, .ir-o, .ir-sw, .ir-hb { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  a { color: #111; text-decoration: none; }
+  @page { size: A4; margin: 14mm; }
+}

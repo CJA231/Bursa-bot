@@ -1,0 +1,6 @@
+{
+  "_说明": "每家公司填可持续发展报告 / 年报 PDF 的网址 (公司官网上的)。type = sustainability 或 annual；year = 报告年份。改完提交，esg.yml 会自动抽取。以 _ 开头的键会被忽略。",
+  "5347": [
+    {"url": "https://www.tnb.com.my/assets/annual_report/TNB_Sustainability_Report_2025.pdf", "year": 2025, "type": "sustainability"}
+  ]
+}
