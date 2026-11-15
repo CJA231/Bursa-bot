@@ -286,7 +286,78 @@ def dump_ipo2():
             print("  ann ERR", e)
 
 
+def dump_fin():
+    """PROBE9：原始财报文件 (季报 / 年报公告和附件 PDF) 在 Actions 上拿不拿得到；顺便测 DeepSeek 新模型名"""
+    import os
+    from urllib.parse import urljoin
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import main as m
+    from datetime import datetime
+    today = datetime.now(m.LOCAL_TZ).date()
+    for model in ("deepseek-flash", "deepseek-chat", "deepseek-v4-flash"):
+        try:
+            r = m.client.chat.completions.create(model=model, messages=[{"role": "user", "content": 'Reply with JSON {"ok": 1}'}],
+                                                 max_tokens=20, temperature=0, response_format={"type": "json_object"})
+            print(f"[model {model}] served by {r.model}: {r.choices[0].message.content!r} usage={r.usage}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[model {model}] ERR {type(e).__name__}: {str(e)[:200]}")
+    for code in ("5347", "7113"):
+        base = m.KLSE_ANN_STOCK.format(code)
+        fin = []
+        for q in ("", "?page=2", "?page=4", "?page=8", "/page:2", "?category=FR", "?keyword=quarterly"):
+            try:
+                r = requests.get(base + q, headers=m.KLSE_HEADERS, timeout=20)
+                items = m.parse_klse_announcements(r.text, today)
+                print(f"[{code}{q}] {r.status_code} {len(r.text)}B items={len(items)} range={items[-1]['date'] if items else '-'}..{items[0]['date'] if items else '-'}")
+                fin += [x for x in items if re.search(r"quarterly|annual report|audited|financial statement", x["title"], re.I)]
+                if q == "":
+                    forms = re.findall(r'<(?:select|input)[^>]+name="([^"]+)"', r.text)
+                    print("   form fields:", sorted(set(forms))[:20])
+                    print("   page links:", sorted(set(re.findall(r'href="(/v2/announcements/stock/[^"]+)"', r.text)))[:12])
+                    opts = re.findall(r'<option[^>]*value="([^"]*)"[^>]*>([^<]{1,60})</option>', r.text)
+                    print("   options:", opts[:30])
+            except Exception as e:  # noqa: BLE001
+                print(f"[{code}{q}] ERR {type(e).__name__}: {e}")
+        seen = {}
+        for x in fin:
+            seen.setdefault(x["link"], x)
+        print(f"   financial-report announcements found: {len(seen)}")
+        for x in list(seen.values())[:12]:
+            print("    ", x["date"], x["title"][:110], x["link"])
+        for x in list(seen.values())[:2]:
+            try:
+                r = requests.get(x["link"], headers=m.KLSE_HEADERS, timeout=20)
+                hrefs = re.findall(r'href="([^"]+)"', r.text)
+                att = [urljoin(x["link"], h) for h in hrefs if re.search(r"bursamalaysia|\.pdf|FileAccess|attachment|download", h, re.I)]
+                print(f"   [view {x['link'][-8:]}] {r.status_code} attachments: {list(dict.fromkeys(att))[:10]}")
+                txt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r.text))
+                k = txt.find("Quarter")
+                print("   text:", txt[k:k + 600] if k >= 0 else txt[:300])
+                for a in [u for u in dict.fromkeys(att) if re.search(r"FileAccess|\.pdf|download", u, re.I)][:2]:
+                    try:
+                        g = requests.get(a, headers=m.KLSE_HEADERS, timeout=30, stream=True)
+                        head = next(g.iter_content(64), b"")
+                        print(f"   [att] {g.status_code} {g.headers.get('Content-Type')} {g.headers.get('Content-Length')} {head[:8]!r} {g.url[:120]}")
+                    except Exception as e:  # noqa: BLE001
+                        print(f"   [att] ERR {type(e).__name__}: {str(e)[:120]}")
+            except Exception as e:  # noqa: BLE001
+                print(f"   [view] ERR {type(e).__name__}: {e}")
+        for u in (f"https://www.klsescreener.com/v2/stocks/view/{code}", f"https://www.klsescreener.com/v2/stocks/financial-report/{code}",
+                  f"https://www.bursamalaysia.com/market_information/announcements/company_announcement?company={code}&cat=FA",
+                  f"https://www.bursamalaysia.com/api/v1/announcements/search?ann_type=company&company={code}&cat=FA&per_page=5&page=1",
+                  f"https://www.malaysiastock.biz/Corporate-Infomation.aspx?securityCode={code}",
+                  f"https://klse.i3investor.com/web/stock/financial-quarter/{code}"):
+            try:
+                r = requests.get(u, headers=m.KLSE_HEADERS, timeout=20)
+                links = sorted(set(h for h in re.findall(r'href="([^"]+)"', r.text) if re.search(r"quarter|annual|report|financial|\.pdf", h, re.I)))
+                print(f"[{u[8:70]}] {r.status_code} {len(r.text)}B links: {links[:15]}")
+            except Exception as e:  # noqa: BLE001
+                print(f"[{u[8:70]}] ERR {type(e).__name__}: {str(e)[:100]}")
+
+
 def main():
+    if "--fin" in sys.argv:
+        return dump_fin()
     if "--esg" in sys.argv:
         dump_esg()
         return
