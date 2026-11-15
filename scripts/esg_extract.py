@@ -43,7 +43,7 @@ SOURCES = os.path.join("data", "esg", "sources.json")
 OUT_DIR = os.path.join("docs", "esg")
 INDEX = os.path.join(OUT_DIR, "index.json")
 MAX_BYTES = 40 * 1024 * 1024
-PAGES_TO_AI, PAGE_CHARS = 14, 3500
+PAGES_TO_AI, PAGE_CHARS = 24, 3000  # 指标页 + 每个披露项目最相关的页，合计最多 24 页
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
       "Accept": "application/pdf,*/*"}
 
@@ -78,6 +78,29 @@ READINESS = {
     "assurance": ("鉴证 / 审核", "Assurance / review", "external assurance or internal review of the sustainability statement"),
 }
 STATUSES = ("found", "partial", "not_found")
+# 每个披露项目在整份报告里找页面用的关键词 (不然 AI 只看到挑中的页，会把有写的说成没写)
+READY_KW = {
+    "governance": r"board (?:of directors )?(?:oversight|responsib)|sustainability (?:committee|governance)|governance structure",
+    "strategy": r"risks? and opportunit|material (?:matters|sustainability)|business model|value chain|time horizon",
+    "risk_mgmt": r"risk management (?:framework|process)|enterprise risk|identif\w+ (?:and|,) assess",
+    "metrics_targets": r"targets?|kpi|performance data|metrics",
+    "scope12": r"scope\s*1|scope\s*2|tco2e",
+    "scope3": r"scope\s*3",
+    "scenario": r"scenario analysis|1\.5\s*°?c|2\s*°?c|ngfs|iea|physical risk",
+    "transition": r"transition plan|net[- ]zero|decarboni[sz]|reduction target",
+    "financial_effects": r"financial (?:effect|impact|implication)|anticipated financial",
+    "assurance": r"assurance|assured|independent (?:review|limited)|internal audit",
+}
+# 指标的意思检查：引句 (或引句前面 400 字) 要有这些字；引句里有「排除」的字就不算 (例如员工数不能是「完成培训的员工」)
+METRIC_CTX = {
+    "ghg_scope1": (r"scope1", None), "ghg_scope2": (r"scope2", None), "ghg_scope3": (r"scope3", None),
+    "energy": (r"energy|electricity|fuel", None), "water": (r"water", None), "waste": (r"waste", None),
+    "employees": (r"employee|headcount|workforce|staff", r"training|learning|programme|program|completed|newhire|turnover|attrition"),
+    "women_pct": (r"women|female|gender", r"board|director|senior|management|leadership"),
+    "board_women_pct": (r"women|female|gender|boarddiversity", None),
+    "training_hours": (r"training|learning", None), "lti": (r"losttime|ltif|ltir|injur", None), "fatalities": (r"fatalit|death", None),
+    "community_rm": (r"communit|donation|contribution|csr|investment", None), "anticorruption_pct": (r"corruption|bribery", None),
+}
 KEYWORDS = [(re.compile(p, re.I), w) for p, w in [
     (r"scope\s*[123]", 5), (r"tco2e?|co2e|ghg|greenhouse", 4), (r"ifrs\s*s[12]|tcfd|issb", 4), (r"scenario", 3), (r"transition plan|net[- ]zero", 3),
     (r"energy consumption|electricity|mwh|\bgj\b|kwh", 3), (r"water (?:consumption|withdrawal)|m3|megalit", 3), (r"waste", 2),
@@ -90,11 +113,12 @@ ESG_JUDGE_RE = re.compile(r"领先|落后|优秀|出色|不足|欠佳|表现良�
 
 PROMPT = """你是可持续发展报告的资料抽取助手。你会拿到一家马来西亚上市公司可持续发展报告或年报的部分页面，每页前面标了页码【第 N 页】。
 只根据这些页面输出 JSON，字段：
-- metrics：只抽下面列出的指标 (key 固定)。每个 {"key", "value" (纯数字，不带逗号和单位), "unit" (原文单位，例如 tCO2e、MWh、m3、%、人), "year" (数字属于哪一年，整数),
+- metrics：只抽下面列出的指标 (key 固定)。每个 {"key", "value" (原文写的数字，不带逗号；原文写 39.3 million 就填 39.3), "unit" (原文单位，连同 million / thousand，例如 million tCO2e、MWh、m3、%、人), "year" (数字属于哪一年，整数),
   "page" (页码，整数), "quote" (原文里包含这个数字的一小段，一字不改照抄，最多 200 字)}。
   同一个指标有好几年的数字，只要最新那一年。找不到的指标不要输出；不要推算、不要换算单位、不要把几个数字加起来。
+  要分清楚：员工总数 ≠ 参加培训的员工；女性员工比例 ≠ 女性高管 / 女性董事比例。
 - readiness：下面列出的每一项都要输出一个 {"key", "status": "found" | "partial" | "not_found", "page": 主要出现的页码 (没找到就 null), "note": 一句中文说明报告里写了什么, "note_en": 英文}。
-  这只是「报告里有没有写」，不是合规意见。
+  这只是「报告里有没有写」，不是合规意见。note 描述报告内容；这些页面里找不到时写「报告中没有找到相关披露」，不要提到「提供的页面」。
 - summary：2–3 句中文，只陈述报告披露了什么 (报告期、涵盖范围、主要数字)；summary_en 英文版。
 不要用「领先」「优秀」「不足」「表现良好」之类的评价，不要给投资建议。只输出 JSON。"""
 
@@ -128,15 +152,25 @@ def pdf_pages(data):
 
 
 def pick_pages(pages, n=PAGES_TO_AI):
-    """按关键词给每页打分，挑最相关的 n 页 (页码从 1 开始，按页码排序)"""
+    """挑页面 (页码从 1 开始，按页码排序)：每个披露项目在整份报告里最相关的 1 页 + 指标关键词分数最高的页，合计最多 n 页"""
     scored = []
     for i, t in enumerate(pages):
         s = sum(w * min(3, len(rx.findall(t))) for rx, w in KEYWORDS)
         s += min(4, len(re.findall(r"\d[\d,]*\.?\d*", t)) // 25)  # 数字多的页 (资料表) 加分
         if s > 0:
             scored.append((s, i + 1))
-    best = sorted(scored, reverse=True)[:n]
-    return sorted(p for _, p in best)
+    chosen = []
+    for kw in READY_KW.values():
+        rx = re.compile(kw, re.I)
+        hits = sorted(((len(rx.findall(t)), i + 1) for i, t in enumerate(pages) if rx.search(t)), reverse=True)
+        if hits and hits[0][1] not in chosen:
+            chosen.append(hits[0][1])
+    for _, p in sorted(scored, reverse=True):
+        if len(chosen) >= n:
+            break
+        if p not in chosen:
+            chosen.append(p)
+    return sorted(chosen[:n])
 
 
 def ask(code, name, entry, pages, sel):
@@ -163,20 +197,31 @@ def _num(v):
         return None
 
 
-def verify_metric(mt, pages):
-    """引句要在那一页、数值要在引句里，否则 None"""
+def verify_metric(mt, pages, why=None):
+    """引句要在那一页、数值要在引句里、意思要对 (METRIC_CTX)，否则 None (why 收集丢掉的原因)"""
+    def drop(reason):
+        if why is not None:
+            why.append({"key": mt.get("key"), "reason": reason})
+        return None
     key, page, quote, val = mt.get("key"), mt.get("page"), str(mt.get("quote") or "").strip(), _num(mt.get("value"))
     try:
         page = int(page)
     except (TypeError, ValueError):
         return None
     if key not in METRICS or val is None or not quote or not (1 <= page <= len(pages)):
-        return None
-    if _squash(quote) not in _squash(pages[page - 1]):
-        return None
+        return drop("format")
+    sq, sp = _squash(quote), _squash(pages[page - 1])
+    pos = sp.find(sq)
+    if pos < 0:
+        return drop("quote not on page")
     nums = [_num(x) for x in re.findall(r"\d[\d,]*(?:\.\d+)?", quote)]
     if not any(x is not None and abs(x - val) <= 1e-9 * max(1.0, abs(val)) for x in nums):
-        return None
+        return drop("value not in quote")
+    need, bad = METRIC_CTX.get(key, (None, None))
+    if need and not re.search(need, sp[max(0, pos - 400):pos] + sq, re.I):
+        return drop("wrong metric (context)")
+    if bad and re.search(bad, sq, re.I):
+        return drop("wrong metric (excluded words)")
     try:
         year = int(mt.get("year")) if mt.get("year") is not None else None
     except (TypeError, ValueError):
@@ -186,8 +231,9 @@ def verify_metric(mt, pages):
 
 def neutral(text, en=False):
     t = clean_en(text) if en else clean(text)
-    parts = re.split(r"(?<=[。；;.!?])\s*", t)
-    return " ".join(p for p in parts if p and not ESG_JUDGE_RE.search(p)).strip() if en else "".join(p for p in parts if p and not ESG_JUDGE_RE.search(p)).strip()
+    if en:  # 英文按句子切 (句号后面要有空白，小数 39.312 不会被切开)
+        return " ".join(p for p in re.split(r"(?<=[.;!?])\s+", t) if p and not ESG_JUDGE_RE.search(p)).strip()
+    return "".join(p for p in re.split(r"(?<=[。；;!?])", t) if p and not ESG_JUDGE_RE.search(p)).strip()
 
 
 def verify_readiness(items, pages):
@@ -222,6 +268,16 @@ def annual_revenue(code, year):
     return None, None
 
 
+def scale(unit):
+    """单位里的倍数：million / mil / juta = 1e6，thousand / '000 / k = 1e3"""
+    u = str(unit or "").lower()
+    if re.search(r"million|\bmil\b|juta|\bmn\b", u):
+        return 1e6
+    if re.search(r"thousand|'000|\bkt\b|ktco2", u):
+        return 1e3
+    return 1.0  # kWh / MWh / GJ 是不同单位，不是倍数：强度照原单位写
+
+
 def intensity(code, year, metrics):
     rev, cur = annual_revenue(code, year)
     if not rev or cur not in ("MYR", "RM"):
@@ -230,11 +286,12 @@ def intensity(code, year, metrics):
     out = {"revenue_rm_m": round(rev / 1e6, 2), "year": year}
     s12 = [by[k] for k in ("ghg_scope1", "ghg_scope2") if k in by and re.search(r"co2", by[k]["unit"], re.I)]
     if s12:
-        out["ghg12_per_rm_m"] = round(sum(x["value"] for x in s12) / (rev / 1e6), 4)
+        out["ghg12_per_rm_m"] = round(sum(x["value"] * scale(x["unit"]) for x in s12) / (rev / 1e6), 4)
         out["ghg12_unit"] = "tCO2e / RM mil"
     if "energy" in by:
-        out["energy_per_rm_m"] = round(by["energy"]["value"] / (rev / 1e6), 4)
-        out["energy_unit"] = f"{by['energy']['unit']} / RM mil"
+        u = by["energy"]["unit"]
+        out["energy_per_rm_m"] = round(by["energy"]["value"] * scale(u) / (rev / 1e6), 4)
+        out["energy_unit"] = re.sub(r"(?i)million|thousand|'000|\bmil\b", "", u).strip() + " / RM mil"
     return out if len(out) > 2 else None
 
 
@@ -266,16 +323,16 @@ def process(code, entry, now, force=False, dry=False, log=print):
         return dict(base, status="no_text")
     sel = pick_pages(pages)
     out = ask(code, name, entry, pages, sel)
-    metrics, dropped = [], 0
+    metrics, dropped, why = [], 0, []
     for mt in out.get("metrics") or []:
-        v = verify_metric(mt, pages)
+        v = verify_metric(mt, pages, why)
         if v and v["key"] not in {x["key"] for x in metrics}:
             v["label"], v["label_en"] = METRICS[v["key"]][0], METRICS[v["key"]][1]
             metrics.append(v)
         else:
             dropped += 1
     rec = dict(base, status="ok", pages_used=sel, summary=neutral(out.get("summary"))[:400], summary_en=neutral(out.get("summary_en"), en=True)[:600],
-               metrics=sorted(metrics, key=lambda x: list(METRICS).index(x["key"])), readiness=verify_readiness(out.get("readiness"), pages), dropped=dropped)
+               metrics=sorted(metrics, key=lambda x: list(METRICS).index(x["key"])), readiness=verify_readiness(out.get("readiness"), pages), dropped=dropped, dropped_why=why[:20])
     yr = entry.get("year") or max([x["year"] for x in metrics if x.get("year")] or [None])
     rec["intensity"] = intensity(code, yr, metrics) if yr else None
     log(f"   {code} 指标 {len(metrics)} 个 (丢掉 {dropped} 个对不上原文的)，披露项目 found "
