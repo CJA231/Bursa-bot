@@ -221,6 +221,8 @@ pre.txt .nm { font: inherit; }
 .ft-v { text-align: right; white-space: nowrap; overflow: hidden; }
 .ft-bar { height: 7px; background: var(--bg2); display: flex; justify-content: flex-end; }
 .ft-bar i { display: block; height: 100%; }
+.hc1 { color: var(--acc); } .hc2 { color: var(--warn); } .hc3 { color: var(--fc2); } .hc4 { color: var(--fc4); } .hc5 { color: var(--fc3); }  /* 主要股东持股条：颜色 + 不同字符区分 */
+pre.fl a { color: var(--acc2); text-decoration: none; } pre.fl a:hover { color: var(--acc); text-decoration: underline; }
 .fc1 { background: var(--fc1); } .fc2 { background: var(--fc2); } .fc3 { background: var(--fc3); } .fc4 { background: var(--fc4); } .fc5 { background: var(--fc5); }
 .ft-bar i.neg { background: var(--dn); }
 .scs { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; }
@@ -386,6 +388,16 @@ h2 .ed-b { font-size: 11px; }
 .ir-note { font-size: 11.5px; margin-top: 2px; }
 .ir-scroll { overflow-x: auto; }
 .ir-int, .ir-src { font-size: 11.5px; }
+.ir-k { display: inline-block; font-size: 11px; padding: 0 4px; border: 1px solid var(--line); color: var(--acc2); margin-right: 2px; }
+.ir-own { display: flex; height: 18px; border: 1px solid var(--line); background: var(--bg2); margin: 4px 0; overflow: hidden; }
+.ir-o { display: block; height: 100%; }
+.o0 { background: var(--bg2); border: 1px solid var(--line); } .o1 { background: var(--acc); } .o2 { background: var(--warn); } .o3 { background: var(--fc2); } .o4 { background: var(--fc4); } .o5 { background: var(--fc3); }
+.ir-leg { list-style: none; padding: 0; margin: 4px 0 10px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; }
+.ir-sw { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }
+.ir-hbc { width: 30%; min-width: 60px; }
+.ir-hb { display: block; height: 10px; background: var(--acc2); margin-top: 4px; }
+.ir-t .c { text-align: center; }
+.ir-fl a { text-decoration: none; }
 .ir-f { margin-top: 26px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.6; }
 .ir-pick input { font: inherit; font-size: 16px; width: 8em; padding: 6px 8px; color: var(--fg); background: var(--bg2); border: 1px solid var(--line); }
 .irw .ir-wrap { max-width: none; padding: 10px 12px; }
@@ -400,6 +412,7 @@ h2 .ed-b { font-size: 11px; }
   .ir-wrap { max-width: none; padding: 0; }
   .ir-s { break-inside: avoid-page; }
   .ir-t details > q { display: none; }
+  .ir-own, .ir-o, .ir-sw, .ir-hb { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   a { color: #111; text-decoration: none; }
   @page { size: A4; margin: 14mm; }
 }

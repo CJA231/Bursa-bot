@@ -32,8 +32,18 @@
     nodata: ['找不到这家公司的资料。', 'No data found for this company.'], powered: ['资料整理自公司公告，摘要可能有错漏，以原公告为准', 'Compiled from company announcements; summaries may contain errors — the original announcements prevail'],
     disc: ['本页只整理公司公开披露的资料 (公告、年报、可持续发展报告)：摘要和抽取的数字都附来源和页码，可能有错漏，以原文为准。不显示股价，不构成投资建议，也不是 ESG 评级或合规意见。',
       'This page only compiles the company\'s public disclosures (announcements, annual and sustainability reports). Summaries and extracted figures carry sources and page numbers and may contain errors — the originals prevail. No share prices; not investment advice, an ESG rating or a compliance opinion.'],
-    terms: ['使用条款与免责声明', 'Terms of use & disclaimer'], est: ['推算', 'estimated'], ipo: ['IPO', 'IPO']
+    terms: ['使用条款与免责声明', 'Terms of use & disclaimer'], est: ['推算', 'estimated'], ipo: ['IPO', 'IPO'],
+    seg: ['业务板块动态', 'Business segments'], model: ['业务模式变化', 'Business model changes'], filing: ['公告', 'filing'],
+    segnote: ['根据当年公告整理，每条都链接原公告；板块数字来自年报分部资料。只描述发生了什么，不代表好坏。', 'Compiled from the year\'s filings (each item links to the filing); segment figures from the annual report segment note. Describes what happened only — not a judgement.'],
+    thisy: ['本年', 'This year'], prevy: ['上年', 'Prior year'], chg: ['变化', 'Change'], unit: ['单位', 'Unit'],
+    holders: ['主要股东', 'Substantial shareholders'], own: ['持股结构 (直接持股)', 'Ownership (direct holdings)'], others: ['其他股东', 'Other shareholders'],
+    holder: ['股东', 'Holder'], stake: ['持股 %', 'Stake %'], pp: ['变化 (百分点)', 'Change (pp)'], last: ['最近变动', 'Last change'], newh: ['新', 'new'],
+    hnote: ['只包含期间内有申报变动的主要股东 (持股 ≥5%)，持股 = 直接 + 间接 (间接 / 视同持股可能跟别人重复，各行加起来可以超过 100%)；变化跟期间第一笔申报之前比 (按股数推算)；很久没变动的股东不会出现。来源：Bursa 主要股东公告。',
+      'Only substantial shareholders (≥5%) who filed a change in the period; stake = direct + indirect (deemed interests can overlap, so rows may exceed 100% in total); change is vs. before their first filing in the period (derived from units). Long-inactive holders are not shown. Source: Bursa substantial-shareholder filings.'],
+    reports: ['财报原文', 'Financial reports (originals)'], fy: ['财政年度', 'Financial year'], ar: ['年报', 'Annual report'], aa: ['经审计账目', 'Audited accounts'],
+    fnote: ['点链接打开 Bursa 原文 (附件 PDF 在那一页)。', 'Links open the original on Bursa (PDF attachments are on that page).'], since: ['期间自', 'Since']
   };
+  var SEGK = { expand: ['扩张', 'Expand'], 'new': ['新业务', 'New business'], reduce: ['缩减', 'Scale back'], exit: ['退出', 'Exit'], contract: ['合约', 'Contract'], other: ['其他', 'Other'] };
   var t = function (k) { return (TX[k] || [k, k])[EN ? 1 : 0]; };
   var CALT = { agm: ['常年股东大会', 'AGM'], egm: ['特别股东大会', 'EGM'], ex_date: ['除权 / 除息', 'Ex-date'], entitlement: ['截止过户', 'Entitlement date'], payment: ['派发', 'Payment'],
     results: ['业绩公布', 'Results'], results_due: ['季报最迟公布', 'Results deadline'], listing: ['上市', 'Listing'], corporate: ['企业活动', 'Corporate'],
@@ -131,6 +141,53 @@
     return sec(t('esg'), h, 'ir-esg');
   }
 
+  function segBlock(g) {
+    if (!g || !((g.segments || []).length || (g.model_changes || []).length || L(g, 'overview'))) return '';
+    var h = L(g, 'overview') ? '<p>' + esc(L(g, 'overview')) + '</p>' : '';
+    var link = function (x) { return ' <a href="' + esc(x.link) + '" target="_blank" rel="noopener" title="' + esc(x.title) + '">' + t('filing') + ' ↗</a>'; };
+    if ((g.model_changes || []).length) h += '<h3>' + t('model') + '</h3><ul class="ir-l">' + g.model_changes.map(function (x) { return '<li><span class="dim">' + md(x.date) + '</span> ' + esc(L(x, 'text') || x.title) + link(x) + '</li>'; }).join('') + '</ul>';
+    (g.segments || []).forEach(function (sg) {
+      h += '<h3>' + esc(EN ? sg.name_en || sg.name : sg.name || sg.name_en) + '</h3>' + (L(sg, 'note') ? '<p class="dim ir-note">' + esc(L(sg, 'note')) + '</p>' : '');
+      if ((sg.numbers || []).length) h += '<div class="ir-scroll"><table class="ir-t"><tr><th></th><th class="r">' + t('thisy') + '</th><th class="r">' + t('prevy') + '</th><th class="r">' + t('chg') + '</th><th>' + t('unit') + '</th><th>' + t('page') + '</th></tr>' +
+        sg.numbers.map(function (x) { return '<tr><td>' + esc(EN ? x.label_en : x.label) + '</td><td class="r">' + fmt(x.this) + '</td><td class="r">' + fmt(x.prev) + '</td><td class="r">' + (isNum(x.chg_pct) ? (x.chg_pct > 0 ? '+' : '') + x.chg_pct.toFixed(1) + '%' : '—') + '</td><td class="dim">' + esc(x.unit) +
+          '</td><td><details><summary>p. ' + x.page + '</summary><q>' + esc(x.quote) + '</q></details></td></tr>'; }).join('') + '</table></div>';
+      if ((sg.actions || []).length) h += '<ul class="ir-l">' + sg.actions.map(function (a) { return '<li><span class="dim">' + md(a.date) + '</span> <span class="ir-k">' + (SEGK[a.kind] || SEGK.other)[EN ? 1 : 0] + '</span> ' + esc(L(a, 'text') || a.title) + link(a) + '</li>'; }).join('') + '</ul>';
+    });
+    return sec(t('seg') + ' · ' + g.year, h + '<p class="dim ir-src">' + t('segnote') + ' ' + t('updated') + ' ' + esc((g.updated || '').slice(0, 10)) + '</p>', 'ir-seg');
+  }
+  function holdersBlock(g) {
+    var hs = ((g && g.holders) || []).filter(function (x) { return !x.below && x.pct > 0; });
+    if (!hs.length) return '';
+    var used = 0, bar = '', leg = '', col = {};
+    hs.filter(function (x) { return x.direct_pct >= 0.1; }).sort(function (a, b) { return b.direct_pct - a.direct_pct; }).slice(0, 5).forEach(function (x, i) {
+      col[x.name] = i;
+      var d = Math.min(x.direct_pct || 0, 100 - used); used += d;
+      if (d > 0) bar += '<span class="ir-o o' + (i + 1) + '" style="width:' + d.toFixed(3) + '%" title="' + esc(x.name) + ' ' + d.toFixed(2) + '%"></span>';
+      leg += '<li><i class="ir-sw o' + (i + 1) + '"></i>' + esc(x.name) + ' <b>' + (x.direct_pct || 0).toFixed(2) + '%</b></li>';
+    });
+    leg += '<li><i class="ir-sw o0"></i>' + t('others') + ' <b>' + Math.max(0, 100 - used).toFixed(2) + '%</b></li>';
+    var mx = Math.max.apply(null, hs.map(function (x) { return x.pct; })) || 1;
+    var rows = hs.slice(0, 12).map(function (x, i) {
+      var c = isNum(x.chg) ? (x.chg > 0 ? '+' : '') + x.chg.toFixed(2) : t('newh');
+      return '<tr><td>' + esc(x.name) + '</td><td class="ir-hbc"><span class="ir-hb' + (x.name in col ? ' o' + (col[x.name] + 1) : '') + '" style="width:' + (x.pct / mx * 100).toFixed(1) + '%"></span></td><td class="r">' + x.pct.toFixed(2) + '%</td><td class="r">' + c + '</td><td class="r">' + md(x.as_of) + '</td></tr>';
+    }).join('');
+    return sec(t('holders'), '<h3>' + t('own') + '</h3><div class="ir-own">' + bar + '</div><ul class="ir-leg">' + leg + '</ul>' +
+      '<div class="ir-scroll"><table class="ir-t"><tr><th>' + t('holder') + '</th><th></th><th class="r">' + t('stake') + '</th><th class="r">' + t('pp') + '</th><th class="r">' + t('last') + '</th></tr>' + rows + '</table></div>' +
+      '<p class="dim ir-src">' + t('since') + ' ' + esc(g.since || '') + ' · ' + t('hnote') + '</p>', 'ir-hold');
+  }
+  function filingsBlock(f) {
+    if (!f || !((f.quarters || []).length || (f.annual || []).length)) return '';
+    var fys = {}, add = function (fy) { return fys[fy] || (fys[fy] = { q: {}, ar: null, aa: null }); };
+    (f.quarters || []).forEach(function (q) { add(q.fy).q[q.q] = q; });
+    (f.annual || []).forEach(function (a) { var r = add(a.year); if (!r[a.kind]) r[a.kind] = a; });
+    var lk = function (x, tip) { return x ? '<a href="' + esc(x.orig || x.page) + '" target="_blank" rel="noopener" title="' + esc(tip || '') + '">↗</a>' : '<span class="dim">—</span>'; };
+    var rows = Object.keys(fys).sort().reverse().slice(0, 5).map(function (fy) {
+      var r = fys[fy];
+      return '<tr><td>FY' + fy + '</td>' + [1, 2, 3, 4].map(function (k) { var q = r.q[k]; return '<td class="c">' + lk(q, q && q.period) + '</td>'; }).join('') + '<td class="c">' + lk(r.ar, r.ar && r.ar.title) + '</td><td class="c">' + lk(r.aa, r.aa && r.aa.title) + '</td></tr>';
+    }).join('');
+    return sec(t('reports'), '<div class="ir-scroll"><table class="ir-t ir-fl"><tr><th>' + t('fy') + '</th><th class="c">Q1</th><th class="c">Q2</th><th class="c">Q3</th><th class="c">Q4</th><th class="c">' + t('ar') + '</th><th class="c">' + t('aa') + '</th></tr>' + rows + '</table></div>' +
+      '<p class="dim ir-src">' + t('fnote') + ' <a href="' + esc(f.bursa) + '" target="_blank" rel="noopener">Bursa ↗</a></p>', 'ir-fil');
+  }
   function pickPage(index) {
     var items = (index && index.items) || [];
     return '<div class="ir-pick"><h1>IR · ESG</h1><p>' + t('pick') + '</p><form id="ir-go"><input id="ir-code" inputmode="numeric" maxlength="6" placeholder="5347"> <button type="submit">' + t('open') + '</button></form>' +
@@ -142,7 +199,7 @@
     var intel = intelView(d[1], ov && ov.intel), esg = d[2], index = d[3], ipo = ((d[4] && d[4].ipos) || []).filter(function (x) { return x.code === CODE; })[0] || null;
     var names = (d[6] && d[6].names) || {}, short = names[CODE] || (ipo && ipo.ticker) || (intel && intel.name) || CODE;
     var name = stock.long_name || (intel && intel.long_name) || (ipo && ipo.name) || (esg && esg.name) || short;
-    if (!d[0] && !d[1] && !d[2] && !ipo) { root.innerHTML = '<p class="dim">' + t('nodata') + ' (' + esc(CODE) + ')</p>' + pickPage(index); bindPick(); return; }
+    if (!d[0] && !d[1] && !d[2] && !ipo && !d[7] && !d[8]) { root.innerHTML = '<p class="dim">' + t('nodata') + ' (' + esc(CODE) + ')</p>' + pickPage(index); bindPick(); return; }
     document.title = (WIDGET ? short : name) + ' · IR';
     var ev = events(d[1], ipo, ov);
     if (WIDGET) {
@@ -170,7 +227,9 @@
       if (al) r += '<h3>' + t('anns') + '</h3><ul class="ir-l">' + al + '</ul>';
       h += sec(t('recent'), r + '<p class="dim">' + t('updated') + ' ' + esc(intel.updated || '') + '</p>');
     }
+    h += segBlock(d[9]);
     h += sec(t('cal'), ev.length ? '<ul class="ir-l">' + evRows(ev, 10) + '</ul>' : '<p class="dim">' + t('nocal') + '</p>');
+    h += holdersBlock(d[7]) + filingsBlock(d[8]);
     h += esgBlock(esg, index);
     h += '<footer class="ir-f dim"><p>' + t('disc') + '</p><p><a href="legal.html">' + t('terms') + '</a> · <a href="./#q-' + esc(CODE) + '">bursa.term</a></p></footer>';
     root.innerHTML = h;
@@ -186,6 +245,6 @@
     j('../esg/index.json').then(function (ix) { root.innerHTML = pickPage(ix); bindPick(); });
     return;
   }
-  Promise.all([j('../stock/' + CODE + '.json'), j('../intel/' + CODE + '.json'), j('../esg/' + CODE + '.json'), j('../esg/index.json'), j('ipo.json'), j('overrides.json'), WIDGET ? null : j('data.json')])
+  Promise.all([j('../stock/' + CODE + '.json'), j('../intel/' + CODE + '.json'), j('../esg/' + CODE + '.json'), j('../esg/index.json'), j('ipo.json'), j('overrides.json'), WIDGET ? null : j('data.json'), WIDGET ? null : j('../holders/' + CODE + '.json'), WIDGET ? null : j('../filings/' + CODE + '.json'), WIDGET ? null : j('../segments/' + CODE + '.json')])
     .then(render).catch(function (e) { root.innerHTML = '<p class="dn">' + esc(e.message) + '</p>'; });
 })();

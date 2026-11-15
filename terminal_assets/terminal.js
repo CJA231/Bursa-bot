@@ -1305,7 +1305,7 @@
         pn(esc(nameOf(code)), esc(code), (lst ? '<p><b style="font-size:18px">' + px(lst.c) + '</b> <span class="' + cls(chg) + '">' + pct(chg) + '</span>　<span class="dim">' + md(lst.d) + T(' 收盘</span></p>') : '') +
           watchToggles(code) + (bd && bd.length > 5 ? candleChart(bd.slice(-90), { rows: 14, label: nameOf(code) + T(' 日线') }) : '<p class="dim">' + (bd === undefined ? 'loading…' : T('没有日线')) + '</p>') +
           T('<p class="dim">这支股票今天不在报告里 (成交量没达到门槛)，没有指标和信号。</p>'));
-      return hm + profilePanel(code) + intelPanel(code) + finPanel(code) + extraPanels(code);
+      return hm + profilePanel(code) + intelPanel(code) + segPanel(code) + finPanel(code) + filingsPanel(code) + holdersPanel(code) + extraPanels(code);
     }
     var sig = (D.signals || []).filter(function (x) { return x.code === code; })[0], fol = (D.follow || []).filter(function (x) { return x.code === code; })[0];
     var h = T('<button type="button" class="back" data-back="1">← [q] 返回</button>');
@@ -1319,7 +1319,7 @@
     else if (fol) h += pn(T('TRACKING 信号跟进'), STN[fol.status], kv([[T('信号日'), md(fol.sig)], [T('信号价'), px(fol.entry)], [T('现价'), px(fol.last)], [T('之后涨跌'), pct(fol.ret, 1), cls(fol.ret)],
       [T('天数'), fol.days + T(' 天')], [T('风险线'), px(fol.stop), 'dn'], [T('距风险线'), isNum(fol.dist) ? fol.dist.toFixed(1) + '%' : '—', fol.dist < 3 ? 'dn' : ''], [T('状态'), fol.status === 'out' ? (EXIT[fol.reason] || fol.reason) : STN[fol.status]]]) +
       (fol.hits && fol.hits.length ? T('<p class="warn">趋势检查: ') + esc(tr(fol.hits.join('、'))) + '</p>' : ''));
-    h += profilePanel(code) + intelPanel(code) + finPanel(code) + extraPanels(code);
+    h += profilePanel(code) + intelPanel(code) + segPanel(code) + finPanel(code) + filingsPanel(code) + holdersPanel(code) + extraPanels(code);
     return h;
   }
   function extraPanels(code) {
@@ -1331,11 +1331,98 @@
     h += pn(T('NEWS 新闻'), '', ex === 'loading' || !ex ? '<p class="dim">loading…</p>' : news.length ? news.slice(0, 8).map(function (n) { return '<p class="list-ann"><span class="dim">' + (n.time ? md(new Date(n.time * 1000).toISOString().slice(0, 10)) : '') + '</span> <a href="' + esc(n.link) + '" target="_blank" rel="noopener">' + esc(n.title) + '</a> <span class="dim">' + esc(n.source || '') + '</span></p>'; }).join('') : T('<p class="dim">最近没有新闻</p>'));
     return h;
   }
+  // ---------- 业务板块动态 / 原始财报文件 / 主要股东 (docs/segments、docs/filings、docs/holders；没有资料的公司不显示) ----------
+  function Z(zh, en) { return LANG === 'en' ? en : zh; }
+  var SEGK = { expand: ['扩张', 'Expand'], 'new': ['新业务', 'New business'], reduce: ['缩减', 'Scale back'], exit: ['退出', 'Exit'], contract: ['合约', 'Contract'], other: ['其他', 'Other'] };
+  function bigN(v) { return isNum(v) ? v.toLocaleString('en', { maximumFractionDigits: Math.abs(v) >= 1e5 ? 0 : 2 }) : '—'; }
+  function segPanel(code) {
+    var g = EXTRA[code] && EXTRA[code].segments;
+    if (!g || !((g.segments || []).length || (g.model_changes || []).length || L(g, 'overview'))) return '';
+    var n = 0, h = '';
+    if (L(g, 'overview')) h += '<p>' + esc(L(g, 'overview')) + '</p>';
+    if ((g.model_changes || []).length) h += '<h3 class="fin-h">' + Z('业务模式变化', 'Business model changes') + '</h3>' + g.model_changes.map(function (x) {
+      return '<p class="list-ann"><span class="dim">' + md(x.date) + '</span> ' + esc(L(x, 'text') || x.title) + ' <a href="' + esc(x.link) + '" target="_blank" rel="noopener" title="' + esc(x.title) + '">' + Z('公告', 'filing') + ' ↗</a></p>'; }).join('');
+    (g.segments || []).forEach(function (sg) {
+      h += '<h3 class="fin-h">▍' + esc(LANG === 'en' ? sg.name_en || sg.name : sg.name || sg.name_en) + (L(sg, 'note') ? '<span class="dim">' + esc(L(sg, 'note')) + '</span>' : '') + '</h3>';
+      if ((sg.numbers || []).length) {
+        var cur = g.annual && g.annual.fy ? g.annual.fy : Z('今年', 'This yr');
+        h += '<pre class="txt">' + sg.numbers.map(function (x) {
+          return cell(esc(Z(x.label, x.label_en)), 7) + ' ' + cell(bigN(x.this), 13, true) + span('dim', ' ← ' + pad(bigN(x.prev), 12, true)) + ' ' +
+            cell(isNum(x.chg_pct) ? span(cls(x.chg_pct), (x.chg_pct > 0 ? '+' : '') + x.chg_pct.toFixed(1) + '%') : span('dim', '—'), 8, true) + '\n' + span('dim', '        ' + esc(x.unit) + ' · ' + esc(cur) + Z(' 年报第 ', ' AR p.') + x.page + Z(' 页', ''));
+        }).join('\n') + '</pre>';
+      }
+      (sg.actions || []).forEach(function (a) {
+        n++;
+        h += '<p class="list-ann"><span class="dim">' + md(a.date) + '</span> <span class="tag acc">' + Z((SEGK[a.kind] || SEGK.other)[0], (SEGK[a.kind] || SEGK.other)[1]) + '</span>' +
+          esc(L(a, 'text') || a.title) + ' <a href="' + esc(a.link) + '" target="_blank" rel="noopener" title="' + esc(a.title) + '">↗</a></p>';
+      });
+    });
+    if (LANG === 'en' && g.overview && !g.overview_en) h += '<p class="dim">English version will appear after the next update.</p>';
+    h += '<p class="dim">' + Z('根据 ' + g.year + ' 年 ' + g.anns + ' 条公告整理 (每条动态都链接原公告)' + (g.annual && g.annual.status === 'ok' ? '；板块数字来自年报分部资料' : '') + '。只描述发生了什么，不代表好坏。',
+      'From ' + g.anns + ' filings in ' + g.year + ' (each item links to the filing)' + (g.annual && g.annual.status === 'ok' ? '; segment figures from the annual report' : '') + '. Describes what happened only — not a judgement.') + ' · ' + md(g.updated.slice(0, 10)) + '</p>';
+    return pn(Z('SEGMENTS 业务板块动态', 'SEGMENTS'), g.year + (n ? Z(' · ' + n + ' 条', ' · ' + n + ' items') : ''), h);
+  }
+  function filingsPanel(code) {
+    var f = EXTRA[code] && EXTRA[code].filings;
+    if (!f || !((f.quarters || []).length || (f.annual || []).length)) return '';
+    var fys = {}, add = function (fy) { return fys[fy] || (fys[fy] = { q: {}, ar: null, aa: null }); };
+    (f.quarters || []).forEach(function (q) { add(q.fy).q[q.q] = q; });
+    // 年报标题的年份 = 那一份年报的财政年度；经审计账目标题写期末日期 (例如 31 Aug 2025)
+    (f.annual || []).forEach(function (a) { var r = add(a.year); if (!r[a.kind]) r[a.kind] = a; });
+    var lk = function (x, t, tip) { return x ? '<a href="' + esc(x.orig || x.page) + '" target="_blank" rel="noopener" title="' + esc(tip || '') + '">[' + t + ']</a>' : span('g', '[' + t.replace(/./g, '·').slice(0, t.length) + ']'); };
+    var rows = Object.keys(fys).sort().reverse().slice(0, 5).map(function (fy) {
+      var r = fys[fy];
+      return span('acc', 'FY' + fy) + '  ' + [1, 2, 3, 4].map(function (k) { var q = r.q[k]; return lk(q, 'Q' + k, q ? Z('截至 ', 'period ended ') + q.period : ''); }).join(' ') +
+        '  ' + lk(r.ar, Z('年报', 'AR'), r.ar && r.ar.title) + ' ' + lk(r.aa, Z('审计', 'Audited'), r.aa && r.aa.title);
+    });
+    var mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][(f.fye_month || 12) - 1];
+    return pn(Z('REPORTS 原始财报文件', 'ORIGINAL REPORTS'), Z('财政年度截至 ', 'FY ends ') + mo, '<pre class="txt fl">' + rows.join('\n') + '</pre>' +
+      '<p class="dim">' + Z('点 [Q1]–[Q4]、[年报]、[审计] 打开 Bursa 原文 (附件 PDF 在那一页)。', 'Tap [Q1]–[Q4], [AR] or [Audited] to open the original on Bursa (PDF attachments are on that page).') +
+      ' <a href="' + esc(f.bursa) + '" target="_blank" rel="noopener">' + Z('Bursa 全部公告', 'All Bursa filings') + ' ↗</a></p>');
+  }
+  var HC = ['hc1', 'hc2', 'hc3', 'hc4', 'hc5'], HCH = ['█', '▓', '▒', '■', '▚'];
+  function holdersPanel(code) {
+    var g = EXTRA[code] && EXTRA[code].holders, hs = (g && g.holders || []).filter(function (x) { return !x.below && x.pct > 0; });
+    if (!hs.length) return '';
+    // 持股结构只用直接持股 (间接 / 视同持股会跟别人的直接持股重复，例如家族成员互相算进去)；颜色跟着股东走
+    var W = 40, used = 0, bar = '', legend = [], col = {};
+    hs.filter(function (x) { return x.direct_pct >= 0.1; }).sort(function (a, b) { return b.direct_pct - a.direct_pct; }).slice(0, 5).forEach(function (x, i) {
+      col[x.name] = i;
+      var d = x.direct_pct || 0, k = Math.round(d / 100 * W);
+      if (k < 1 && d > 0) k = 1;
+      k = Math.min(k, W - used); used += k;
+      bar += span(HC[i], HCH[i].repeat(k));
+      legend.push(span(HC[i], HCH[i]) + ' ' + esc(x.name.slice(0, 26)) + ' ' + (d ? d.toFixed(2) + '%' : '—'));
+    });
+    bar += span('g', '·'.repeat(Math.max(0, W - used)));
+    // 手机上窄：名字短一点、条短一点、不显示日期
+    var narrow = window.innerWidth < 560, BW = narrow ? 8 : 16;
+    var mx = Math.max.apply(null, hs.map(function (x) { return x.pct; })) || 1, nw = narrow ? 17 : LANG === 'en' ? 24 : 22;
+    var rows = hs.slice(0, 10).map(function (x, i) {
+      var k = Math.max(1, Math.round(x.pct / mx * BW));
+      var chg = isNum(x.chg) ? span(x.chg > 0 ? 'up' : x.chg < 0 ? 'dn' : 'dim', (x.chg > 0 ? '+' : '') + x.chg.toFixed(2)) : span('dim', Z('新', 'new'));
+      return cell(esc(x.name.slice(0, nw)), nw) + ' ' + span(x.name in col ? HC[col[x.name]] : 'acc', '█'.repeat(k)) + span('g', '░'.repeat(BW - k)) + ' ' + pad(x.pct.toFixed(2) + '%', 7, true) + ' ' + cell(chg, 6, true) + (narrow ? '' : span('dim', '  ' + md(x.as_of)));
+    });
+    var recs = (g.records || []).slice(0, 5).map(function (r) {
+      var c = (r.changes || [])[0] || {}, tot = (r.direct_pct || 0) + (r.indirect_pct || 0);
+      var act = { acquired: Z('买入', 'bought'), disposed: Z('卖出', 'sold') }[c.type] || c.type || '';
+      return '<p class="list-ann"><span class="dim">' + md(c.date || r.date) + '</span> ' + esc(r.name) + ' <span class="' + (c.type === 'acquired' ? 'up' : c.type === 'disposed' ? 'dn' : 'dim') + '">' + esc(act) + ' ' + bigN(c.units) + '</span>' +
+        (r.changes && r.changes.length > 1 ? span('dim', Z(' 等 ' + r.changes.length + ' 笔', ' +' + (r.changes.length - 1) + ' more')) : '') + ' → ' + tot.toFixed(2) + '% <a href="https://www.klsescreener.com/v2/announcements/view/' + esc(r.id) + '" target="_blank" rel="noopener">↗</a></p>';
+    }).join('');
+    return pn(Z('SHAREHOLDERS 主要股东', 'SUBSTANTIAL SHAREHOLDERS'), hs.length + Z(' 位', ''),
+      '<h3 class="fin-h">' + Z('持股结构', 'Ownership') + '<span class="dim">' + Z('直接持股 · 其余为其他股东', 'direct holdings · rest = other shareholders') + '</span></h3>' +
+      '<pre class="txt">' + bar + ' ' + span('dim', '100%') + '\n' + legend.join('\n') + '</pre>' +
+      '<h3 class="fin-h">' + Z('持股 % 和变化', 'Stake % and change') + '<span class="dim">' + Z('直接 + 间接 · 变化 = 百分点', 'direct + indirect · change in pp') + '</span></h3>' +
+      '<pre class="txt">' + cell(span('dim', Z('股东', 'Holder')), nw) + ' ' + span('dim', pad('', BW)) + ' ' + span('dim', pad('%', 7, true)) + ' ' + cell(span('dim', Z('变化', 'chg')), 6, true) + (narrow ? '' : span('dim', Z('  最近变动', '  last'))) + '\n' + rows.join('\n') + '</pre>' +
+      (recs ? '<h3 class="fin-h">' + Z('最近的申报', 'Latest filings') + '</h3>' + recs : '') +
+      '<p class="dim">' + Z('只包含 ' + md(g.since) + ' 以来有申报变动的主要股东 (持股 ≥5%)；持股 % = 直接 + 间接，间接 (视同) 持股可能跟别人的持股重复，所以各行加起来可以超过 100%；变化跟期间第一笔申报之前比 (按股数推算)；很久没变动的股东不会出现。来源：Bursa 主要股东公告。',
+        'Only substantial shareholders (≥5%) who filed a change since ' + md(g.since) + '; stake = direct + indirect, and indirect (deemed) interests can overlap, so rows may add up to more than 100%; change is vs. before their first filing in the period (derived from units); long-inactive holders are not shown. Source: Bursa substantial-shareholder filings.') + '</p>');
+  }
   function fetchExtra(code) {
     var j = function (u) { return fetch(u).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }); };
     var base = D.report || '../';
-    Promise.all([j(base + 'ann/' + code + '.json'), j(base + 'news/' + code + '.json')]).then(function (r) {
-      EXTRA[code] = { ann: (r[0] && r[0].items) || [], news: (r[1] && r[1].items) || [] };
+    Promise.all([j(base + 'ann/' + code + '.json'), j(base + 'news/' + code + '.json'), j(base + 'holders/' + code + '.json'), j(base + 'filings/' + code + '.json'), j(base + 'segments/' + code + '.json')]).then(function (r) {
+      EXTRA[code] = { ann: (r[0] && r[0].items) || [], news: (r[1] && r[1].items) || [], holders: r[2], filings: r[3], segments: r[4] };
       if (S.code === code) render();
     });
   }

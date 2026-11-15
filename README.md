@@ -201,7 +201,7 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
   6. **公告**：最近的公司公告，一排可以左右滑的分类按钮筛选；AI 标出值得注意的公告 (📌 重要事件 / ⚠ 留意事项，**只表示「值得注意」，不代表利好或利空**)
   7. **日历**：最上面是 **IPO 新股** (招股中 / 待上市的认购、抽签、上市日期和招股价；近 12 个月已上市的超额认购倍数、首日开盘 / 收盘、上市至今的涨跌和汇总统计)，下面是企业活动日历 (会议、派息、财报、企业活动、新上市，IPO 的日期也画在月历上)，月历格子 + 列表，可以按类别筛选 (见下方)
 - **字符 K 线**：默认是**空心K线** (跟 TradingView 一样：收盘 > 开盘画空心框、收盘 < 开盘实心，颜色看收盘比前一天涨还是跌)，图表右下角的按钮或 `k` 切换成全部实心；设置存在自己的浏览器
-- **个股页**：K 线图、关键数字、财报图表 (营收 / 净利润 / 净利率 / 现金流的阶梯图和柱状图 + 完整表格)、**公司简介** (官网链接、背景、业务线)、**AI 公司资讯** (近况、重要事件、留意事项、财报一两句)、公告和新闻
+- **个股页**：K 线图、关键数字、财报图表 (营收 / 净利润 / 净利率 / 现金流的阶梯图和柱状图 + 完整表格)、**公司简介** (官网链接、背景、业务线)、**AI 公司资讯** (近况、重要事件、留意事项、财报一两句)、**业务板块动态**、**原始财报文件**、**主要股东**、公告和新闻 (见下方[个股页的三个资料区块](#个股页的三个资料区块))
 - **✦ AI 问答**：每一页右下角的 ✦ 按钮，把当前页面的资料附上去问 DeepSeek (见下方[设置](#-ai-问答设置))
 - **中文 / English**：页脚的 EN 按钮切换整个界面，包括数据里的中文 (分类、理由、日历事件、AI 资讯都有英文版)；语言跟标准报告共用同一个设置
 - **离线也能看 (PWA)**：在 iPhone Safari 按「分享 → 添加到主屏幕」，像 app 一样打开。有网时永远先拿最新的；没网 (或 8 秒连不上) 时显示最后一次的页面、日线和新股资料，顶部标「离线 · 显示的是 xx 的数据」。只缓存终端版自己的文件 (约 1MB)，个股财报 / 公告 / 新闻和 AI 问答还是要上网
@@ -234,14 +234,14 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
 ## IR + ESG 页面 (给上市公司用的样品)
 
 给上市公司的「投资者关系 + 可持续发展披露」页面，只用公开披露资料，**不放股价、不打分、不排名**：
-- **IR 页面** [`ir.html?code=5347`](https://cja231.github.io/Bursa-bot/terminal/ir.html?code=5347)：公司简介、AI 公告摘要和重要事件、企业活动日历、ESG 区块；中 / 英切换，浏览器「打印 → 存 PDF」就是一份 A4 snapshot。不带 `code` 显示已有 ESG 资料的公司列表；终端版个股页的公司简介里也有链接
+- **IR 页面** [`ir.html?code=5347`](https://cja231.github.io/Bursa-bot/terminal/ir.html?code=5347)：公司简介、公告摘要和重要事件、业务板块动态、企业活动日历、主要股东持股图、财报原文链接、ESG 区块 (页面和 PDF 上不提 AI / DeepSeek)；中 / 英切换，浏览器「打印 → 存 PDF」就是一份 A4 snapshot。不带 `code` 显示已有 ESG 资料的公司列表；终端版个股页的公司简介里也有链接
 - **ESG 区块**：从可持续发展报告抽出的关键指标 (每个数字都有页码，点开看原文引句)、排放 / 能源强度 (每 RM 百万营收，营收取年报)、IFRS S1/S2 披露项目检查表 (报告里找到 ✓ / 部分 ◐ / 自动检索未找到 —)、同行业对比
 - **可嵌入小工具** `ir-widget.html?code=5347`：最新 5 条公告摘要 + 接下来 30 天的活动，公司可以用 iframe 放进自己官网：
   `<iframe src="https://cja231.github.io/Bursa-bot/terminal/ir-widget.html?code=5347&lang=en&theme=light" style="width:360px;height:480px;border:0"></iframe>`
 
 **怎么加一家公司**：
 1. 在 GitHub 网页打开 [`data/esg/sources.json`](./data/esg/sources.json) → ✎ 编辑 (手机也可以)
-2. 加一行：`"代码": [{"url": "公司官网上可持续发展报告或年报的 PDF 网址", "year": 2025, "type": "sustainability"}]` (只有年报就写 `"annual"`)
+2. 加一行：`"代码": [{"url": "公司官网上可持续发展报告或年报的 PDF 网址", "year": 2025, "type": "sustainability"}]` (只有年报就写 `"annual"`)。同一家可以两份都填：ESG 用可持续发展报告，**年报 (`"annual"`) 另外拿来抽各业务板块的营收 / 利润** (见下方业务板块动态)
 3. 提交到 main → `esg.yml` 自动下载 PDF、抽取，几分钟后 `docs/esg/<代码>.json` 和页面就有了。PDF 没变就不再重做；要重做在 Actions 手动跑「ESG extract」，勾 `force`
 4. 先试抽、不提交：Debug Stock workflow 的 symbol 填 `ESG`
 
@@ -260,11 +260,28 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
 - **首日开盘 / 收盘、上市至今**：Yahoo Finance 不复权日线，跟招股价比；首日那根定了就不再改
 - 只记录事实，不评论好坏，也不构成认购建议；手动测试：Debug Stock workflow 的 symbol 填 `IPO`
 
+## 个股页的三个资料区块
+
+终端版个股页 (和 IR 页面) 在 AI 资讯、财报下面多了三块，资料由 `company_intel.yml` 跑完公司资讯后接着更新 (任何一个失败都不影响发布)：
+
+- **SEGMENTS 业务板块动态** (`scripts/segments.py` → `docs/segments/<代码>.json`)：今年 (1 月 1 日起) 各业务板块做了什么 —— 扩张 / 新业务 / 缩减 / 退出 / 合约，以及业务模式的变化 (新增或退出整条业务线)。
+  DeepSeek 读今年的非例行公告 (标题 + 部分内文) 按板块整理，**每一条都要对应一条今年的公告**，对不上的程序丢掉，页面上每条都链接原公告。
+  `data/esg/sources.json` 里有年报 (`"type": "annual"`) 的公司，再加上「各板块营收 / 利润：今年 vs 上年」，跟 ESG 一样核对 (引句在那一页、两年的数字都在引句里)，变化 % 由程序算。
+  只描述发生了什么，程序也会删掉「强劲、改善、恶化」之类的评价字眼。季报的分部资料在 Bursa 网站上 (Actions 打不开)，所以数字只来自年报
+- **REPORTS 原始财报文件** (`scripts/filings.py` → `docs/filings/<代码>.json`)：按财政年度排的表格，`[Q1]`–`[Q4]` 季报、`[年报]`、`[审计]` 经审计账目，点一下打开 **Bursa 原文** (附件 PDF 在那一页)；最近 12 季、5 年。原文网址读一次就存起来
+- **SHAREHOLDERS 主要股东** (`scripts/holders.py` → `docs/holders/<代码>.json`)：读 Bursa 主要股东公告 (CA 2016 第 137 / 138 / 139 条，格式固定，程序直接读、不经过 AI)，
+  画出「持股结构」(直接持股的 100% 条，其余为其他股东) 和每位股东的持股 %、跟期间第一笔申报之前比的变化 (百分点)，加上最近几笔买入 / 卖出。
+  只包含过去约 13 个月有申报变动的股东；间接 (视同) 持股可能跟别人重复 (例如家族成员)，所以持股结构只用直接持股
+
+试跑 (只印结果、不提交)：Debug Stock 的 symbol 填 `HOLDERS`、`FILINGS`、`SEGMENTS`，可以加代码，例如 `SEGMENTS:7113`。
+
 ## ✦ AI 问答设置
 
 网页是公开的静态网站，API 密钥不能放在网页里。两种连法，在 ✦ →「⚙ 设置」里选，设置只存在这台设备的浏览器：
 - **Worker (推荐)**：部署 [`worker/ai-proxy.js`](./worker/ai-proxy.js) 到免费的 Cloudflare Workers，密钥放在 Cloudflare 的 Secret，网页只填 Worker 网址和自己定的通行码。步骤见 [`worker/README.md`](./worker/README.md)
 - **自己的 DeepSeek 密钥**：浏览器直接连 DeepSeek，不用 Cloudflare，但密钥存在手机上
+
+**模型**：后台全部用 `main.py` 的 `AI_MODEL` (默认 `deepseek-chat`；2026-11 实测由 DeepSeek V4.1 Flash 回答，非思考模式)。要换模型改这一行 (本地跑的时候也可以设环境变量 `DEEPSEEK_MODEL`)；写 `deepseek-flash` 会开思考模式，先用掉输出额度，JSON 可能被截断
 
 ## 功能特色
 
@@ -331,10 +348,10 @@ KLSE Screener 公告 + 新闻 + 季报 → DeepSeek 整理 → docs/intel/ (公�
 | 文件 | 做什么 | 怎么触发 |
 |---|---|---|
 | `daily.yml` | 跑报告 (马股 / 美股)、生成终端版、提交、推送通知 | cron-job.org 按当地时间调用 (workflow_dispatch，参数 `market`) |
-| `company_intel.yml` | DeepSeek 公司资讯 + 企业活动日历 | 每次报告跑完 (新公告模式，最多 20 家)；平日 19:17 完整轮换；或手动 |
+| `company_intel.yml` | DeepSeek 公司资讯 + 企业活动日历；接着更新主要股东、原始财报文件、业务板块动态 | 每次报告跑完 (新公告模式，最多 20 家)；平日 19:17 完整轮换；或手动 |
 | `esg.yml` | 下载可持续发展报告 PDF、抽取 ESG 指标到 `docs/esg/` | `data/esg/sources.json` 提交到 main 时；或手动 (参数 `codes` / `force`) |
 | `update-watchlist.yml` | 更新全市场股票清单 | 手动 (平时 daily.yml 每天第一次运行会自动更新) |
-| `debug_stock.yml` | 调试某支股票过去几天的条件；另有 `IPO` (更新并印出新股资料)、`LATENCY` (记录各公告来源的延迟)、`ESG` (试抽 ESG、不提交)、`PROBE*` (测试资料来源) | 手动 |
+| `debug_stock.yml` | 调试某支股票过去几天的条件；另有 `IPO` (更新并印出新股资料)、`LATENCY` (记录各公告来源的延迟)、`ESG` (试抽 ESG、不提交)、`HOLDERS` / `FILINGS` / `SEGMENTS` (试跑、不提交)、`PROBE*` (测试资料来源) | 手动 |
 
 会 `git push` 的流程 (`daily.yml`、`company_intel.yml`、`esg.yml`) 在同一个 concurrency 组，排队跑，不会撞在一起。Actions 用 `actions/checkout@v7`、`actions/setup-python@v7`、`actions/cache@v6` (Node.js 24)。
 
@@ -373,6 +390,9 @@ Bursa-bot/
 ├── docs/terminal/               # 生成的终端版 (每次运行更新)；overrides.json = 管理员在网页上的编辑 (Worker 提交)
 ├── docs/intel/                  # AI 公司资讯 <代码>.json、index.json、企业活动日历 calendar.json (company_intel.yml 生成)
 ├── docs/esg/                    # ESG 抽取结果 <代码>.json + index.json (同行对比用，esg.yml 生成)
+├── docs/segments/               # 业务板块动态 (segments.py)
+├── docs/filings/                # 原始财报文件索引：季报 / 年报 / 经审计账目的 Bursa 原文网址 (filings.py)
+├── docs/holders/                # 主要股东持股和变动 (holders.py)
 ├── docs/downloads/              # 最近 7 个交易日的下载文件 (自动生成，自动清理)
 ├── docs/charts/table.json       # "其余股票"点开看完整图表 / 网页选股条件用的 K 线 (每次运行更新)
 ├── docs/charts/card/            # 信号股的分时 K 线 (选分时周期时才下载，每次运行更新，没有信号了自动删除)
@@ -387,6 +407,9 @@ Bursa-bot/
 │   ├── debug_stock.py           # 调试工具：查看某支股票过去几天是否符合条件
 │   ├── company_intel.py         # DeepSeek 公司资讯 + 企业活动日历 (company_intel.yml 跑)
 │   ├── esg_extract.py           # 可持续发展报告 PDF → ESG 指标 + IFRS S1/S2 披露项目 (esg.yml 跑)
+│   ├── segments.py              # 今年各业务板块的动态 (公告) + 年报分部营收 / 利润
+│   ├── filings.py               # 季报 / 年报 / 经审计账目的 Bursa 原文链接
+│   ├── holders.py               # 主要股东公告 → 持股 % 和变化
 │   ├── ann_latency.py           # 记录 KLSE Screener / i3investor 等公告来源比官方晚多久
 │   └── probe_sources.py         # 测试各资料来源在 Actions 上拿不拿得到
 ├── .github/workflows/           # 自动化流程 (见上方表格)
