@@ -32,13 +32,14 @@ on:
 permissions:
   contents: write
 
-# 跟每日报告同一组：轮流跑，不会同时 git push 撞在一起
-concurrency:
-  group: publish-report
-  cancel-in-progress: false
-
+# 不跟每日报告排同一组：公司资讯第一次补资料可能跑很久，同一组的话报告只能干等，再来一个就被 GitHub 取消 (一组只能 1 个在跑 + 1 个在等)。
+# 两边写的文件不重叠 (报告不写 docs/intel、holders、filings、segments)，push 前 pull --rebase + 重试就不会冲突。
+# 排队组放在 job 上：报告被取消时触发的那次 (job 被 if 跳过) 不会进来把正在等的挤掉
 jobs:
   intel:
+    concurrency:
+      group: company-intel
+      cancel-in-progress: false
     # 报告失败 / 被取消就不跟着跑
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
@@ -80,5 +81,9 @@ jobs:
           git add -A docs/intel docs/holders docs/filings docs/segments
           git diff --staged --quiet && exit 0
           git commit -m "Update company intel, shareholders, filings, segments"
-          git pull --rebase origin "${GITHUB_REF_NAME}"
-          git push
+          # 别的流程 (报告 / 公司资讯 / ESG) 可能同时推送：接上最新的再推，被拒就等一下重试
+          for i in 1 2 3 4 5; do
+            { git pull --rebase origin "${GITHUB_REF_NAME}" || { git rebase --abort 2>/dev/null; false; }; } && git push && break
+            [ "$i" = 5 ] && exit 1
+            sleep $((i * 10))
+          done

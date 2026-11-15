@@ -19,9 +19,9 @@ on:
 permissions:
   contents: write
 
-# 跟每日报告、公司资讯同一组：轮流跑，不会同时 git push 撞在一起
+# 自己一组 (只写 docs/esg，跟报告、公司资讯不重叠)；push 前 pull --rebase + 重试
 concurrency:
-  group: publish-report
+  group: esg-extract
   cancel-in-progress: false
 
 jobs:
@@ -51,5 +51,9 @@ jobs:
           git add -A docs/esg
           git diff --staged --quiet && exit 0
           git commit -m "Update ESG extracts"
-          git pull --rebase origin "${GITHUB_REF_NAME}"
-          git push
+          # 别的流程 (报告 / 公司资讯 / ESG) 可能同时推送：接上最新的再推，被拒就等一下重试
+          for i in 1 2 3 4 5; do
+            { git pull --rebase origin "${GITHUB_REF_NAME}" || { git rebase --abort 2>/dev/null; false; }; } && git push && break
+            [ "$i" = 5 ] && exit 1
+            sleep $((i * 10))
+          done
