@@ -97,8 +97,12 @@ jobs:
           git diff --staged --quiet || git commit -m "$msg"
           # 排队等上一个 run (例如另一个市场) 的时候，main 可能已经多了它推上去的报告 → 先接上再推。
           # 两个市场写的是不同目录 (docs/ 和 docs/us/)，不会冲突
-          git pull --rebase origin "${GITHUB_REF_NAME}"
-          git push
+          # 公司资讯 / ESG 也可能同时推送 (不同目录，不会冲突)：被拒就等一下再接上重推
+          for i in 1 2 3 4 5; do
+            { git pull --rebase origin "${GITHUB_REF_NAME}" || { git rebase --abort 2>/dev/null; false; }; } && git push && break
+            [ "$i" = 5 ] && exit 1
+            sleep $((i * 10))
+          done
 
       # 公开展示站 (精简版，没有指标 / 规则 / 回测)：推到另一个公开仓库的根目录。
       # 需要在这个 (私有) 仓库设置：Secret PUBLIC_REPO_TOKEN (对公开仓库有 Contents 写权限的 fine-grained token)、Variable PUBLIC_REPO (例如 CJA231/Bursa-bot-public)。没设置就跳过

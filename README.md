@@ -353,7 +353,7 @@ KLSE Screener 公告 + 新闻 + 季报 → DeepSeek 整理 → docs/intel/ (公�
 | `update-watchlist.yml` | 更新全市场股票清单 | 手动 (平时 daily.yml 每天第一次运行会自动更新) |
 | `debug_stock.yml` | 调试某支股票过去几天的条件；另有 `IPO` (更新并印出新股资料)、`LATENCY` (记录各公告来源的延迟)、`ESG` (试抽 ESG、不提交)、`HOLDERS` / `FILINGS` / `SEGMENTS` (试跑、不提交)、`PROBE*` (测试资料来源) | 手动 |
 
-会 `git push` 的流程 (`daily.yml`、`company_intel.yml`、`esg.yml`) 在同一个 concurrency 组，排队跑，不会撞在一起。Actions 用 `actions/checkout@v7`、`actions/setup-python@v7`、`actions/cache@v6` (Node.js 24)。
+会 `git push` 的流程各自一个 concurrency 组：`daily.yml` (马股 / 美股报告轮流跑)、`company_intel.yml`、`esg.yml`。它们写的目录不重叠，所以推送前先 `pull --rebase`，被拒就等一下重试 (最多 5 次)。公司资讯不跟报告排同一组，因为 GitHub 一组只能 1 个在跑、1 个在等，再来一个就会把等着的取消；公司资讯跑久了，报告会被挤掉。Actions 用 `actions/checkout@v7`、`actions/setup-python@v7`、`actions/cache@v6` (Node.js 24)。
 
 ## 技术栈
 
