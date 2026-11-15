@@ -1,5 +1,5 @@
 // IR + ESG 页面 (ir.html?code=XXXX) 和可嵌入官网的小工具 (ir-widget.html?code=XXXX)
-// 只用公开披露资料：公司简介 (stock/<代码>.json)、公告 AI 摘要和企业活动 (intel/<代码>.json)、新股日期 (ipo.json)、
+// 只用公开披露资料：公司简介 (stock/<代码>.json)、公告摘要和企业活动 (intel/<代码>.json)、新股日期 (ipo.json)、
 // 可持续发展报告抽出的指标和 IFRS S1/S2 披露项目 (esg/<代码>.json，scripts/esg_extract.py)。不放股价、不打分、不给建议。
 // 网站管理员在终端版的更正 (overrides.json) 照样生效。
 (function () {
@@ -29,9 +29,9 @@
     ghgint: ['排放强度', 'GHG intensity'], items: ['披露项目', 'Items found'], nopeers: ['同行业还没有其他公司的资料。', 'No other companies in this sector yet.'],
     print: ['打印 / 存 PDF', 'Print / PDF'], lang: ['EN', '中文'], website: ['官网', 'Website'], updated: ['更新', 'Updated'],
     pick: ['输入股票代码打开 IR 页面，例如 5347：', 'Enter a stock code to open its IR page, e.g. 5347:'], open: ['打开', 'Open'], demo: ['已有 ESG 资料的公司', 'Companies with ESG data'],
-    nodata: ['找不到这家公司的资料。', 'No data found for this company.'], powered: ['资料来自公司公告，AI 摘要可能有错漏，以原公告为准', 'From company announcements; AI summaries may contain errors — the original announcements prevail'],
-    disc: ['本页只整理公司公开披露的资料 (公告、年报、可持续发展报告)：AI 摘要和抽取的数字都附来源和页码，可能有错漏，以原文为准。不显示股价，不构成投资建议，也不是 ESG 评级或合规意见。',
-      'This page only compiles the company\'s public disclosures (announcements, annual and sustainability reports). AI summaries and extracted figures carry sources and page numbers and may contain errors — the originals prevail. No share prices; not investment advice, an ESG rating or a compliance opinion.'],
+    nodata: ['找不到这家公司的资料。', 'No data found for this company.'], powered: ['资料整理自公司公告，摘要可能有错漏，以原公告为准', 'Compiled from company announcements; summaries may contain errors — the original announcements prevail'],
+    disc: ['本页只整理公司公开披露的资料 (公告、年报、可持续发展报告)：摘要和抽取的数字都附来源和页码，可能有错漏，以原文为准。不显示股价，不构成投资建议，也不是 ESG 评级或合规意见。',
+      'This page only compiles the company\'s public disclosures (announcements, annual and sustainability reports). Summaries and extracted figures carry sources and page numbers and may contain errors — the originals prevail. No share prices; not investment advice, an ESG rating or a compliance opinion.'],
     terms: ['使用条款与免责声明', 'Terms of use & disclaimer'], est: ['推算', 'estimated'], ipo: ['IPO', 'IPO']
   };
   var t = function (k) { return (TX[k] || [k, k])[EN ? 1 : 0]; };
@@ -168,7 +168,7 @@
       if (L(intel, 'earnings')) r += '<p>' + esc(L(intel, 'earnings')) + '</p>';
       var al = annRows(intel, 8);
       if (al) r += '<h3>' + t('anns') + '</h3><ul class="ir-l">' + al + '</ul>';
-      h += sec(t('recent'), r + '<p class="dim">' + t('updated') + ' ' + esc(intel.updated || '') + ' · AI (DeepSeek)</p>');
+      h += sec(t('recent'), r + '<p class="dim">' + t('updated') + ' ' + esc(intel.updated || '') + '</p>');
     }
     h += sec(t('cal'), ev.length ? '<ul class="ir-l">' + evRows(ev, 10) + '</ul>' : '<p class="dim">' + t('nocal') + '</p>');
     h += esgBlock(esg, index);

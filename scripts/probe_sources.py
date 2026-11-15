@@ -355,7 +355,48 @@ def dump_fin():
                 print(f"[{u[8:70]}] ERR {type(e).__name__}: {str(e)[:100]}")
 
 
+def dump_holders():
+    """PROBE10：主要股东变动公告 (Section 138 / 137 / 139) 的正文格式，做股东持股图用"""
+    import os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import main as m
+    from datetime import datetime
+    today = datetime.now(m.LOCAL_TZ).date()
+    picked = []
+    for code in ("5347", "1155", "7113"):
+        try:
+            items = m.klse_announcements(code)
+        except Exception as e:  # noqa: BLE001
+            print(f"[{code}] ERR {e}")
+            continue
+        h = [x for x in items if re.search(r"S-hldr|Section 13[789]|Director'?s? Int|substantial", x["title"], re.I)]
+        print(f"[{code}] {len(items)} items, holding-type {len(h)}")
+        for x in h[:6]:
+            print("    ", x["date"], x["title"][:120])
+        picked += h[:2]
+    r = requests.get(m.KLSE_ANN_LIST, headers=m.KLSE_HEADERS, timeout=20)
+    allm = m.parse_klse_announcements(r.text, today)
+    for kw in (r"Notice of Interest Sub", r"Ceasing", r"Director'?s? Int"):
+        picked += [x for x in allm if re.search(kw, x["title"], re.I)][:1]
+    for x in picked[:8]:
+        try:
+            g = requests.get(x["link"], headers=m.KLSE_HEADERS, timeout=20)
+            body = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", g.text)
+            t = re.sub(r"\s+", " ", m.html.unescape(re.sub(r"<[^>]+>", " ", body)))
+            k = t.find("disabling or pausing your ad blocker.")
+            t = t[k + 38:] if k >= 0 else t
+            print("=" * 20, x["date"], x["title"][:100], x["link"])
+            print(t[:2600])
+            tables = re.findall(r"(?is)<table.*?</table>", g.text)
+            first = re.sub(r"\s+", " ", tables[0])[:1500] if tables else "-"
+            print(f"   tables: {len(tables)}; first table html: {first}")
+        except Exception as e:  # noqa: BLE001
+            print("ERR", e)
+
+
 def main():
+    if "--holders" in sys.argv:
+        return dump_holders()
     if "--fin" in sys.argv:
         return dump_fin()
     if "--esg" in sys.argv:
