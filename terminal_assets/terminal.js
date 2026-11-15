@@ -1292,6 +1292,7 @@
       else if (p.summary) h += T('<p class="dim">中文介绍还在生成，先看英文原文：</p>');
       if (p.summary) h += '<details class="info"' + (p.zh ? '' : ' open') + '><summary>English <span class="arw" aria-hidden="true">➡️</span></summary><p class="dim prof-en">' + esc(p.summary) + '</p></details>';
     }
+    h += '<p><a href="ir.html?code=' + esc(code) + T('" target="_blank" rel="noopener">IR / ESG 页面 ↗</a></p>');
     return pn(T('PROFILE 公司简介') + edBtn('profile', code), T('来源 Yahoo Finance'), h);
   }
   function pageQuote(code) {

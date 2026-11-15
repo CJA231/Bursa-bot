@@ -536,5 +536,6 @@ window.TERM_EN = {
 "成交额前 5": "Top 5 by turnover",
 "接下来 7 天": "Next 7 days",
 "<p class=\"dim\">没有 IPO 日期或观察列表公司的活动</p>": "<p class=\"dim\">No IPO dates or watchlist company events</p>",
-" · 每 5 分钟自动更新 · <a href=\"./\" target=\"bterm\">完整终端 ↗</a></p>": " · refreshes every 5 min · <a href=\"./\" target=\"bterm\">Full terminal ↗</a></p>"
+" · 每 5 分钟自动更新 · <a href=\"./\" target=\"bterm\">完整终端 ↗</a></p>": " · refreshes every 5 min · <a href=\"./\" target=\"bterm\">Full terminal ↗</a></p>",
+"\" target=\"_blank\" rel=\"noopener\">IR / ESG 页面 ↗</a></p>": "\" target=\"_blank\" rel=\"noopener\">IR / ESG page \u2197</a></p>"
 };

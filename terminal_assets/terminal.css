@@ -361,3 +361,45 @@ h2 .ed-b { font-size: 11px; }
 .wg-f button { font-size: 11px; padding: 2px 6px; }
 .wg-e { margin: 2px 0; font-size: 12px; }
 .wg-foot { font-size: 11px; margin: 10px 0 0; }
+
+/* IR + ESG 页面 (ir.html) 和官网嵌入小工具 (ir-widget.html) */
+.ir-wrap { display: block; max-width: 860px; margin: 0 auto; padding: 14px 16px 40px; }
+.ir-h { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px; border-bottom: 3px double var(--acc); padding-bottom: 10px; }
+.ir-h h1 { font-size: 20px; margin: 0 0 4px; color: var(--acc); }
+.ir-h p { margin: 0; font-size: 12px; }
+.ir-tools { display: flex; gap: 6px; }
+.ir-tools button, .ir-pick button { font: inherit; font-size: 12px; padding: 6px 10px; color: var(--acc2); background: none; border: 1px solid var(--line); cursor: pointer; }
+.ir-s { margin-top: 18px; }
+.ir-s h2 { font-size: 14px; color: var(--acc); margin: 0 0 6px; padding-bottom: 3px; border-bottom: 1px solid var(--line); }
+.ir-s h3 { font-size: 12.5px; color: var(--acc2); margin: 12px 0 4px; }
+.ir-s p { margin: 4px 0; line-height: 1.6; }
+.ir-l { margin: 4px 0; padding-left: 1.2em; line-height: 1.55; }
+.ir-l li { margin: 2px 0; }
+.ir-l a { color: var(--fg); }
+.ir-t { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 4px 0; }
+.ir-t th { text-align: left; font-weight: 400; color: var(--mut); border-bottom: 1px solid var(--line); padding: 4px 6px; white-space: nowrap; }
+.ir-t td { border-bottom: 1px dashed var(--line); padding: 5px 6px; vertical-align: top; }
+.ir-t .r { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ir-t tr.me td { background: var(--sel); font-weight: 700; }
+.ir-t details summary { cursor: pointer; color: var(--acc2); white-space: nowrap; }
+.ir-t q { display: block; font-size: 11.5px; color: var(--mut); margin-top: 4px; quotes: "“" "”"; }
+.ir-note { font-size: 11.5px; margin-top: 2px; }
+.ir-scroll { overflow-x: auto; }
+.ir-int, .ir-src { font-size: 11.5px; }
+.ir-f { margin-top: 26px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.6; }
+.ir-pick input { font: inherit; font-size: 16px; width: 8em; padding: 6px 8px; color: var(--fg); background: var(--bg2); border: 1px solid var(--line); }
+.irw .ir-wrap { max-width: none; padding: 10px 12px; }
+.irw-h { border-bottom: 2px solid var(--acc); padding-bottom: 4px; }
+.irw h3 { font-size: 12px; color: var(--acc); margin: 10px 0 2px; }
+.irw .ir-l { font-size: 12.5px; padding-left: 1em; }
+.irw-f { font-size: 10.5px; margin-top: 10px; }
+@media print {
+  :root, :root[data-theme] { --bg: #fff; --bg2: #f4f4f4; --fg: #111; --mut: #555; --line: #bbb; --acc: #162A46; --acc2: #2E4D7A; --sel: #eee; }
+  body { background: #fff; color: #111; }
+  .ir-tools, #ai-fab { display: none !important; }
+  .ir-wrap { max-width: none; padding: 0; }
+  .ir-s { break-inside: avoid-page; }
+  .ir-t details > q { display: none; }
+  a { color: #111; text-decoration: none; }
+  @page { size: A4; margin: 14mm; }
+}

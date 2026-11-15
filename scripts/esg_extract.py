@@ -236,6 +236,15 @@ def neutral(text, en=False):
     return "".join(p for p in re.split(r"(?<=[。；;!?])", t) if p and not ESG_JUDGE_RE.search(p)).strip()
 
 
+def cut(text, n):
+    """太长就在 n 字以内最后一个句号处截断 (不切在句子中间)；整段没有句号才硬切。"""
+    if len(text) <= n:
+        return text
+    head = text[:n]
+    m = max(head.rfind(c) for c in ("。", "；", ". ", "; "))
+    return head[:m + 1].strip() if m > n // 3 else head.rstrip() + "…"
+
+
 def verify_readiness(items, pages):
     out = {}
     for it in items or []:
@@ -251,7 +260,7 @@ def verify_readiness(items, pages):
         if st != "not_found" and page is None:
             st = "partial"  # 说有写但给不出页码：降一级
         out[k] = {"key": k, "status": st, "page": page if st != "not_found" else None,
-                  "note": neutral(it.get("note"))[:120], "note_en": neutral(it.get("note_en"), en=True)[:180]}
+                  "note": cut(neutral(it.get("note")), 120), "note_en": cut(neutral(it.get("note_en"), en=True), 200)}
     for k in READINESS:  # AI 漏掉的项目当成没找到
         out.setdefault(k, {"key": k, "status": "not_found", "page": None, "note": "", "note_en": ""})
     return [out[k] for k in READINESS]
@@ -331,7 +340,7 @@ def process(code, entry, now, force=False, dry=False, log=print):
             metrics.append(v)
         else:
             dropped += 1
-    rec = dict(base, status="ok", pages_used=sel, summary=neutral(out.get("summary"))[:400], summary_en=neutral(out.get("summary_en"), en=True)[:600],
+    rec = dict(base, status="ok", pages_used=sel, summary=cut(neutral(out.get("summary")), 400), summary_en=cut(neutral(out.get("summary_en"), en=True), 700),
                metrics=sorted(metrics, key=lambda x: list(METRICS).index(x["key"])), readiness=verify_readiness(out.get("readiness"), pages), dropped=dropped, dropped_why=why[:20])
     yr = entry.get("year") or max([x["year"] for x in metrics if x.get("year")] or [None])
     rec["intensity"] = intensity(code, yr, metrics) if yr else None
