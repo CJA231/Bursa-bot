@@ -394,7 +394,51 @@ def dump_holders():
             print("ERR", e)
 
 
+def dump_fin2():
+    """PROBE11：KLSE Screener 公告按类别筛 (财报 FA,FRCO / 年报 AR,ARCO / 股权变动 SH,CHSH) + 每季财报页"""
+    import os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import main as m
+    from datetime import datetime
+    today = datetime.now(m.LOCAL_TZ).date()
+    for code in ("5347", "7113"):
+        for cat in ("FA,FRCO", "AR,ARCO", "AA,AACO", "SH,CHSH"):
+            for pg in ("", "&page=2", "&page=5"):
+                u = m.KLSE_ANN_STOCK.format(code) + "?category=" + cat + pg
+                try:
+                    r = requests.get(u, headers=m.KLSE_HEADERS, timeout=20)
+                    items = m.parse_klse_announcements(r.text, today)
+                    years = re.findall(r'class="year"[^>]*>\s*(\d{4})', r.text)[:3]
+                    print(f"[{code} {cat}{pg}] {r.status_code} items={len(items)} year-tags={years}")
+                    for x in items[:4] if pg != "&page=5" else items[:2]:
+                        print("    ", x["date"], x["title"][:110], x["link"][-9:])
+                    if items and not pg and cat == "FA,FRCO":
+                        blk = re.search(r'(?is)<a[^>]+href="/v2/announcements/view/\d+"[^>]*class="announcement-item".*?</a>', r.text)
+                        print("    first item html:", re.sub(r"\s+", " ", blk.group(0))[:700] if blk else "-")
+                except Exception as e:  # noqa: BLE001
+                    print(f"[{code} {cat}{pg}] ERR {type(e).__name__}: {e}")
+        try:
+            v = requests.get(f"https://www.klsescreener.com/v2/stocks/view/{code}", headers=m.KLSE_HEADERS, timeout=20).text
+            links = re.findall(r'/v2/stock/financial-report/' + code + r'/(\d{4}-\d{2}-\d{2})', v)
+            print(f"   quarter links: {len(links)} last: {links[-3:]}")
+            k = v.find('id="annual"')
+            print("   #annual block:", re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", v[k:k + 3000]))[:900] if k >= 0 else "-")
+            ar = sorted(set(re.findall(r'href="([^"]*(?:annual|AR)[^"]*\.pdf[^"]*)"', v, re.I)))[:5]
+            print("   annual pdf links:", ar)
+            if links:
+                fr = requests.get(f"https://www.klsescreener.com/v2/stock/financial-report/{code}/{links[-1]}", headers=m.KLSE_HEADERS, timeout=20)
+                hrefs = [h for h in re.findall(r'href="([^"]+)"', fr.text) if re.search(r"bursa|pdf|announcement|login", h, re.I)]
+                t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", fr.text)))
+                print(f"   [fin-report {links[-1]}] {fr.status_code} {len(fr.text)}B hrefs: {list(dict.fromkeys(hrefs))[:10]}")
+                k = t.find("Segment")
+                print("   text:", t[k:k + 500] if k >= 0 else t[1500:2200])
+        except Exception as e:  # noqa: BLE001
+            print("   view ERR", e)
+
+
 def main():
+    if "--fin2" in sys.argv:
+        return dump_fin2()
     if "--holders" in sys.argv:
         return dump_holders()
     if "--fin" in sys.argv:
