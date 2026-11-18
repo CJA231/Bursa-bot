@@ -448,10 +448,6 @@
     "name": "FOCUSP"
   },
   {
-    "symbol": "0158.KL",
-    "name": "SCC"
-  },
-  {
     "symbol": "0160.KL",
     "name": "HHHCORP"
   },
@@ -598,10 +594,6 @@
   {
     "symbol": "0198.KL",
     "name": "GDB"
-  },
-  {
-    "symbol": "0199.KL",
-    "name": "TRIMODE"
   },
   {
     "symbol": "0200.KL",
@@ -1452,6 +1444,10 @@
     "name": "KEB Berhad"
   },
   {
+    "symbol": "0482.KL",
+    "name": "MyDCD Berhad"
+  },
+  {
     "symbol": "0800EA.KL",
     "name": "ABFMY1"
   },
@@ -2064,6 +2060,10 @@
     "name": "AYS"
   },
   {
+    "symbol": "5022.KL",
+    "name": "PAOS"
+  },
+  {
     "symbol": "5024.KL",
     "name": "HUPSENG"
   },
@@ -2192,10 +2192,6 @@
     "name": "POHKONG"
   },
   {
-    "symbol": "5081.KL",
-    "name": "EIG"
-  },
-  {
     "symbol": "5084.KL",
     "name": "IBRACO"
   },
@@ -2246,10 +2242,6 @@
   {
     "symbol": "5104.KL",
     "name": "CNH"
-  },
-  {
-    "symbol": "5105.KL",
-    "name": "CANONE"
   },
   {
     "symbol": "5106.KL",
@@ -2696,6 +2688,10 @@
     "name": "OASIS"
   },
   {
+    "symbol": "5267.KL",
+    "name": "XINHWA"
+  },
+  {
     "symbol": "5269.KL",
     "name": "ALSREIT"
   },
@@ -3112,10 +3108,6 @@
     "name": "FARLIM"
   },
   {
-    "symbol": "6068.KL",
-    "name": "PCCS"
-  },
-  {
     "symbol": "6076.KL",
     "name": "ENCORP"
   },
@@ -3198,10 +3190,6 @@
   {
     "symbol": "6599.KL",
     "name": "AEON"
-  },
-  {
-    "symbol": "6602.KL",
-    "name": "BCB"
   },
   {
     "symbol": "6633.KL",
@@ -3454,6 +3442,10 @@
   {
     "symbol": "7089.KL",
     "name": "LIIHEN"
+  },
+  {
+    "symbol": "7091.KL",
+    "name": "UNIMECH"
   },
   {
     "symbol": "7094.KL",
@@ -4098,6 +4090,10 @@
   {
     "symbol": "8591.KL",
     "name": "CRESBLD"
+  },
+  {
+    "symbol": "8605.KL",
+    "name": "FIHB"
   },
   {
     "symbol": "8613.KL",
