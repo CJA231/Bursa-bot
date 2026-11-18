@@ -416,3 +416,49 @@ h2 .ed-b { font-size: 11px; }
   a { color: #111; text-decoration: none; }
   @page { size: A4; margin: 14mm; }
 }
+
+/* ---------- 个股页分段标签 (贴在顶部) ---------- */
+.qtabs { position: sticky; top: 0; z-index: 6; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; background: var(--bg); border-bottom: 1px solid var(--line); margin: 2px 0 10px; padding-top: env(safe-area-inset-top, 0px); }
+.qtabs::-webkit-scrollbar { display: none; }
+.qtabs button { flex: 1 0 auto; font: inherit; font-size: 12.5px; padding: 10px 10px 8px; min-height: 42px; color: var(--mut); background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+.qtabs button[aria-selected="true"] { color: var(--acc); border-bottom-color: var(--acc); font-weight: 700; }
+.qtabs small { color: var(--acc2); font-weight: 400; }
+.qbody { display: grid; gap: 10px; min-width: 0; }
+
+/* ---------- 信号页搜索 ---------- */
+.sq { margin-bottom: 10px; }
+.sq-res { display: grid; }
+.sq-r { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; width: 100%; text-align: left; font: inherit; font-size: 13px; padding: 9px 4px; min-height: 40px; color: var(--fg); background: none; border: 0; border-bottom: 1px dotted var(--line); cursor: pointer; }
+.sq-r:hover, .sq-r:focus-visible { background: var(--sel); }
+.sq-p { margin-left: auto; }
+.sq-none { margin: 6px 0 0; }
+
+/* ---------- 手机底部导航栏：浮动玻璃 (liquid glass) ---------- */
+.tabbar { display: none; }
+@media (max-width: 779px) {
+  .keys, #keys-help { display: none; }
+  .foot { padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+  #ai-fab { bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
+  .tabbar { display: block; position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 30;
+    padding: 5px; border-radius: 30px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; scroll-snap-type: x proximity;
+    background: rgba(48, 48, 48, 0.62); background: color-mix(in srgb, var(--bg) 58%, transparent);
+    -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.14); border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.14); }
+  .tabbar::-webkit-scrollbar { display: none; }
+  .tb-in { position: relative; display: flex; min-width: 100%; }
+  .tabbar button { position: relative; z-index: 1; flex: 1 0 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    min-height: 52px; padding: 6px 4px 5px; border: 0; border-radius: 24px; background: none; color: var(--mut); font: inherit; font-size: 10px; line-height: 1.1;
+    cursor: pointer; scroll-snap-align: center; -webkit-tap-highlight-color: transparent; white-space: nowrap; }
+  .tabbar svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform .25s; }
+  .tabbar button:active svg { transform: scale(0.88); }
+  .tabbar button[aria-current] { color: var(--acc); font-weight: 700; }
+  .tabbar button[aria-current="true"] { opacity: 0.8; }
+  .tb-ind { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-radius: 24px; pointer-events: none;
+    background: rgba(255, 255, 255, 0.10); background: color-mix(in srgb, var(--fg) 12%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.20), inset 0 -1px 0 rgba(0, 0, 0, 0.08), 0 2px 10px rgba(0, 0, 0, 0.12);
+    transition: transform .42s cubic-bezier(.3, 1.35, .5, 1), width .42s cubic-bezier(.3, 1.35, .5, 1); }
+  .wg .tabbar { display: none !important; }
+}
+@media (max-width: 779px) and (prefers-reduced-motion: reduce) { .tb-ind, .tabbar svg { transition: none; } }
+@media print { .tabbar, .qtabs { display: none !important; } }

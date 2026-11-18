@@ -1,3 +1,4 @@
+import company  # data/company.json：版权署名
 import time
 PROCESS_START = time.perf_counter()  # 用来算"导入库"花了多久 (pandas_ta 会带进 numba，导入本身就要几秒)
 
@@ -5048,13 +5049,13 @@ def build_html_report(stocks, downloads=None, table_charts_version=None, market=
 </div>
 
 <footer class="site-footer">
-  <p>© {datetime.now(LOCAL_TZ).year} CJA231 · 仅供研究参考，不构成投资建议 · 数据 Yahoo Finance</p>
+  <p>© {datetime.now(LOCAL_TZ).year} {html.escape(company.load()['name'])} · 仅供研究参考，不构成投资建议 · 数据 Yahoo Finance</p>
   <!-- 图表库 Apache 2.0 NOTICE 要求的署名 + 链接，要放在看得到的地方 -->
   <p>K 线图 TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · <a href="https://www.tradingview.com/" target="_blank" rel="noopener">tradingview.com</a></p>
   <details class="legal"><summary>版权与免责声明</summary>
-    <p>本报告及其筛选策略、代码与分析方法版权所有 © {datetime.now(LOCAL_TZ).year} CJA231，保留一切权利。未经书面授权，禁止复制、转载、二次分发或用于商业用途。</p>
+    <p>本报告及其筛选策略、代码与分析方法版权所有 © {datetime.now(LOCAL_TZ).year} {html.escape(company.load()['name'])}，保留一切权利。未经书面授权，禁止复制、转载、二次分发或用于商业用途。</p>
     <p>行情数据来自公开渠道 (Yahoo Finance)，可能有延迟或错误，仅供个人研究参考，不构成投资建议。</p>
-    <p>© {datetime.now(LOCAL_TZ).year} CJA231. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
+    <p>© {datetime.now(LOCAL_TZ).year} {html.escape(company.load()['name'])}. All rights reserved. This report and the underlying strategy/code are proprietary; unauthorized reproduction or redistribution is prohibited.</p>
     <p>K 线图: TradingView Lightweight Charts™ · Copyright (c) 2025 TradingView, Inc. · https://www.tradingview.com/ (Apache License 2.0)</p>
     <p><a href="{ASSET_PREFIX}terminal/legal.html">完整的使用条款、免责声明与隐私说明 ↗</a> (非 SC 持牌投资顾问；AI 生成内容可能有错漏)</p>
   </details>
