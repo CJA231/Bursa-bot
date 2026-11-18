@@ -488,10 +488,6 @@
     "name": "SMTRACK"
   },
   {
-    "symbol": "0170.KL",
-    "name": "KANGER"
-  },
-  {
     "symbol": "0171.KL",
     "name": "PLABS"
   },
@@ -502,10 +498,6 @@
   {
     "symbol": "0173.KL",
     "name": "CATCHA"
-  },
-  {
-    "symbol": "0174.KL",
-    "name": "EVD"
   },
   {
     "symbol": "0175.KL",
@@ -998,6 +990,10 @@
   {
     "symbol": "03071.KL",
     "name": "NOESIS"
+  },
+  {
+    "symbol": "03072.KL",
+    "name": "MILOLO"
   },
   {
     "symbol": "0308.KL",
@@ -1792,10 +1788,6 @@
     "name": "E&O"
   },
   {
-    "symbol": "3441.KL",
-    "name": "JOHAN"
-  },
-  {
     "symbol": "3476.KL",
     "name": "KSENG"
   },
@@ -2476,10 +2468,6 @@
     "name": "MHB"
   },
   {
-    "symbol": "5187.KL",
-    "name": "HBGLOB"
-  },
-  {
     "symbol": "5188.KL",
     "name": "CNOUHUA"
   },
@@ -2506,10 +2494,6 @@
   {
     "symbol": "5197.KL",
     "name": "FLBHD"
-  },
-  {
-    "symbol": "5198.KL",
-    "name": "AFUJIYA"
   },
   {
     "symbol": "5199.KL",
@@ -3192,6 +3176,10 @@
     "name": "AEON"
   },
   {
+    "symbol": "6602.KL",
+    "name": "BCB"
+  },
+  {
     "symbol": "6633.KL",
     "name": "LHI"
   },
@@ -3302,10 +3290,6 @@
   {
     "symbol": "7022.KL",
     "name": "GTRONIC"
-  },
-  {
-    "symbol": "7025.KL",
-    "name": "WOODLAN"
   },
   {
     "symbol": "7028.KL",
