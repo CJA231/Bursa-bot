@@ -11,6 +11,7 @@
   每天的股票池另外存一份 CSV 在 downloads/pool/ (保留 POOL_KEEP_DAYS 天，不跟着 7 天一起删)，
   再合并成一份近 POOL_HISTORY_DAYS 天的 CSV，方便回头查某支股票哪天进来、进来后怎么走
 """
+import company  # data/company.json：版权署名
 import csv
 import json
 import math
@@ -263,7 +264,7 @@ def write_pdf(path, date, rows, generated_at, title=DEFAULT_TITLE, tz_label=DEFA
         canvas.saveState()
         canvas.setFont(font, 7)
         canvas.setFillColor(colors.HexColor("#898781"))
-        canvas.drawString(12 * mm, 7 * mm, "本报告仅供技术分析参考，不构成投资建议。版权所有 CJA231，保留一切权利，未经授权禁止转载。")
+        canvas.drawString(12 * mm, 7 * mm, "本报告仅供技术分析参考，不构成投资建议。版权所有 " + company.load()["name"] + "，保留一切权利，未经授权禁止转载。")
         canvas.drawRightString(doc.pagesize[0] - 12 * mm, 7 * mm, f"第 {doc.page} 页")
         canvas.restoreState()
 

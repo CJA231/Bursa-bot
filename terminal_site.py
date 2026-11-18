@@ -6,6 +6,7 @@
 - index.html / terminal.css / terminal.js = 页面 (从 terminal_assets/ 复制)
 个股的公告 / 新闻直接读完整报告的 ../ann/<代码>.json、../news/<代码>.json，不重复存。
 自成一体 (只靠 build() 传进来的东西和几个文件路径)，以后要搬到独立仓库只要把这个文件和 terminal_assets/ 带走。"""
+import company  # noqa: E402  (data/company.json：页脚和使用条款的公司资料)
 import json
 import os
 import shutil
@@ -145,6 +146,8 @@ def build(stocks, market, backtest, board, focus_new, state, updated, tz_label, 
         if name.endswith(".html") or name == "sw.js":  # sw.js 里也有 __V__ (每次版本号变 → 浏览器装新的离线版本)
             with open(src, encoding="utf-8") as f:
                 page = f.read().replace("__V__", version)
+            if name.endswith(".html"):
+                page = company.fill(page)  # 公司名称 / 注册号 / 地址 / 电邮 (data/company.json)
             with open(os.path.join(out_dir, name), "w", encoding="utf-8") as f:
                 f.write(page)
         else:

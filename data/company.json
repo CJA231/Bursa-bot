@@ -1,0 +1,9 @@
+{
+  "_说明": "网站上署名的公司资料 (使用条款、版权声明、页脚、PDF 下载)。公司注册好以后把 [ ] 里的占位符改成真实资料，提交后下一次报告运行就会更新到全部页面。",
+  "name": "[COMPANY NAME] SDN. BHD.",
+  "registration_no": "[202X01XXXXXX (XXXXXXX-X)]",
+  "address": "[Registered address], Malaysia",
+  "email": "[legal@yourdomain.com]",
+  "city": "Kuala Lumpur",
+  "brand": "Bursa Bot"
+}

@@ -58,6 +58,7 @@
   function addDays(d, n) { return new Date(Date.parse(d + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10); }
   function j(u) { return fetch(u).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }); }
   var root = document.getElementById('ir');
+  var CO = ((document.querySelector('meta[name="bterm-co"]') || {}).content || '').replace(/^__CO_NAME__$/, '');  // 公司名称 (data/company.json，生成网站时填进 meta)
 
   // 管理员更正：AI 资讯 (还没核对合并时用更正版)、日历 (新增 / 更正 / 删除)、简介
   function intelView(r, ov) {
@@ -231,7 +232,7 @@
     h += sec(t('cal'), ev.length ? '<ul class="ir-l">' + evRows(ev, 10) + '</ul>' : '<p class="dim">' + t('nocal') + '</p>');
     h += holdersBlock(d[7]) + filingsBlock(d[8]);
     h += esgBlock(esg, index);
-    h += '<footer class="ir-f dim"><p>' + t('disc') + '</p><p><a href="legal.html">' + t('terms') + '</a> · <a href="./#q-' + esc(CODE) + '">bursa.term</a></p></footer>';
+    h += '<footer class="ir-f dim"><p>' + t('disc') + '</p><p>© ' + new Date().getFullYear() + ' ' + esc(CO) + ' · All rights reserved · <a href="legal.html">' + t('terms') + '</a> · <a href="./#q-' + esc(CODE) + '">bursa.term</a></p></footer>';
     root.innerHTML = h;
     document.getElementById('ir-print').addEventListener('click', function () { window.print(); });
     document.getElementById('ir-lang').addEventListener('click', function () { try { localStorage.setItem('bursa_lang', EN ? 'zh' : 'en'); } catch (e) {} location.replace(location.pathname + '?code=' + CODE); });
