@@ -2070,7 +2070,7 @@
   // 合并 = 三方合并 (上次同步的版本、这台设备、云端)：两边各自新增 / 删除的股票都保留；同一个设定两边都改了，以这台设备为准。
   var ACCT = null;  // account.json
   var ACC = (function () { try { var a = JSON.parse(localStorage.getItem('bterm_acct') || 'null'); return a && a.token && a.email ? a : null; } catch (e) { return null; } })();
-  var SY = { open: false, busy: false, again: false, t: null, err: '', note: '', applying: false, lang: '' };
+  var SY = { open: false, busy: false, again: false, t: null, err: '', note: '', applying: false, lang: '', info: false };
   var GIS = { p: null, init: false };
   function accSave() { try { if (ACC) localStorage.setItem('bterm_acct', JSON.stringify(ACC)); else localStorage.removeItem('bterm_acct'); } catch (e) {} }
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -2236,6 +2236,7 @@
         logo_alignment: 'left', locale: LANG === 'en' ? 'en' : 'zh_CN', width: Math.max(200, Math.min(320, el.clientWidth || 280)) });
     }, function (e) { el = document.getElementById('g-btn'); if (el) el.innerHTML = '<p class="dn">' + esc(e.message) + '</p>'; });
   }
+  var INFO = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="10.9" y="10.4" width="2.2" height="6.8" rx="1.1"/><circle cx="12" cy="7.4" r="1.35"/></svg>';
   var PERSON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0 2c-4.4 0-8 2.3-8 5.2V21h16v-1.8c0-2.9-3.6-5.2-8-5.2Z"/></svg>';
   function acctRender() {
     var btn = document.getElementById('acct-btn'), box = document.getElementById('acct-panel'), u = document.querySelector('.prompt .u');
@@ -2255,28 +2256,39 @@
     var num = function (o, d) { o = o || {}; return { folders: parseInt(o.folders, 10) || d.folders, stocks: parseInt(o.stocks, 10) || d.stocks }; };
     var plans = ACCT.plans || {}, fr = num(plans.free, { folders: 3, stocks: 30 }), pr = num(plans.pro, { folders: 50, stocks: 2000 });
     var nf = W.folders.length, ns = W.folders.reduce(function (n, f) { return n + f.codes.length; }, 0), legal = 'legal.html#' + (LANG === 'en' ? 'e14' : 'c14');
-    var what = '<li>' + Z('✓ 观察列表', '✓ Watchlists') + (ACC ? Z('：', ': ') + nf + Z(' 个列表 · ', ' lists · ') + ns + Z(' 只股票', ' stocks') : Z(' (全部列表和股票)', ' (all lists and stocks)')) + '</li>' +
-      '<li>' + Z('✓ 深色 / 浅色、🎨 自定义主题、语言、K 线样式', '✓ Dark / light, 🎨 custom theme, language, candle style') + '</li>' +
-      '<li>' + Z('✓ 自定义回测的设定', '✓ Custom backtest settings') + '</li>' +
-      '<li class="no">' + Z('✗ AI 密钥、通行码：只存在这台设备，不会上传', '✗ AI keys and passcodes stay on this device and are never uploaded') + '</li>';
+    var pro = !!ACC && ACC.plan === 'pro', lim = ACC ? num(ACC.limits, pro ? pr : fr) : fr;
+    var upg = ACCT.upgrade && /^(https:|mailto:)/.test(ACCT.upgrade) ? ' <a href="' + esc(ACCT.upgrade) + '" target="_blank" rel="noopener">' + Z('升级 Pro ↗', 'Upgrade to Pro ↗') + '</a>' : '';
     var h = '<div class="ai-top"><span class="ai-logo" aria-hidden="true">' + PERSON + '</span><b>' + Z('账号 · 跨设备同步', 'Account · Sync') + '</b><span class="ai-ctx"></span>' +
-      '<button type="button" data-acct="close" aria-label="' + Z('关闭', 'Close') + '">×</button></div><div class="acct-body">';
+      '<button type="button" class="acct-i" data-acct="info" aria-expanded="' + SY.info + '" aria-controls="acct-plans" title="' + Z('免费版 / Pro 包含哪些功能', 'What the Free and Pro plans include') + '" aria-label="' + Z('免费版 / Pro 包含哪些功能', 'What the Free and Pro plans include') + '">' + INFO + '</button>' +
+      '<button type="button" data-acct="close" aria-label="' + Z('关闭', 'Close') + '">×</button></div>';
+    if (SY.info) {  // ⓘ：免费版 / Pro 各包含哪些同步功能 (登录后标出自己的方案)
+      var col = function (plan) { return ACC && (plan === 'pro') === pro ? ' class="mine"' : ''; }, yes = '<span class="y" aria-label="' + Z('有', 'Included') + '">✓</span>';
+      var cap = function (p) { return Z(esc(p.folders) + ' 个列表<br>' + esc(p.stocks.toLocaleString()) + ' 只股票', esc(p.folders) + ' lists<br>' + esc(p.stocks.toLocaleString()) + ' stocks'); };
+      var row = function (name, a, b) { return '<tr><th scope="row">' + name + '</th><td' + col('free') + '>' + a + '</td><td' + col('pro') + '>' + b + '</td></tr>'; };
+      h += '<div class="acct-plans" id="acct-plans"><table><thead><tr><th scope="col"><span class="sr-only">' + Z('功能', 'Feature') + '</span></th>' +
+        '<th scope="col"' + col('free') + '>' + Z('免费版', 'Free') + (ACC && !pro ? '<small>' + Z('你的方案', 'Your plan') + '</small>' : '') + '</th>' +
+        '<th scope="col"' + col('pro') + '>Pro' + (pro ? '<small>' + Z('你的方案', 'Your plan') + '</small>' : '') + '</th></tr></thead><tbody>' +
+        row(Z('观察列表同步', 'Watchlist sync'), cap(fr), cap(pr)) +
+        row(Z('深色 / 浅色、语言、K 线样式', 'Dark / light, language, candle style'), yes, yes) +
+        row(Z('🎨 自定义主题', '🎨 Custom theme'), yes, yes) +
+        row(Z('自定义回测设定', 'Custom backtest settings'), yes, yes) +
+        '</tbody></table><p class="dim">' + Z('AI 密钥、通行码不会上传，只留在这台设备。', 'AI keys and passcodes are never uploaded; they stay on this device.') + (ACC && !pro ? upg : '') + '</p></div>';
+    }
+    h += '<div class="acct-body">';
     if (!ACC) {
       h += '<p>' + Z('用 Google 账号登录，观察列表、主题和界面设定就会在手机、平板、电脑之间自动同步。不登录也可以照常使用全部功能。', 'Sign in with Google and your watchlists, theme and settings sync across your phone, tablet and computer. Everything still works without signing in.') + '</p>' +
-        '<ul class="acct-what">' + what + '</ul>' +
-        '<p class="dim">' + Z('免费版：同步 ' + fr.folders + ' 个列表、共 ' + fr.stocks + ' 只股票 · Pro：' + pr.folders + ' 个列表、' + pr.stocks + ' 只股票', 'Free: sync ' + fr.folders + ' lists, ' + fr.stocks + ' stocks in total · Pro: ' + pr.folders + ' lists, ' + pr.stocks + ' stocks') + '</p>' +
         '<div id="g-btn" class="g-btn">' + (SY.busy ? '<span class="ai-dots"><i></i><i></i><i></i></span>' : '') + '</div>' +
         (SY.err ? '<p class="dn">' + esc(SY.err) + '</p>' : '') + (SY.note ? '<p class="up">' + esc(SY.note) + '</p>' : '') +
         '<p class="dim">' + Z('登录即表示你同意<a href="' + legal + '">使用条款</a> (第 14 条：会储存你的电邮地址和同步的设定)。', 'By signing in you agree to the <a href="' + legal + '">Terms</a> (clause 14: we store your email address and synced settings).') + '</p>';
     } else {
-      var lim = num(ACC.limits, fr), pro = ACC.plan === 'pro', over = !pro && (nf > lim.folders || ns > lim.stocks);
+      var over = !pro && (nf > lim.folders || ns > lim.stocks);
       var when = ACC.at ? new Date(ACC.at) : null, hm = when ? ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2) : '';
+      var use = pro ? Z(nf + ' 个列表 · ' + ns + ' 只', nf + ' lists · ' + ns + ' stocks') : Z(nf + '/' + lim.folders + ' 个列表 · ' + ns + '/' + lim.stocks + ' 只', nf + '/' + lim.folders + ' lists · ' + ns + '/' + lim.stocks + ' stocks');
       h += '<div class="acct-me"><span class="av big" aria-hidden="true">' + esc((ACC.name || ACC.email).charAt(0).toUpperCase()) + '</span><div><b>' + esc(ACC.email) + '</b>' +
         '<p><span class="plan' + (pro ? ' pro' : '') + '">' + (pro ? 'Pro' : Z('免费版', 'Free')) + '</span>' + (pro && ACC.until ? ' <span class="dim">' + Z('到期 ', 'until ') + esc(ACC.until) + '</span>' : '') + '</p></div></div>' +
-        '<p class="acct-st ' + st + '">' + (st === 'busy' ? Z('同步中…', 'Syncing…') : st === 'err' ? '⚠ ' + esc(SY.err) : st === 'ok' ? Z('✓ 已同步 · ', '✓ Synced · ') + hm : Z('还没同步', 'Not synced yet')) + '</p>' +
-        '<ul class="acct-what">' + what + '</ul>' +
-        (over || ACC.trimmed ? '<p class="warn">' + Z('免费版只同步前 ' + lim.folders + ' 个列表、共 ' + lim.stocks + ' 只股票；其余只存在这台设备。', 'The free plan syncs the first ' + lim.folders + ' lists and ' + lim.stocks + ' stocks; the rest stay on this device only.') +
-          (ACCT.upgrade && /^(https:|mailto:)/.test(ACCT.upgrade) ? ' <a href="' + esc(ACCT.upgrade) + '" target="_blank" rel="noopener">' + Z('升级 Pro ↗', 'Upgrade to Pro ↗') + '</a>' : '') + '</p>' : '') +
+        '<p class="acct-st ' + st + '"><span>' + (st === 'busy' ? Z('同步中…', 'Syncing…') : st === 'err' ? '⚠ ' + esc(SY.err) : st === 'ok' ? Z('✓ 已同步 · ', '✓ Synced · ') + hm : Z('还没同步', 'Not synced yet')) + '</span>' +
+        '<span class="acct-use' + (over ? ' warn' : '') + '">' + esc(use) + '</span></p>' +
+        (over || ACC.trimmed ? '<p class="warn">' + Z('免费版只同步前 ' + lim.folders + ' 个列表、共 ' + lim.stocks + ' 只股票；其余只存在这台设备。', 'The free plan syncs the first ' + lim.folders + ' lists and ' + lim.stocks + ' stocks; the rest stay on this device only.') + upg + '</p>' : '') +
         (SY.lang ? '<p class="dim">' + Z('语言设定已从别的设备同步过来 (English)。', 'Language synced from another device (中文).') + ' <button type="button" class="more" data-acct="lang">' + Z('现在切换', 'Switch now') + '</button></p>' : '') +
         '<div class="opts acct-act"><button type="button" class="ok" data-acct="sync"' + (SY.busy ? ' disabled' : '') + '>' + Z('立即同步', 'Sync now') + '</button>' +
         '<button type="button" data-acct="out">' + Z('登出', 'Sign out') + '</button><button type="button" class="danger" data-acct="del">' + Z('删除云端资料', 'Delete cloud data') + '</button></div>' +
@@ -2287,7 +2299,8 @@
   }
   function acctClick(t) {
     var a = t.dataset.acct;
-    if (a === 'toggle') { SY.open = !SY.open; if (SY.open && AI.open) { AI.open = false; aiRender(); } if (SY.open) SY.note = ''; }
+    if (a === 'toggle') { SY.open = !SY.open; if (SY.open && AI.open) { AI.open = false; aiRender(); } if (SY.open) { SY.note = ''; SY.info = false; } }
+    else if (a === 'info') SY.info = !SY.info;
     else if (a === 'close') SY.open = false;
     else if (a === 'sync') { syncRun(); return; }
     else if (a === 'out') { accOut(); SY.err = ''; SY.note = Z('已登出。这台设备上的列表和设定都还在。', 'Signed out. Your lists and settings are still on this device.'); }

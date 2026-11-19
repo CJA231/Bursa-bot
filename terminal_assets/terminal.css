@@ -393,10 +393,25 @@ pre.ipo-t button { font: inherit; padding: 0; border: 0; background: none; curso
 .acct-me b { display: block; word-break: break-all; }
 .plan { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; color: var(--mut); border: 1px solid var(--line); }
 .plan.pro { color: var(--bg); background: var(--acc); border-color: var(--acc); font-weight: 700; }
-.acct-st { padding: 6px 10px; border-radius: 10px; background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.acct-st { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; padding: 6px 10px; border-radius: 10px; background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.acct-use { color: var(--mut); font-size: 12px; } .acct-use.warn { color: var(--warn); }
 .acct-st.ok { color: var(--up); } .acct-st.err { color: var(--dn); } .acct-st.busy { color: var(--warn); }
-.acct-what { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; font-size: 12px; }
-.acct-what .no { color: var(--mut); }
+/* ⓘ 免费版 / Pro 包含哪些功能 (按了才展开) */
+.ai-top .acct-i { display: grid; place-items: center; }
+.acct-i svg { width: 19px; height: 19px; fill: currentColor; display: block; }
+.acct-i[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 14%, transparent); color: var(--acc); }
+.acct-plans { display: grid; gap: 8px; padding: 8px 10px 10px; border-radius: 12px; background: color-mix(in srgb, var(--fg) 6%, transparent); animation: acct-in .22s cubic-bezier(.2, .9, .3, 1); transform-origin: top right; }
+.acct-plans table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.acct-plans th, .acct-plans td { padding: 6px 6px; text-align: center; vertical-align: middle; line-height: 1.4; }
+.acct-plans thead th { color: var(--fg); font-weight: 700; border-bottom: 1px solid var(--line); }
+.acct-plans thead th small { display: block; font-size: 10px; font-weight: 400; color: var(--acc); }
+.acct-plans tbody th { text-align: left; font-weight: 400; color: var(--mut); }
+.acct-plans tbody tr + tr > * { border-top: 1px dashed var(--line); }
+.acct-plans .mine { background: color-mix(in srgb, var(--acc) 12%, transparent); }
+.acct-plans td, .acct-plans thead th { white-space: nowrap; width: 1%; padding-left: 10px; padding-right: 10px; }
+.acct-plans thead th:first-child { width: auto; padding: 0; }
+.acct-plans .y { color: var(--up); font-weight: 700; }
+.acct-plans p { margin: 0; font-size: 12px; }
 .acct-act { gap: 6px; }
 .acct-act button { border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; min-height: 40px; color: var(--fg); }
 .acct-act .ok { border: 0; color: var(--bg); background: var(--acc); font-weight: 700; }
@@ -578,5 +593,5 @@ h2 .ed-b { font-size: 11px; }
   .wg .tabbar { display: none !important; }
 }
 @media (max-width: 779px) and (prefers-reduced-motion: reduce) { .tb-ind, .tb-blob, .tabbar, .tabbar svg { transition: none; } .tb-blob.tb-squish { animation: none; } main.pg-out, main.pg-in, main.sw-back { transition: none; } }
-@media (prefers-reduced-motion: reduce) { #ai-fab, #ai-fab .fab-ic, #ai-fab .fab-x { transition: none; } #ai-panel, #acct-panel, #acct-btn .dot, .ai-dots i, #ai-fab.busy .fab-ring { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #ai-fab, #ai-fab .fab-ic, #ai-fab .fab-x { transition: none; } #ai-panel, #acct-panel, .acct-plans, #acct-btn .dot, .ai-dots i, #ai-fab.busy .fab-ring { animation: none; } }
 @media print { .tabbar, .qtabs { display: none !important; } }
