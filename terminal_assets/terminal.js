@@ -381,26 +381,26 @@
     if (WF.mode === 'new' || WF.mode === 'ren' || WF.mode === 'imp') { var el = document.getElementById(WF.mode === 'imp' ? 'wf-text' : 'wf-name'); if (el) el.focus(); }
   }
   function pageBtLedger() {
-    var b = D.bt; if (!b) return pn(T('BACKTEST 回测'), '', T('<p class="dim">这次没有回测数据。</p>'));
+    var b = D.bt; if (!b) return pn(ttl(T('BACKTEST 回测')), '', T('<p class="dim">这次没有回测数据。</p>'));
     var a = b.acct, pos = b.position || 20000, R = function (v) { return isNum(v) ? v / 100 * pos : null; };
-    var h = pn(T('SIMULATION 模拟统计'), esc(T(b.name || '')) + T(' · 同时最多 ') + (b.slots || '∞') + T(' 笔 · 每笔模拟 RM') + (pos / 1000) + 'K',
+    var h = pn(ttl(T('SIMULATION 模拟统计')), esc(T(b.name || '')) + T(' · 同时最多 ') + (b.slots || '∞') + T(' 笔 · 每笔模拟 RM') + (pos / 1000) + 'K',
       kv([[T('胜率'), isNum(a.win_rate) ? a.win_rate.toFixed(1) + '%' : '—'], [T('期望值'), pct(a.avg), cls(a.avg)], [T('合计'), rm(R(a.total)), cls(a.total)], [T('最大回撤'), rm(R(a.mdd)), 'dn']], true) +
       kv([[T('已结束 / 进行中'), a.closed + ' / ' + a.open], [T('进行中浮动'), pct(a.open_avg), cls(a.open_avg)], [T('盈亏比'), isNum(a.payoff) ? a.payoff.toFixed(2) : '—'], [T('获利因子'), isNum(a.pf) ? a.pf.toFixed(2) : '—'],
         [T('平均天数'), isNum(a.avg_days) ? a.avg_days + T(' 天') : '—'], [T('最多连亏'), a.max_streak != null ? a.max_streak + T(' 笔') : '—'], [T('最好'), pct(a.best, 1), 'up'], [T('最差'), pct(a.worst, 1), 'dn']]));
-    if (b.curve && b.curve.length > 1) h += pn(T('EQUITY 模拟累计'), T('已结束的累计 · ') + md(b.curve[0][0]) + ' ~ ' + md(b.curve[b.curve.length - 1][0]),
+    if (b.curve && b.curve.length > 1) h += pn(ttl(T('EQUITY 模拟累计')), T('已结束的累计 · ') + md(b.curve[0][0]) + ' ~ ' + md(b.curve[b.curve.length - 1][0]),
       blockChart([0].concat(b.curve.map(function (c) { return R(c[1]); })), { rows: 8, zero: true, label: T('账户资金曲线'), fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
         color: function (v) { return v >= 0 ? 'acc' : 'dn'; }, dates: [md(b.curve[0][0]), md(b.curve[b.curve.length - 1][0])] }));
     var ex = a.exits || {}, tot = Object.keys(ex).reduce(function (s, k) { return s + ex[k]; }, 0) || 1;
-    h += pn(T('ENDS 结束原因'), a.closed + T(' 笔'), '<pre class="txt">' + Object.keys(ex).sort(function (x, y) { return ex[y] - ex[x]; }).map(function (k) {
+    h += pn(ttl(T('ENDS 结束原因')), a.closed + T(' 笔'), '<pre class="txt">' + Object.keys(ex).sort(function (x, y) { return ex[y] - ex[x]; }).map(function (k) {
       return cell(esc(EXIT[k] || k), LANG === 'en' ? 12 : 10) + span('acc', meter(ex[k] / tot, 20)) + ' ' + pad(ex[k], 3, true); }).join('\n') + '</pre>');
     var p = b.paper || {}, ps = p.stats || {};
-    if (p.trades && p.trades.length) h += pn(T('PAPER 模拟账户'), md(p.start) + T(' 起 · 胜率 ') + (isNum(ps.win_rate) ? ps.win_rate.toFixed(0) + '%' : '—'),
+    if (p.trades && p.trades.length) h += pn(ttl(T('PAPER 模拟账户')), md(p.start) + T(' 起 · 胜率 ') + (isNum(ps.win_rate) ? ps.win_rate.toFixed(0) + '%' : '—'),
       '<div class="rows">' + p.trades.slice().sort(function (x, y) { return (y.entry_date || '') < (x.entry_date || '') ? -1 : 1; }).map(function (t) {
         var v = t.reason === 'open' ? t.ret : t.net, s = ST[t.code] || { code: t.code, name: t.name };
         return stockBtn(s, '<span class="' + cls(v) + ' b">' + pct(v, 1) + '</span><br><span class="sub">' + rm(R(v)) + '</span>',
           md(t.entry_date) + ' ' + px(t.entry) + ' → ' + px(t.exit) + ' · ' + (EXIT[t.reason] || t.reason) + ' · ' + t.days + T(' 天'));
       }).join('') + '</div>');
-    if (b.monthly && b.monthly.length) h += pn(T('EVERY 每个信号都计入'), (b.every && b.every.closed) + T(' 笔 · 胜 ') + (b.every && isNum(b.every.win_rate) ? b.every.win_rate.toFixed(0) + '%' : '—') + T(' · 均 ') + pct(b.every && b.every.avg),
+    if (b.monthly && b.monthly.length) h += pn(ttl(T('EVERY 每个信号都计入')), (b.every && b.every.closed) + T(' 笔 · 胜 ') + (b.every && isNum(b.every.win_rate) ? b.every.win_rate.toFixed(0) + '%' : '—') + T(' · 均 ') + pct(b.every && b.every.avg),
       '<pre class="txt">' + span('dim', 'MONTH    N    WIN               AVG') + '\n' + b.monthly.map(function (m) {
         return m[0] + ' ' + pad(m[1], 4, true) + '  ' + span(m[2] >= 50 ? 'up' : m[2] < 30 ? 'dn' : 'acc', meter(m[2] / 100, 10)) + ' ' + pad(m[2].toFixed(0) + '%', 4, true) + ' ' + span(cls(m[3]), pad(pct(m[3], 1), 7, true)); }).join('\n') + '</pre>');
     return h;
@@ -408,19 +408,48 @@
 
   // ---------- 自定义回测：自己选进场条件 / 股票 (一支或几支合计) / 时间，在浏览器里用个股 2 年日线 (../stock/<代码>.json) 重算 ----------
   // 结束条件是后台规则的简化版：涨幅达标、跌破 EMA20 连 2 天、趋势转坏 (Supertrend / SAR 转空 / 放量抛售 / EMA5<EMA20 坏 2 项)、跌幅 %、最长天数
-  var CB_RULES = [
-    ['sar', T('SAR 转多 (当天翻多)'), 1], ['ema20', T('价格 > EMA20'), 1], ['ema5x20', 'EMA5 > EMA20', 1], ['vol1m', T('成交量 ≥ 1M'), 1],
-    ['st', T('Supertrend(3,1.4) < 价格'), 1], ['ema50', T('价格 > EMA50 或 EMA5 > EMA50'), 1],
-    ['cross', T('EMA5 上穿 EMA20 (当天)'), 0], ['bbup', T('收盘 > 布林上轨 (20,2)'), 0], ['rv2', T('相对量 ≥ 2'), 0],
-    ['rsi50', 'RSI(14) > 50', 0], ['rsi30', 'RSI(14) < 30', 0], ['hi20', T('收盘创 20 日新高'), 0]];
+  // 进场条件 = 一排「条件标签」(像选股器的筛选)：每个标签可以点开改参数，× 移除，「+ 条件」加新的；全部同时成立的那天进场
+  var CBT = {
+    sar: { zh: 'SAR 转多', en: 'SAR flips up', g: 'trend' },
+    st: { zh: 'Supertrend(3,1.4) 低于价格', en: 'Supertrend(3,1.4) below price', g: 'trend' },
+    px_ema: { zh: '价格与 EMA', en: 'Price vs EMA', g: 'ma', ops: ['gt', 'lt', 'xup', 'xdn'], d: { op: 'gt', n: 20 } },
+    ema_ema: { zh: 'EMA 与 EMA', en: 'EMA vs EMA', g: 'ma', ops: ['gt', 'lt', 'xup', 'xdn'], d: { op: 'gt', a: 5, b: 20 } },
+    ema50: { zh: '价格或 EMA5 高于 EMA50', en: 'Price or EMA5 above EMA50', g: 'ma' },
+    vol: { zh: '成交量', en: 'Volume', g: 'vol', d: { v: 1 } },
+    rv: { zh: '相对量', en: 'Relative volume', g: 'vol', d: { v: 2 } },
+    rsi: { zh: 'RSI(14)', en: 'RSI(14)', g: 'mom', ops: ['gt', 'lt'], d: { op: 'gt', v: 50 } },
+    chg: { zh: '当日涨跌', en: 'Day change', g: 'mom', ops: ['gt', 'lt'], d: { op: 'gt', v: 3 } },
+    hi: { zh: '收盘创 N 日新高', en: 'Close at N-day high', g: 'brk', d: { n: 20 } },
+    bb: { zh: '收盘高于布林上轨 (20,2)', en: 'Close above upper Bollinger (20,2)', g: 'brk' }
+  };
+  var CBG = [['trend', '趋势', 'Trend'], ['ma', '均线', 'Moving averages'], ['vol', '成交量', 'Volume'], ['mom', '动能', 'Momentum'], ['brk', '突破', 'Breakout']];
+  var CBOP = { gt: ['高于', 'Above', '>'], lt: ['低于', 'Below', '<'], xup: ['上穿', 'Crosses above', '↗'], xdn: ['下穿', 'Crosses below', '↘'] };
+  var CB_DEF = [{ t: 'sar' }, { t: 'px_ema', op: 'gt', n: 20 }, { t: 'ema_ema', op: 'gt', a: 5, b: 20 }, { t: 'vol', v: 1 }, { t: 'st' }, { t: 'ema50' }];  // = 后台策略
+  var CB_OLD = { sar: { t: 'sar' }, ema20: { t: 'px_ema', op: 'gt', n: 20 }, ema5x20: { t: 'ema_ema', op: 'gt', a: 5, b: 20 }, vol1m: { t: 'vol', v: 1 }, st: { t: 'st' }, ema50: { t: 'ema50' },
+    cross: { t: 'ema_ema', op: 'xup', a: 5, b: 20 }, bbup: { t: 'bb' }, rv2: { t: 'rv', v: 2 }, rsi50: { t: 'rsi', op: 'gt', v: 50 }, rsi30: { t: 'rsi', op: 'lt', v: 30 }, hi20: { t: 'hi', n: 20 } };
+  function cbCond(c) {  // 整理一个条件 (来自本机 / 同步 / 旧格式)，不合法就丢掉
+    var ty = c && CBT[c.t]; if (!ty) return null;
+    var o = { t: c.t }, d = ty.d || {}, num = function (x, lo, hi, df) { x = +x; return isFinite(x) ? Math.max(lo, Math.min(hi, x)) : df; };
+    if (ty.ops) o.op = ty.ops.indexOf(c.op) >= 0 ? c.op : d.op;
+    if ('n' in d) o.n = Math.round(num(c.n, 2, 200, d.n));
+    if ('a' in d) { o.a = Math.round(num(c.a, 2, 200, d.a)); o.b = Math.round(num(c.b, 2, 200, d.b)); }
+    if ('v' in d) o.v = num(c.v, c.t === 'chg' ? -30 : 0, c.t === 'rsi' ? 100 : c.t === 'chg' ? 30 : c.t === 'rv' ? 50 : 1000, d.v);
+    return o;
+  }
+  function cbConds(j) {  // 新格式 conds，或旧格式 rules {sar: true, ...}
+    var out = [];
+    if (j && Array.isArray(j.conds)) out = j.conds.map(cbCond).filter(Boolean);
+    else if (j && j.rules && typeof j.rules === 'object') Object.keys(CB_OLD).forEach(function (k) { if (j.rules[k]) out.push(cbCond(CB_OLD[k])); });
+    else return CB_DEF.map(cbCond);
+    return out.slice(0, 12);
+  }
   var CB = (function () {
-    var d = { codes: [], from: '', to: '', rules: {}, take: 15, stop: 0, hold: 90, emab: 1, combo: 1, q: '' };
-    CB_RULES.forEach(function (r) { d.rules[r[0]] = !!r[2]; });
-    try { var j = JSON.parse(localStorage.getItem('bterm_cbt') || 'null'); if (j) Object.keys(d).forEach(function (k) { if (j[k] !== undefined) d[k] = j[k]; }); } catch (e) {}
-    d.q = ''; d.res = null; d.busy = false; d.err = '';
+    var d = { codes: [], from: '', to: '', conds: null, take: 15, stop: 0, hold: 90, emab: 1, combo: 1, q: '' }, j = null;
+    try { j = JSON.parse(localStorage.getItem('bterm_cbt') || 'null'); if (j) Object.keys(d).forEach(function (k) { if (j[k] !== undefined) d[k] = j[k]; }); } catch (e) {}
+    d.conds = cbConds(j); d.q = ''; d.res = null; d.busy = false; d.err = ''; d.pop = null; d.cq = '';
     return d;
   })();
-  function cbSave() { try { localStorage.setItem('bterm_cbt', JSON.stringify({ codes: CB.codes, from: CB.from, to: CB.to, rules: CB.rules, take: CB.take, stop: CB.stop, hold: CB.hold, emab: CB.emab, combo: CB.combo })); } catch (e) {} syncSoon(); }
+  function cbSave() { try { localStorage.setItem('bterm_cbt', JSON.stringify({ codes: CB.codes, from: CB.from, to: CB.to, conds: CB.conds, take: CB.take, stop: CB.stop, hold: CB.hold, emab: CB.emab, combo: CB.combo })); } catch (e) {} syncSoon(); }
   var DAILY = {}, PROF = {}, FIN = {};  // 代码 → 日线 [{d,o,h,l,c,v}]；代码 → 公司简介 (stock/<代码>.json 的 profile)
   var DLOAD = {};  // 同一支股票同时只下载一次
   function loadDaily(code) {
@@ -479,25 +508,27 @@
   }
   function cbStock(code, b, from, to, cost) {
     var c = b.map(function (x) { return x.c; }), v = b.map(function (x) { return x.v; });
-    var e5 = emaS(c, 5), e20 = emaS(c, 20), e50 = emaS(c, 50), sar = psarS(b), st = stS(b, 3, 1.4), rsi = rsiS(c, 14), av = smaS(v, 20), sma20 = smaS(c, 20);
+    var e5 = emaS(c, 5), e20 = emaS(c, 20), sar = psarS(b), st = stS(b, 3, 1.4), rsi = rsiS(c, 14), av = smaS(v, 20), sma20 = smaS(c, 20);
     var sd = c.map(function (_, i) { if (i < 19) return null; var m = sma20[i], s = 0; for (var k = i - 19; k <= i; k++) s += (c[k] - m) * (c[k] - m); return Math.sqrt(s / 20); });
-    var R = CB.rules, on = CB_RULES.filter(function (r) { return R[r[0]]; }).map(function (r) { return r[0]; });
+    var EC = {}, E = function (n) { return EC[n] || (EC[n] = emaS(c, n)); };
+    var cmp = function (op, x, y, px0, py0) { return op === 'gt' ? x > y : op === 'lt' ? x < y : op === 'xup' ? x > y && px0 <= py0 : op === 'xdn' ? x < y && px0 >= py0 : false; };
+    var conds = CB.conds, warm = 50;
+    conds.forEach(function (q) { warm = Math.max(warm, q.n || 0, q.a || 0, q.b || 0); });
     function ok(i) {
-      if (i < 50) return false;
-      return on.every(function (k) {
-        switch (k) {
+      if (i < warm) return false;
+      return conds.every(function (q) {
+        switch (q.t) {
           case 'sar': return sar[i] === 1 && sar[i - 1] === 0;
-          case 'ema20': return c[i] > e20[i];
-          case 'ema5x20': return e5[i] > e20[i];
-          case 'vol1m': return v[i] >= 1e6;
           case 'st': return st[i] < c[i];
-          case 'ema50': return c[i] > e50[i] || e5[i] > e50[i];
-          case 'cross': return e5[i] > e20[i] && e5[i - 1] <= e20[i - 1];
-          case 'bbup': return sd[i] != null && c[i] > sma20[i] + 2 * sd[i];
-          case 'rv2': return av[i - 1] > 0 && v[i] >= 2 * av[i - 1];
-          case 'rsi50': return rsi[i] > 50;
-          case 'rsi30': return rsi[i] != null && rsi[i] < 30;
-          case 'hi20': for (var k2 = i - 20; k2 < i; k2++) if (c[k2] >= c[i]) return false; return true;
+          case 'px_ema': var e = E(q.n); return cmp(q.op, c[i], e[i], c[i - 1], e[i - 1]);
+          case 'ema_ema': var ea = E(q.a), eb = E(q.b); return cmp(q.op, ea[i], eb[i], ea[i - 1], eb[i - 1]);
+          case 'ema50': return c[i] > E(50)[i] || E(5)[i] > E(50)[i];
+          case 'vol': return v[i] >= q.v * 1e6;
+          case 'rv': return av[i - 1] > 0 && v[i] >= q.v * av[i - 1];
+          case 'rsi': return rsi[i] != null && cmp(q.op, rsi[i], q.v);
+          case 'chg': return c[i - 1] > 0 && cmp(q.op, (c[i] / c[i - 1] - 1) * 100, q.v);
+          case 'hi': for (var k2 = Math.max(0, i - q.n); k2 < i; k2++) if (c[k2] >= c[i]) return false; return true;
+          case 'bb': return sd[i] != null && c[i] > sma20[i] + 2 * sd[i];
         }
         return true;
       });
@@ -534,8 +565,8 @@
   }
   function cbRun() {
     if (!CB.codes.length) { CB.err = T('先加至少一支股票'); render(); return; }
-    if (!CB_RULES.some(function (r) { return CB.rules[r[0]]; })) { CB.err = T('至少勾一个信号条件'); render(); return; }
-    CB.busy = true; CB.err = ''; CB.res = null; render();
+    if (!CB.conds.length) { CB.err = Z('至少加一个进场条件', 'Add at least one entry condition'); render(); return; }
+    CB.busy = true; CB.err = ''; render();  // 旧结果留着，算好再换 (改条件时自动重算不会闪)
     var cost = (D.bt && isNum(D.bt.cost)) ? D.bt.cost : 0.5;
     Promise.all(CB.codes.map(loadDaily)).then(function (all) {
       var first = null, last = null, per = [], trades = [];
@@ -551,6 +582,7 @@
       CB.busy = false; cbSave(); render();
     });
   }
+  function cbRe() { if (CB.res && !CB.busy && CB.codes.length && CB.conds.length) cbRun(); }  // 已经跑过：改了设定就自动重算
   function cbAdd(codes) { codes.forEach(function (c) { if (c && CB.codes.indexOf(c) < 0 && CB.codes.length < 30) CB.codes.push(c); }); CB.q = ''; cbSave(); render(); }
   function cbPreset(k) {
     var last = D.date || new Date().toISOString().slice(0, 10), d = new Date(last + 'T00:00:00Z');
@@ -561,35 +593,118 @@
   function cbSug() {
     return findCodes(CB.q, CB.codes, 6).map(function (c) { return '<button type="button" data-cb="add" data-v="' + c + '">+ ' + esc(nameOf(c)) + ' <span class="dim">' + c + '</span></button>'; }).join('');
   }
+  // 中文模式的面板标题只显示中文 (英文模式本来就只有英文)
+  function ttl(t) { return LANG === 'en' ? t : t.replace(/^[A-Z][A-Z0-9 ·&\/-]*\s+(?=[^\x00-\x7f])/, ''); }
+  function cbNm(t) { return Z(CBT[t].zh, CBT[t].en); }
+  function cbLbl(q) {  // 标签上显示的 [名称, 值]
+    var op = q.op ? CBOP[q.op] : null, sym = op ? (q.op === 'gt' || q.op === 'lt' ? op[2] : Z(op[0], op[1].toLowerCase())) : '';
+    switch (q.t) {
+      case 'sar': return ['SAR', Z('转多', 'flips up')];
+      case 'st': return ['Supertrend', Z('< 价格', '< Price')];
+      case 'px_ema': return [Z('价格', 'Price'), sym + ' EMA' + q.n];
+      case 'ema_ema': return ['EMA' + q.a, sym + ' EMA' + q.b];
+      case 'ema50': return [Z('价格或 EMA5', 'Price or EMA5'), '> EMA50'];
+      case 'vol': return [Z('成交量', 'Volume'), '≥ ' + q.v + 'M'];
+      case 'rv': return [Z('相对量', 'Rel vol'), '≥ ' + q.v + '×'];
+      case 'rsi': return ['RSI(14)', sym + ' ' + q.v];
+      case 'chg': return [Z('涨跌', 'Change'), sym + ' ' + q.v + '%'];
+      case 'hi': return [Z('新高', 'High'), Z(q.n + ' 日', q.n + '-day')];
+      case 'bb': return [Z('收盘', 'Close'), Z('> 布林上轨', '> upper BB')];
+    }
+    return [q.t, ''];
+  }
+  var CBX = { take: ['止盈', 'Take profit', 15, '%'], stop: ['止损', 'Stop loss', 8, '%'], hold: ['最长持有', 'Max hold', 90, Z(' 天', ' days')],
+    emab: ['跌破 EMA20 连 2 天', '2 closes below EMA20'], combo: ['趋势转坏', 'Trend turns down'] };
+  function cbXon(k) { return k === 'emab' || k === 'combo' ? !!CB[k] : CB[k] > 0; }
+  function pill(pop, k, v, del, label) {
+    var on = CB.pop === pop;
+    return '<span class="pill' + (on ? ' on' : '') + '"><button type="button" class="pl" data-cb="pop" data-v="' + pop + '" aria-expanded="' + on + '"><span class="pk">' + k + '</span>' + (v ? ' <b>' + v + '</b>' : '') + '</button>' +
+      (del ? '<button type="button" class="px" data-cb="' + del[0] + '" data-v="' + del[1] + '" aria-label="' + Z('移除 ', 'Remove ') + esc(label || k) + '">×</button>' : '') + '</span>';
+  }
+  function cbList() {  // 「+ 条件」菜单：按类别分组，可以打字筛选
+    var q = (CB.cq || '').trim().toLowerCase();
+    return CBG.map(function (g) {
+      var ks = Object.keys(CBT).filter(function (k) { return CBT[k].g === g[0] && (!q || (CBT[k].zh + ' ' + CBT[k].en).toLowerCase().indexOf(q) >= 0); });
+      if (!ks.length) return '';
+      return '<div class="cbg"><h3>' + Z(g[1], g[2]) + '</h3>' + ks.map(function (k) { return '<button type="button" data-cb="cadd" data-v="' + k + '">' + esc(cbNm(k)) + '</button>'; }).join('') + '</div>';
+    }).join('') || '<p class="dim">' + Z('没有符合的条件', 'No matching condition') + '</p>';
+  }
+  function cbPop() {
+    var p = CB.pop; if (!p) return '';
+    var head = function (t, del) { return '<div class="cbp-h"><b>' + t + '</b>' + (del ? '<button type="button" class="px" data-cb="' + del[0] + '" data-v="' + del[1] + '" aria-label="' + Z('移除', 'Remove') + '">🗑</button>' : '') +
+      '<button type="button" class="px" data-cb="pop" data-v="" aria-label="' + Z('关闭', 'Close') + '">✕</button></div>'; };
+    var num = function (key, lbl, val, unit, lo, hi, step) { return '<label>' + lbl + '<span class="cbp-n"><input type="number" inputmode="decimal" data-cbc="' + key + '" value="' + val + '" min="' + lo + '" max="' + hi + '" step="' + (step || 1) + '">' + (unit ? '<span class="dim">' + unit + '</span>' : '') + '</span></label>'; };
+    var h = '';
+    if (p.indexOf('c:') === 0) {
+      var i = +p.slice(2), q = CB.conds[i]; if (!q) return '';
+      var ty = CBT[q.t];
+      h = head(esc(cbNm(q.t)), ['cdel', i]);
+      if (ty.ops) h += '<label>' + Z('条件', 'Condition') + '<select data-cbc="' + i + ':op">' + ty.ops.map(function (o) { return '<option value="' + o + '"' + (q.op === o ? ' selected' : '') + '>' + Z(CBOP[o][0], CBOP[o][1]) + '</option>'; }).join('') + '</select></label>';
+      if (q.t === 'px_ema' || q.t === 'hi') h += num(i + ':n', q.t === 'hi' ? Z('天数', 'Days') : Z('EMA 周期', 'EMA length'), q.n, '', 2, 200);
+      if (q.t === 'ema_ema') h += '<div class="cbp-2">' + num(i + ':a', Z('快线 EMA', 'Fast EMA'), q.a, '', 2, 200) + num(i + ':b', Z('慢线 EMA', 'Slow EMA'), q.b, '', 2, 200) + '</div>';
+      if (q.t === 'vol') h += num(i + ':v', Z('至少', 'At least'), q.v, Z('百万股', 'M shares'), 0, 1000, 0.1);
+      if (q.t === 'rv') h += num(i + ':v', Z('至少', 'At least'), q.v, Z('倍 (对比 20 日平均)', '× (vs 20-day avg)'), 0, 50, 0.1);
+      if (q.t === 'rsi') h += num(i + ':v', Z('数值', 'Value'), q.v, '', 0, 100);
+      if (q.t === 'chg') h += num(i + ':v', Z('数值', 'Value'), q.v, '%', -30, 30, 0.5);
+    } else if (p === 'add') {
+      h = head(Z('添加进场条件', 'Add entry condition')) + '<div class="grep"><label for="cb-cq">' + Z('搜索&gt;', 'find&gt;') + '</label><input id="cb-cq" type="search" autocomplete="off" spellcheck="false" value="' + esc(CB.cq || '') + '"></div>' +
+        '<div id="cb-clist">' + cbList() + '</div><button type="button" class="more" data-cb="reset">' + Z('恢复后台策略的 6 个条件', 'Reset to the 6 default conditions') + '</button>';
+    } else if (p.indexOf('x:') === 0) {
+      var k = p.slice(2), x = CBX[k];
+      h = head(Z(x[0], x[1]), ['xdel', k]);
+      if (x[2]) h += num('x:' + k, Z('数值', 'Value'), CB[k], x[3], 1, k === 'hold' ? 500 : 100);
+      else h += '<p class="dim">' + (k === 'emab' ? Z('收盘连续 2 天低于 EMA20 就结束。', 'Ends after 2 closes in a row below EMA20.') : Z('Supertrend、SAR 转空、放量抛售、EMA5 低于 EMA20 其中 2 项出现就结束。', 'Ends when 2 of these appear: below Supertrend, SAR flips down, heavy-volume selling, EMA5 below EMA20.')) + '</p>';
+    } else if (p === 'xadd') {
+      var ks = Object.keys(CBX).filter(function (k) { return !cbXon(k); });
+      h = head(Z('添加结束条件', 'Add exit condition')) + (ks.length ? '<div class="cbg">' + ks.map(function (k) { return '<button type="button" data-cb="xadd" data-v="' + k + '">' + Z(CBX[k][0], CBX[k][1]) + '</button>'; }).join('') + '</div>' : '<p class="dim">' + Z('全部已加入', 'All added') + '</p>');
+    } else if (p === 'stocks') {
+      var name = function (c) { return ST[c] ? ST[c].name : NAMES[c] || c; };
+      h = head(Z('回测股票', 'Stocks')) + '<div class="grep"><label for="cb-q">' + Z('添加&gt;', 'add&gt;') + '</label><input id="cb-q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="' + Z('名称或代码', 'Name or code') + '" value="' + esc(CB.q) + '"></div>' +
+        '<div class="opts" id="cb-sug">' + cbSug() + '</div>' +
+        '<div class="opts"><button type="button" data-cb="add-sig">' + Z('+ 今天信号股', '+ Today’s signals') + '</button><button type="button" data-cb="add-watch">+ ' + esc(curFolder().name) + '</button><button type="button" data-cb="add-top">' + Z('+ 成交额前 10', '+ Top 10 turnover') + '</button>' + (CB.codes.length ? '<button type="button" data-cb="clear">' + Z('清空', 'Clear') + '</button>' : '') + '</div>' +
+        (CB.codes.length ? '<div class="opts">' + CB.codes.map(function (c) { return '<button type="button" class="chip" data-cb="del" data-v="' + c + '" aria-label="' + Z('移除 ', 'Remove ') + esc(name(c)) + '">' + esc(name(c)) + ' ×</button>'; }).join('') + '</div>' : '');
+    } else if (p === 'period') {
+      h = head(Z('回测期间', 'Period')) + '<div class="opts">' + [['m3', Z('3 个月', '3 months')], ['m6', Z('6 个月', '6 months')], ['y1', Z('1 年', '1 year')], ['all', Z('全部', 'All')]].map(function (x) { return '<button type="button" data-cb="preset" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' +
+        '<div class="cb-dates"><label>' + Z('从', 'From') + ' <input type="date" id="cb-from" value="' + esc(CB.from) + '"></label><label>' + Z('到', 'To') + ' <input type="date" id="cb-to" value="' + esc(CB.to) + '"></label></div>';
+    }
+    return '<div class="cbpop" id="cbpop" role="dialog">' + h + '</div>';
+  }
+  function cbBar() {
+    var name = function (c) { return ST[c] ? ST[c].name : NAMES[c] || c; };
+    var stk = CB.codes.length === 1 ? esc(name(CB.codes[0])) : CB.codes.length ? Z(CB.codes.length + ' 支', CB.codes.length + ' stocks') : Z('未选', 'none');
+    var per = !CB.from && !CB.to ? Z('全部', 'All') : md(CB.from || (CB.res && CB.res.first) || '') + ' ~ ' + (CB.to ? md(CB.to) : Z('最新', 'now'));
+    var row1 = pill('stocks', Z('股票', 'Stocks'), stk) + pill('period', Z('期间', 'Period'), per) + '<span class="cbf-sep" aria-hidden="true"></span>' +
+      CB.conds.map(function (q, i) { var l = cbLbl(q); return pill('c:' + i, esc(l[0]), esc(l[1]), ['cdel', i], l.join(' ')); }).join('') +
+      (CB.conds.length < 12 ? '<button type="button" class="padd" data-cb="pop" data-v="add" aria-expanded="' + (CB.pop === 'add') + '">+ ' + Z('条件', 'Condition') + '</button>' : '');
+    var xs = Object.keys(CBX).filter(cbXon);
+    var row2 = '<span class="cbf-k">' + Z('结束', 'Exit') + '</span>' + xs.map(function (k) { var x = CBX[k]; return pill('x:' + k, Z(x[0], x[1]), x[2] ? CB[k] + x[3] : '', ['xdel', k]); }).join('') +
+      (xs.length < 5 ? '<button type="button" class="padd" data-cb="pop" data-v="xadd" aria-expanded="' + (CB.pop === 'xadd') + '">+ ' + Z('结束条件', 'Exit') + '</button>' : '');
+    return '<div class="cbf" id="cbf"><div class="cbf-row">' + row1 + '</div><div class="cbf-row">' + row2 + '</div>' + cbPop() + '</div>';
+  }
+  // 点开的编辑框对齐到它的标签下面 (手机就整排宽)
+  function cbPlace() {
+    var pop = document.getElementById('cbpop'), bar = document.getElementById('cbf'); if (!pop || !bar) return;
+    var b = bar.querySelector('[aria-expanded="true"]'); if (!b) return;
+    var tgt = b.closest('.pill') || b, x = tgt.getBoundingClientRect().left - bar.getBoundingClientRect().left;
+    pop.style.marginLeft = Math.max(0, Math.min(x, bar.clientWidth - pop.offsetWidth)) + 'px';
+  }
   function pageCustom() {
     var pos = (D.bt && D.bt.position) || 20000, R = function (v) { return isNum(v) ? v / 100 * pos : null; };
     var name = function (c) { return ST[c] ? ST[c].name : NAMES[c] || c; };
-    var stocks = T('<div class="grep"><label for="cb-q">add&gt;</label><input id="cb-q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="名称或代码，例如 SUNVIEW" value="') + esc(CB.q) + '"></div>' +
-      '<div class="opts" id="cb-sug">' + cbSug() + '</div>' +
-      T('<div class="opts"><button type="button" data-cb="add-sig">+ 今天信号股</button><button type="button" data-cb="add-watch">+ 观察列表「') + esc(curFolder().name) + T('」</button><button type="button" data-cb="add-top">+ 成交额前 10</button>') + (CB.codes.length ? T('<button type="button" data-cb="clear">清空</button>') : '') + '</div>' +
-      (CB.codes.length ? '<div class="opts">' + CB.codes.map(function (c) { return '<button type="button" class="chip" data-cb="del" data-v="' + c + T('" aria-label="移除 ') + esc(name(c)) + '">' + esc(name(c)) + ' ×</button>'; }).join('') + '</div>' : T('<p class="dim">还没选股票。一支 = 单支回测，几支 = 合计 + 分别列出 (最多 30 支)。</p>'));
-    var time = '<div class="opts">' + [['m3', T('3 个月')], ['m6', T('6 个月')], ['y1', T('1 年')], ['all', T('全部 (约 2 年)')]].map(function (p) { return '<button type="button" data-cb="preset" data-v="' + p[0] + '">' + p[1] + '</button>'; }).join('') + '</div>' +
-      T('<div class="cb-dates"><label>从 <input type="date" id="cb-from" value="') + esc(CB.from) + T('"></label><label>到 <input type="date" id="cb-to" value="') + esc(CB.to) + '"></label></div>';
-    var rules = '<div class="cb-rules">' + CB_RULES.map(function (r) { return '<label><input type="checkbox" data-cbr="' + r[0] + '"' + (CB.rules[r[0]] ? ' checked' : '') + '> ' + esc(r[1]) + '</label>'; }).join('') + T('</div><p class="dim">勾的条件全部同时成立的那天，以收盘价开始计算。默认勾的 6 个 = 后台策略。</p>');
-    var exit = '<div class="cb-exit">' + [['take', T('涨幅达到 % 结束'), CB.take], ['stop', T('跌幅达到 % 结束 (0 = 不用)'), CB.stop], ['hold', T('最长天数'), CB.hold]].map(function (x) {
-      return '<label>' + x[1] + ' <input type="number" inputmode="decimal" min="0" step="1" data-cbn="' + x[0] + '" value="' + x[2] + '"></label>'; }).join('') +
-      '<label><input type="checkbox" data-cbx="emab"' + (CB.emab ? ' checked' : '') + T('> 收盘跌破 EMA20 连 2 天</label><label><input type="checkbox" data-cbx="combo"') + (CB.combo ? ' checked' : '') + T('> 趋势转坏 (Supertrend / SAR / 放量抛售 / EMA5&lt;EMA20 坏 2 项)</label></div>');
-    var h = pn(T('STOCKS 回测股票'), CB.codes.length + T(' 支'), stocks) + pn(T('PERIOD 回测时间'), (CB.from || T('最早')) + ' ~ ' + (CB.to || T('最新')), time) +
-      pn(T('CONDITIONS 信号条件'), CB_RULES.filter(function (r) { return CB.rules[r[0]]; }).length + T(' 项'), rules) + pn(T('END 结束条件'), '', exit) +
-      '<button type="button" class="run" data-cb="run"' + (CB.busy ? ' disabled' : '') + '>' + (CB.busy ? T('计算中…') : T('▶ 运行回测')) + '</button>' + (CB.err ? '<p class="dn">' + esc(CB.err) + '</p>' : '');
+    var h = cbBar() + '<button type="button" class="run" data-cb="run"' + (CB.busy ? ' disabled' : '') + '>' + (CB.busy ? Z('计算中…', 'Running…') : Z('▶ 运行回测', '▶ Run backtest')) + '</button>' + (CB.err ? '<p class="dn">' + esc(CB.err) + '</p>' : '');
     var r = CB.res;
     if (r) {
       var a = r.all;
-      h += pn(T('RESULT 结果'), CB.codes.length + T(' 支合计 · ') + md(CB.from || r.first) + ' ~ ' + md(CB.to || r.last) + T(' · 成本 ') + r.cost + '%',
+      h += pn(ttl(T('RESULT 结果')), CB.codes.length + T(' 支合计 · ') + md(CB.from || r.first) + ' ~ ' + md(CB.to || r.last) + T(' · 成本 ') + r.cost + '%',
         kv([[T('笔数'), a.n + (a.open ? T(' (进行中 ') + a.open + ')' : '')], [T('胜率'), isNum(a.win) ? a.win.toFixed(1) + '%' : '—'], [T('期望值'), pct(a.avg), cls(a.avg)], [T('合计'), rm(R(a.total)), cls(a.total)]], true) +
         kv([[T('最大回撤'), rm(R(a.mdd)), 'dn'], [T('盈亏比'), isNum(a.payoff) ? a.payoff.toFixed(2) : '—'], [T('平均天数'), isNum(a.days) ? a.days.toFixed(1) + T(' 天') : '—'], [T('每笔'), 'RM' + (pos / 1000) + 'K']]) +
         (a.closed > 1 ? (function () { var cl = r.trades.filter(function (t) { return t.reason !== 'open'; }).sort(function (x, y) { return x.exit_date < y.exit_date ? -1 : 1; }), cum = 0;
           return blockChart([0].concat(cl.map(function (t) { cum += t.net; return R(cum); })), { rows: 6, zero: true, label: T('自定义回测资金曲线'), fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
             color: function (v) { return v >= 0 ? 'acc' : 'dn'; }, dates: [md(cl[0].exit_date), md(cl[cl.length - 1].exit_date)] }); })() : '') +
-        (a.n ? '' : T('<p class="dim">这段时间没有任何一天同时满足勾的条件。少勾几个条件或拉长时间试试。</p>')));
-      if (r.per.length > 1) h += pn(T('BY STOCK 分别'), '', '<pre class="txt">' + span('dim', cell(T('股票'), 10) + cell(T('笔'), 4, 1) + cell(T('胜率'), 7, 1) + cell(T('合计 RM'), 10, 1) + cell(T('同期涨跌'), 10, 1)) + '\n' +
+        (a.n ? '' : '<p class="dim">' + Z('这段时间没有任何一天同时满足全部条件。移除几个条件或拉长时间试试。', 'No day in this period met every condition. Remove some conditions or use a longer period.') + '</p>'));
+      if (r.per.length > 1) h += pn(ttl(T('BY STOCK 分别')), '', '<pre class="txt">' + span('dim', cell(T('股票'), 10) + cell(T('笔'), 4, 1) + cell(T('胜率'), 7, 1) + cell(T('合计 RM'), 10, 1) + cell(T('同期涨跌'), 10, 1)) + '\n' +
         r.per.map(function (p) { return '<button type="button" class="nm" data-q="' + p.code + '">' + cell(esc(name(p.code)), 10) + '</button>' + (p.none ? span('dim', T('没有日线')) : pad(p.st.n, 4, true) + pad(isNum(p.st.win) ? p.st.win.toFixed(0) + '%' : '—', 7, true) + span(cls(p.st.total), pad(rm(R(p.st.total)).replace('RM ', ''), 10, true)) + span(cls(p.bh), pad(pct(p.bh, 1), 10, true))); }).join('\n') + '</pre>');
-      if (r.trades.length) h += pn(T('TRADES 逐笔'), r.trades.length + T(' 笔 (新到旧)'), '<div class="rows">' + r.trades.slice(0, 60).map(function (t) {
+      if (r.trades.length) h += pn(ttl(T('TRADES 逐笔')), r.trades.length + T(' 笔 (新到旧)'), '<div class="rows">' + r.trades.slice(0, 60).map(function (t) {
         var s = ST[t.code] || { code: t.code, name: name(t.code) };
         return stockBtn(s, '<span class="' + cls(t.net) + ' b">' + pct(t.net, 1) + '</span><br><span class="sub">' + rm(R(t.net)) + '</span>', md(t.sig) + ' ' + px(t.entry) + ' → ' + px(t.exit) + ' · ' + (EXIT[t.reason] || t.reason) + ' · ' + t.days + T(' 天'));
       }).join('') + '</div>');
@@ -597,20 +712,26 @@
     return h;
   }
   function pageBt() {
-    var seg = T('<div class="opts seg" role="group" aria-label="回测"><button type="button" data-cb="mode" data-v="ledger" aria-pressed="') + (S.bt !== 'custom') + T('">后台策略</button><button type="button" data-cb="mode" data-v="custom" aria-pressed="') + (S.bt === 'custom') + T('">自定义回测</button></div>');
+    var seg = '<div class="opts seg" role="group" aria-label="' + Z('回测', 'Backtest') + '"><button type="button" data-cb="mode" data-v="ledger" aria-pressed="' + (S.bt !== 'custom') + '">' + Z('后台策略', 'Built-in strategy') + '</button><button type="button" data-cb="mode" data-v="custom" aria-pressed="' + (S.bt === 'custom') + '">' + Z('自定义回测', 'Custom backtest') + '</button></div>';
     return seg + (S.bt === 'custom' ? pageCustom() : pageBtLedger());
   }
   function cbClick(t) {
     var a = t.dataset.cb, v = t.dataset.v;
     if (a === 'mode') { S.bt = v; try { localStorage.setItem('bterm_btmode', v); } catch (e) {} syncSoon(); render(); }
-    else if (a === 'add') cbAdd([v]);
+    else if (a === 'add') { cbAdd([v]); cbRe(); }
     else if (a === 'add-sig') cbAdd((D.signals || []).map(function (x) { return x.code; }));
     else if (a === 'add-watch') cbAdd(curFolder().codes);
     else if (a === 'add-top') cbAdd(LIST.filter(function (s) { return s.pool === 1; }).sort(function (x, y) { return (y.to || 0) - (x.to || 0); }).slice(0, 10).map(function (s) { return s.code; }));
     else if (a === 'clear') { CB.codes = []; CB.res = null; cbSave(); render(); }
-    else if (a === 'del') { CB.codes = CB.codes.filter(function (c) { return c !== v; }); cbSave(); render(); }
-    else if (a === 'preset') cbPreset(v);
-    else if (a === 'run') cbRun();
+    else if (a === 'del') { CB.codes = CB.codes.filter(function (c) { return c !== v; }); cbSave(); render(); cbRe(); }
+    else if (a === 'preset') { cbPreset(v); cbRe(); }
+    else if (a === 'run') { CB.pop = null; cbRun(); }
+    else if (a === 'pop') { CB.pop = v && CB.pop !== v ? v : null; CB.cq = ''; render(); var f = CB.pop && document.querySelector(CB.pop === 'add' ? '#cb-cq' : CB.pop === 'stocks' ? '#cb-q' : '#cbpop select, #cbpop input'); if (f && !narrowUI()) f.focus(); }
+    else if (a === 'cdel') { CB.conds.splice(+v, 1); CB.pop = null; cbSave(); render(); cbRe(); }
+    else if (a === 'cadd') { var ty = CBT[v], q = cbCond({ t: v }); CB.conds.push(q); CB.pop = ty.d ? 'c:' + (CB.conds.length - 1) : null; cbSave(); render(); cbRe(); }
+    else if (a === 'reset') { CB.conds = CB_DEF.map(cbCond); CB.pop = null; cbSave(); render(); cbRe(); }
+    else if (a === 'xdel') { CB[v] = 0; CB.pop = null; cbSave(); render(); cbRe(); }
+    else if (a === 'xadd') { CB[v] = CBX[v][2] || 1; CB.pop = CBX[v][2] ? 'x:' + v : null; cbSave(); render(); cbRe(); }
   }
   try { S.bt = localStorage.getItem('bterm_btmode') === 'custom' ? 'custom' : 'ledger'; } catch (e) { S.bt = 'ledger'; }
   var FLT = [['s', 'sar', 'SAR▲', function (s) { return s.sar === 1; }], ['e', 'ema', '>EMA20', function (s) { return isNum(s.ema) && s.p > s.ema; }],
@@ -2154,8 +2275,9 @@
     keys(); tabbar(TB.sq); fsq(); EVREG = [];
     document.getElementById('prompt-arg').textContent = S.code ? 'quote ' + S.code : '--' + S.page;
     var fn = { cal: pageCal, sig: pageSig, watch: pageWatch, bt: pageBt, pool: pagePool, mkt: pageMkt, ann: pageAnn }[S.page] || pageSig;
-    var focusId = document.activeElement && /^(grep|cb-q|sq)$/.test(document.activeElement.id) ? document.activeElement.id : null, focusGrep = !!focusId, pos = focusGrep ? document.activeElement.selectionStart : null;
+    var focusId = document.activeElement && /^(grep|cb-q|cb-cq|sq)$/.test(document.activeElement.id) ? document.activeElement.id : null, focusGrep = !!focusId, pos = focusGrep ? document.activeElement.selectionStart : null;
     main.innerHTML = WIDGET ? pageWidget() : S.code ? pageQuote(S.code) : fn();
+    if (S.page === 'bt' && !S.code) cbPlace();
     if (focusGrep) { var g = document.getElementById(focusId); if (g) { g.focus(); try { g.setSelectionRange(pos, pos); } catch (e) {} } }
     if (!BARS) loadBars();
     if (AI.open && !AI.busy && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#ai-panel'))) aiRender();
@@ -2191,6 +2313,7 @@
       S.af = ab.dataset.af || ''; var sl = document.querySelector('.fscroll'), x = sl ? sl.scrollLeft : 0; render();
       var sl2 = document.querySelector('.fscroll'); if (sl2) { sl2.scrollLeft = x; var on = sl2.querySelector('[aria-pressed="true"]'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
       return; }
+    if (CB.pop && S.page === 'bt' && !e.target.closest('#cbf')) { CB.pop = null; if (!e.target.closest('[data-cb],[data-q],[data-page]')) { render(); return; } }
     var cbt = e.target.closest('[data-cb]'); if (cbt) { cbClick(cbt); return; }
     var thb = e.target.closest('[data-th]'); if (thb) { themeClick(thb); return; }
     var ai = e.target.closest('[data-ai]'); if (ai) { aiClick(ai); return; }
@@ -2218,10 +2341,13 @@
   document.addEventListener('toggle', function (e) { var d = e.target; if (d.classList && d.classList.contains('info')) OPEN[d.dataset.code] = d.open; }, true);
   document.addEventListener('change', function (e) {
     var el = e.target, d = el.dataset || {};
-    if (d.cbr) { CB.rules[d.cbr] = el.checked; cbSave(); }
-    else if (d.cbx) { CB[d.cbx] = el.checked ? 1 : 0; cbSave(); }
-    else if (d.cbn) { var n = parseFloat(el.value); CB[d.cbn] = isFinite(n) && n >= 0 ? n : 0; cbSave(); }
-    else if (el.id === 'cb-from' || el.id === 'cb-to') { CB[el.id === 'cb-from' ? 'from' : 'to'] = el.value; cbSave(); render(); }
+    if (d.cbc) {  // 条件编辑框：「i:栏位」或「x:结束条件」
+      var pr = d.cbc.split(':'), n = parseFloat(el.value);
+      if (pr[0] === 'x') { if (isFinite(n) && n > 0) CB[pr[1]] = Math.min(pr[1] === 'hold' ? 500 : 100, n); }
+      else { var q = CB.conds[+pr[0]]; if (!q) return; var o = {}; Object.keys(q).forEach(function (k) { o[k] = q[k]; }); o[pr[1]] = pr[1] === 'op' ? el.value : n; CB.conds[+pr[0]] = cbCond(o); }
+      cbSave(); render(); cbRe();
+    }
+    else if (el.id === 'cb-from' || el.id === 'cb-to') { CB[el.id === 'cb-from' ? 'from' : 'to'] = el.value; cbSave(); render(); cbRe(); }
   });
   // 点浮动搜索框外面：收起结果 (文字留着，再点输入框就回来)
   document.addEventListener('pointerdown', function (e) { var el = document.getElementById('fsq'); if (el && !el.hidden && !(e.target.closest && e.target.closest('#fsq'))) el.classList.add('shut'); });
@@ -2229,7 +2355,8 @@
   // 搜索框打字时只换下面的列表 / 建议，不重画整页：重画会换掉输入框，iPhone 键盘就从数字跳回字母
   document.addEventListener('input', function (e) {
     var id = e.target.id, box;
-    if (id === 'cb-q') { CB.q = e.target.value; if ((box = document.getElementById('cb-sug'))) box.innerHTML = cbSug(); }
+    if (id === 'cb-cq') { CB.cq = e.target.value; if ((box = document.getElementById('cb-clist'))) box.innerHTML = cbList(); }
+    else if (id === 'cb-q') { CB.q = e.target.value; if ((box = document.getElementById('cb-sug'))) box.innerHTML = cbSug(); }
     else if (id === 'w-q') { WQ = e.target.value; if ((box = document.getElementById('w-sug'))) box.innerHTML = wSug(); }
     else if (id === 'th-q') TH.prompt = e.target.value;
     else if (id === 'sq') { S.sq = e.target.value; if ((box = document.getElementById('sq-res'))) box.innerHTML = sqRes(); }
@@ -2249,6 +2376,7 @@
       e.preventDefault(); modelStep(e.key === 'ArrowLeft' ? -1 : 1); aiRender();
       var on = document.querySelector('#ai-panel .ai-models [aria-checked="true"]'); if (on) on.focus({ preventScroll: true }); return;
     }
+    if (e.key === 'Escape' && CB.pop && S.page === 'bt') { CB.pop = null; render(); return; }
     if (e.key === 'Escape' && AI.open) { AI.open = false; aiRender(); return; }
     if (e.key === 'Escape' && SY.open) { SY.open = false; acctRender(); return; }
     if (e.key === 'Escape' && e.target.id === 'sq') { var fe = document.getElementById('fsq'); if (fe) fe.classList.add('shut'); e.target.blur(); return; }
@@ -2373,9 +2501,9 @@
     }
     var cb0 = null; try { cb0 = JSON.parse(lsGet('bterm_cbt') || 'null'); } catch (e) { cb0 = null; }
     if (d.cbt && !same(cb0, d.cbt)) {
-      ['codes', 'from', 'to', 'rules', 'take', 'stop', 'hold', 'emab', 'combo'].forEach(function (k) { if (d.cbt[k] !== undefined) CB[k] = d.cbt[k]; });
+      ['codes', 'from', 'to', 'take', 'stop', 'hold', 'emab', 'combo'].forEach(function (k) { if (d.cbt[k] !== undefined) CB[k] = d.cbt[k]; });
       if (!Array.isArray(CB.codes)) CB.codes = [];
-      if (!CB.rules || typeof CB.rules !== 'object') CB.rules = {};
+      CB.conds = cbConds(d.cbt); CB.pop = null;
       CB.res = null; cbSave(); redraw = true;
     }
     if (redraw && D) render();
