@@ -20,8 +20,8 @@
 //   GOOGLE_CLIENT_ID (Text)  Google Cloud 的 OAuth 用户端 ID (xxx.apps.googleusercontent.com)
 //   SESSION_SECRET   (Secret) 随便一串 32 个字以上的乱码 (签登录凭证用；换掉 = 所有人要重新登录)
 //   KV 绑定 SYNC              Workers → Settings → Bindings → KV namespace，变量名称 SYNC
-//   PRO_EMAILS       (Text)   付费 (Pro) 用户的电邮，逗号分隔；也可以在 KV 加一笔 pro:<电邮> = 到期日 YYYY-MM-DD (或 forever)
-//   FREE_MAX_FOLDERS / FREE_MAX_STOCKS / PRO_MAX_FOLDERS / PRO_MAX_STOCKS (Text，可不设) 同步上限，默认 3 / 30 / 50 / 2000
+//   PLUS_EMAILS      (Text)   付费 (Plus) 用户的电邮，逗号分隔；也可以在 KV 加一笔 plus:<电邮> = 到期日 YYYY-MM-DD (或 forever)
+//   FREE_MAX_FOLDERS / FREE_MAX_STOCKS / PLUS_MAX_FOLDERS / PLUS_MAX_STOCKS (Text，可不设) 同步上限，默认 1 / 30 / 5 / 2000
 const SYSTEM = `你是 Bursa Bot 终端版里的 AI 助手，帮用户看懂马来西亚股票的公开资料。
 用户的问题后面会附上「当前页面资料」(价格、技术指标、财报数字、公告、新闻、AI 整理的近况)，回答要以这些资料为根据，资料里没有的就说没有，不要编造数字或事件。
 用简体中文回答，条理清楚、简短；需要时分点。可以解释指标是什么意思、财报数字的变化、公告在说什么、有哪些需要留意的事项。
@@ -73,8 +73,8 @@ export default {
 // 网页的「用 Google 登录」按钮拿到 Google 的 ID token (JWT) → /auth/login 在这里验证 Google 的签名、发给谁 (aud)、有效期、电邮已验证
 // → 发一个 30 天的登录凭证 (HMAC 签名，服务器不用存)。之后 /sync/* 都带着这个凭证 (Authorization: Bearer …)。
 // 同步的资料存在 KV (绑定名称 SYNC)：一个账号一笔 d:<Google 账号 ID>，只有观察列表和界面设定；AI 密钥 / 通行码永远不会上传。
-// 免费 / Pro：PRO_EMAILS (逗号分隔) 里的电邮，或 KV 里有 pro:<电邮> (值 = 到期日 YYYY-MM-DD，或 forever) → Pro；其余是免费版。
-// 免费版只同步前 FREE_MAX_FOLDERS 个列表、共 FREE_MAX_STOCKS 只股票 (默认 3 / 30)，多出来的只留在那台设备。
+// 免费 / Plus：PLUS_EMAILS (逗号分隔) 里的电邮，或 KV 里有 plus:<电邮> (值 = 到期日 YYYY-MM-DD，或 forever) → Plus；其余是免费版。
+// 免费版只同步 FREE_MAX_FOLDERS 个列表、共 FREE_MAX_STOCKS 只股票 (默认 1 / 30)，Plus 默认 5 个列表；多出来的只留在那台设备。
 const GOOGLE_CERTS = 'https://www.googleapis.com/oauth2/v3/certs';
 const SESSION_DAYS = 30, DOC_MAX = 96 * 1024, CODE_RE = /^[0-9A-Z]{3,8}$/;
 const PREFS = { theme: ['dark', 'light'], lang: ['zh', 'en'], candle: ['hollow', 'solid'], btmode: ['ledger', 'custom'] };
@@ -151,20 +151,20 @@ async function sessionCheck(env, req) {
 }
 
 async function planOf(env, email) {
-  if (String(env.PRO_EMAILS || '').toLowerCase().split(/[\s,;]+/).includes(email)) return { plan: 'pro', until: null };
-  const v = env.SYNC && email ? await env.SYNC.get('pro:' + email) : null;  // Cloudflare 后台 KV 加一笔就升级，不用重新部署
+  if (String(env.PLUS_EMAILS || '').toLowerCase().split(/[\s,;]+/).includes(email)) return { plan: 'plus', until: null };
+  const v = env.SYNC && email ? await env.SYNC.get('plus:' + email) : null;  // Cloudflare 后台 KV 加一笔就升级，不用重新部署
   const s = String(v || '').trim();
-  if (/^(forever|true|1)$/i.test(s)) return { plan: 'pro', until: null };
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s) && s >= myNow().slice(0, 10)) return { plan: 'pro', until: s };
+  if (/^(forever|true|1)$/i.test(s)) return { plan: 'plus', until: null };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s) && s >= myNow().slice(0, 10)) return { plan: 'plus', until: s };
   return { plan: 'free', until: null };
 }
 function limitsOf(env, plan) {
   const n = (v, d) => { const x = parseInt(v, 10); return x > 0 ? x : d; };
-  return plan === 'pro' ? { folders: n(env.PRO_MAX_FOLDERS, 50), stocks: n(env.PRO_MAX_STOCKS, 2000) }
-    : { folders: n(env.FREE_MAX_FOLDERS, 3), stocks: n(env.FREE_MAX_STOCKS, 30) };
+  return plan === 'plus' ? { folders: n(env.PLUS_MAX_FOLDERS, 5), stocks: n(env.PLUS_MAX_STOCKS, 2000) }
+    : { folders: n(env.FREE_MAX_FOLDERS, 1), stocks: n(env.FREE_MAX_STOCKS, 30) };
 }
 
-// 只收这些栏位；超过免费 / Pro 上限的列表、股票不存 (那些只留在原来的设备)
+// 只收这些栏位；超过免费 / Plus 上限的列表、股票不存 (那些只留在原来的设备)
 function cleanDoc(d, lim) {
   d = d && typeof d === 'object' && !Array.isArray(d) ? d : {};
   const out = { v: 1, watch: null, prefs: {}, theme: null, cbt: null };

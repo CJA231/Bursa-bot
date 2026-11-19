@@ -73,8 +73,8 @@ AI 密钥、通行码不会上传。同一个 Worker 负责验证登录和存资
 3. **Settings → Variables and Secrets**，加：
    - `GOOGLE_CLIENT_ID` (Text)：上一步的 Client ID
    - `SESSION_SECRET` (Secret)：一串 32 个字以上的乱码 (例如密码管理器产生的长密码)。签登录凭证用；以后换掉 = 所有人要重新登录
-   - (可选) `PRO_EMAILS` (Text)：付费用户的电邮，逗号分隔
-   - (可选) `FREE_MAX_FOLDERS` / `FREE_MAX_STOCKS` / `PRO_MAX_FOLDERS` / `PRO_MAX_STOCKS`：同步上限，默认 3 / 30 / 50 / 2000
+   - (可选) `PLUS_EMAILS` (Text)：付费 (Plus) 用户的电邮，逗号分隔
+   - (可选) `FREE_MAX_FOLDERS` / `FREE_MAX_STOCKS` / `PLUS_MAX_FOLDERS` / `PLUS_MAX_STOCKS`：同步上限，默认 1 / 30 / 5 / 2000
    - `ALLOW_ORIGIN` 维持 `https://cja231.github.io`
 4. 把最新的 `worker/ai-proxy.js` 贴进 Worker → **Deploy**
 
@@ -82,16 +82,16 @@ AI 密钥、通行码不会上传。同一个 Worker 负责验证登录和存资
 GitHub 网页打开 [`docs/terminal/account.json`](../docs/terminal/account.json) → ✏️ 编辑：
 - `google_client_id`：Client ID
 - `worker`：Worker 网址 (`https://bursa-ai.xxx.workers.dev`)
-- `upgrade` (可选)：「升级 Pro」按钮的链接 (付款页 `https://…` 或 `mailto:…`)，留空就不显示
-- `plans`：只用来显示免费 / Pro 的数量，改了 Worker 的上限这里也跟着改
+- `upgrade` (可选)：「升级 Plus」按钮的链接 (付款页 `https://…` 或 `mailto:…`)，留空就不显示
+- `plans`：只用来显示免费 / Plus 的数量，改了 Worker 的上限这里也跟着改
 
 提交到 main → 「Deploy site」约 1–2 分钟后部署，终端版右上角出现「登录」。这些都是公开资料 (不是密钥)，放在网站上没关系。
 
-### 免费 / Pro
-- 免费版只同步前 3 个列表、共 30 只股票，多出来的留在原来的设备 (账号面板会提示)
-- 升级一个人：在 KV `bursa-sync` 里 **Add entry**，key = `pro:电邮` (小写，例如 `pro:someone@gmail.com`)，value = 到期日 `2027-12-31` 或 `forever`，马上生效、不用重新部署；到期自动变回免费版。删掉那一笔 = 取消。或者把电邮加进 `PRO_EMAILS`
+### 免费 / Plus
+- 免费版只同步 1 个列表 (最多 30 只股票)，Plus 同步 5 个列表；多出来的留在原来的设备 (账号面板会提示)。账号面板右上角的 ⓘ 显示两个方案的对照表
+- 升级一个人：在 KV `bursa-sync` 里 **Add entry**，key = `plus:电邮` (小写，例如 `plus:someone@gmail.com`)，value = 到期日 `2027-12-31` 或 `forever`，马上生效、不用重新部署；到期自动变回免费版。删掉那一笔 = 取消。或者把电邮加进 `PLUS_EMAILS`
 - 升级后，之前被截掉的股票会在下一次同步时自动送上去
-- 收费方式 (付款页、订阅) 还没接上：现在是收到款后手动加 `pro:` 那一笔
+- 收费方式 (付款页、订阅) 还没接上：现在是收到款后手动加 `plus:` 那一笔
 
 ### 资料、隐私、费用
 - KV 里每个账号一笔 `d:<Google 账号 ID>`，内容是同步的资料 + 电邮 (电邮也放在那一笔的 metadata，key 列表里看得到)。用户在账号面板按「删除云端资料」就删掉；有人用电邮要求删除而不方便自己按时，在 KV 的 key 列表按 metadata 的电邮找到那一笔删掉 (或用 `npx wrangler kv key list --namespace-id <ID>` 列出全部)

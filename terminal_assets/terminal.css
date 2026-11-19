@@ -321,7 +321,14 @@ pre.ipo-t button { font: inherit; padding: 0; border: 0; background: none; curso
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12); animation: ai-up .32s cubic-bezier(.2, .9, .3, 1); }
 @keyframes ai-up { from { transform: translateY(24px) scale(.98); opacity: 0; } to { transform: none; opacity: 1; } }
 #ai-panel[hidden] { display: none; }
-@media (max-width: 779px) { #ai-panel { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); max-height: calc(100vh - 150px); } }
+/* 手机：面板夹在底部导航栏和顶部安全区 (iPhone 状态栏 / 刘海) 之间；100dvh = 实际看得到的高度 (Safari 网址列出现时会变矮)，旧浏览器用 100vh */
+@media (max-width: 779px) { #ai-panel { bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  max-height: calc(100vh - 92px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  max-height: calc(100dvh - 92px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); } }
+/* 只有对话 / 设定 / 主题那一块会缩小、自己卷动；标题、建议问题、输入框、说明一律保持原本高度 (不会被压扁、切掉一半) */
+#ai-panel > * { flex-shrink: 0; }
+#ai-panel > .ai-log, #ai-panel > .ai-set, #ai-panel > .th { flex: 1 1 auto; min-height: 0; }
+#ai-panel > .ai-log { min-height: 60px; }
 @media (min-width: 780px) { #ai-panel { left: auto; width: 480px; right: 14px; bottom: 78px; max-height: 74vh; } }
 .ai-top { display: flex; align-items: center; gap: 6px; }
 .ai-logo svg { width: 18px; height: 18px; fill: var(--acc); display: block; }
@@ -384,6 +391,7 @@ pre.ipo-t button { font: inherit; padding: 0; border: 0; background: none; curso
   border: 1px solid rgba(255, 255, 255, 0.14); border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12); animation: acct-in .26s cubic-bezier(.2, .9, .3, 1); }
 #acct-panel[hidden] { display: none; }
+#acct-panel > * { flex-shrink: 0; }  /* 内容太长就整个面板卷动，不压扁里面的表格 */
 #acct-panel .ai-top b { margin-right: auto; }
 @keyframes acct-in { from { transform: translateY(-10px) scale(.97); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (min-width: 780px) { #acct-panel { width: 400px; max-height: 70vh; } }
@@ -392,7 +400,7 @@ pre.ipo-t button { font: inherit; padding: 0; border: 0; background: none; curso
 .acct-me { display: flex; gap: 10px; align-items: center; }
 .acct-me b { display: block; word-break: break-all; }
 .plan { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; color: var(--mut); border: 1px solid var(--line); }
-.plan.pro { color: var(--bg); background: var(--acc); border-color: var(--acc); font-weight: 700; }
+.plan.plus { color: var(--bg); background: var(--acc); border-color: var(--acc); font-weight: 700; }
 .acct-st { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; padding: 6px 10px; border-radius: 10px; background: color-mix(in srgb, var(--fg) 6%, transparent); }
 .acct-use { color: var(--mut); font-size: 12px; } .acct-use.warn { color: var(--warn); }
 .acct-st.ok { color: var(--up); } .acct-st.err { color: var(--dn); } .acct-st.busy { color: var(--warn); }

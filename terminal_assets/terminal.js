@@ -2252,27 +2252,28 @@
     if (box.hidden) return;
     var r = btn.getBoundingClientRect();
     box.style.top = Math.round(r.bottom + 8) + 'px';
+    box.style.maxHeight = Math.max(220, Math.round(window.innerHeight - r.bottom - 8 - (window.innerWidth < 780 ? 96 : 16))) + 'px';  // 不压到手机底部导航栏
     if (window.innerWidth >= 780) { box.style.left = 'auto'; box.style.right = Math.max(8, Math.round(window.innerWidth - r.right)) + 'px'; } else { box.style.left = ''; box.style.right = ''; }
     var num = function (o, d) { o = o || {}; return { folders: parseInt(o.folders, 10) || d.folders, stocks: parseInt(o.stocks, 10) || d.stocks }; };
-    var plans = ACCT.plans || {}, fr = num(plans.free, { folders: 3, stocks: 30 }), pr = num(plans.pro, { folders: 50, stocks: 2000 });
+    var plans = ACCT.plans || {}, fr = num(plans.free, { folders: 1, stocks: 30 }), pl = num(plans.plus, { folders: 5, stocks: 2000 });
     var nf = W.folders.length, ns = W.folders.reduce(function (n, f) { return n + f.codes.length; }, 0), legal = 'legal.html#' + (LANG === 'en' ? 'e14' : 'c14');
-    var pro = !!ACC && ACC.plan === 'pro', lim = ACC ? num(ACC.limits, pro ? pr : fr) : fr;
-    var upg = ACCT.upgrade && /^(https:|mailto:)/.test(ACCT.upgrade) ? ' <a href="' + esc(ACCT.upgrade) + '" target="_blank" rel="noopener">' + Z('升级 Pro ↗', 'Upgrade to Pro ↗') + '</a>' : '';
+    var plus = !!ACC && ACC.plan === 'plus', lim = ACC ? num(ACC.limits, plus ? pl : fr) : fr;
+    var upg = ACCT.upgrade && /^(https:|mailto:)/.test(ACCT.upgrade) ? ' <a href="' + esc(ACCT.upgrade) + '" target="_blank" rel="noopener">' + Z('升级 Plus ↗', 'Upgrade to Plus ↗') + '</a>' : '';
     var h = '<div class="ai-top"><span class="ai-logo" aria-hidden="true">' + PERSON + '</span><b>' + Z('账号 · 跨设备同步', 'Account · Sync') + '</b><span class="ai-ctx"></span>' +
-      '<button type="button" class="acct-i" data-acct="info" aria-expanded="' + SY.info + '" aria-controls="acct-plans" title="' + Z('免费版 / Pro 包含哪些功能', 'What the Free and Pro plans include') + '" aria-label="' + Z('免费版 / Pro 包含哪些功能', 'What the Free and Pro plans include') + '">' + INFO + '</button>' +
+      '<button type="button" class="acct-i" data-acct="info" aria-expanded="' + SY.info + '" aria-controls="acct-plans" title="' + Z('免费版 / Plus 包含哪些功能', 'What the Free and Plus plans include') + '" aria-label="' + Z('免费版 / Plus 包含哪些功能', 'What the Free and Plus plans include') + '">' + INFO + '</button>' +
       '<button type="button" data-acct="close" aria-label="' + Z('关闭', 'Close') + '">×</button></div>';
-    if (SY.info) {  // ⓘ：免费版 / Pro 各包含哪些同步功能 (登录后标出自己的方案)
-      var col = function (plan) { return ACC && (plan === 'pro') === pro ? ' class="mine"' : ''; }, yes = '<span class="y" aria-label="' + Z('有', 'Included') + '">✓</span>';
+    if (SY.info) {  // ⓘ：免费版 / Plus 各包含哪些同步功能 (登录后标出自己的方案)
+      var col = function (plan) { return ACC && (plan === 'plus') === plus ? ' class="mine"' : ''; }, yes = '<span class="y" aria-label="' + Z('有', 'Included') + '">✓</span>';
       var cap = function (p) { return Z(esc(p.folders) + ' 个列表<br>' + esc(p.stocks.toLocaleString()) + ' 只股票', esc(p.folders) + ' lists<br>' + esc(p.stocks.toLocaleString()) + ' stocks'); };
-      var row = function (name, a, b) { return '<tr><th scope="row">' + name + '</th><td' + col('free') + '>' + a + '</td><td' + col('pro') + '>' + b + '</td></tr>'; };
+      var row = function (name, a, b) { return '<tr><th scope="row">' + name + '</th><td' + col('free') + '>' + a + '</td><td' + col('plus') + '>' + b + '</td></tr>'; };
       h += '<div class="acct-plans" id="acct-plans"><table><thead><tr><th scope="col"><span class="sr-only">' + Z('功能', 'Feature') + '</span></th>' +
-        '<th scope="col"' + col('free') + '>' + Z('免费版', 'Free') + (ACC && !pro ? '<small>' + Z('你的方案', 'Your plan') + '</small>' : '') + '</th>' +
-        '<th scope="col"' + col('pro') + '>Pro' + (pro ? '<small>' + Z('你的方案', 'Your plan') + '</small>' : '') + '</th></tr></thead><tbody>' +
-        row(Z('观察列表同步', 'Watchlist sync'), cap(fr), cap(pr)) +
+        '<th scope="col"' + col('free') + '>' + Z('免费版', 'Free') + (ACC && !plus ? '<small>' + Z('你的方案', 'Your plan') + '</small>' : '') + '</th>' +
+        '<th scope="col"' + col('plus') + '>Plus' + (plus ? '<small>' + Z('你的方案', 'Your plan') + '</small>' : '') + '</th></tr></thead><tbody>' +
+        row(Z('观察列表同步', 'Watchlist sync'), cap(ACC && !plus ? lim : fr), cap(ACC && plus ? lim : pl)) +  // 自己的方案显示 Worker 实际的上限
         row(Z('深色 / 浅色、语言、K 线样式', 'Dark / light, language, candle style'), yes, yes) +
         row(Z('🎨 自定义主题', '🎨 Custom theme'), yes, yes) +
         row(Z('自定义回测设定', 'Custom backtest settings'), yes, yes) +
-        '</tbody></table><p class="dim">' + Z('AI 密钥、通行码不会上传，只留在这台设备。', 'AI keys and passcodes are never uploaded; they stay on this device.') + (ACC && !pro ? upg : '') + '</p></div>';
+        '</tbody></table><p class="dim">' + Z('AI 密钥、通行码不会上传，只留在这台设备。', 'AI keys and passcodes are never uploaded; they stay on this device.') + (ACC && !plus ? upg : '') + '</p></div>';
     }
     h += '<div class="acct-body">';
     if (!ACC) {
@@ -2281,14 +2282,14 @@
         (SY.err ? '<p class="dn">' + esc(SY.err) + '</p>' : '') + (SY.note ? '<p class="up">' + esc(SY.note) + '</p>' : '') +
         '<p class="dim">' + Z('登录即表示你同意<a href="' + legal + '">使用条款</a> (第 14 条：会储存你的电邮地址和同步的设定)。', 'By signing in you agree to the <a href="' + legal + '">Terms</a> (clause 14: we store your email address and synced settings).') + '</p>';
     } else {
-      var over = !pro && (nf > lim.folders || ns > lim.stocks);
+      var over = !plus && (nf > lim.folders || ns > lim.stocks);
       var when = ACC.at ? new Date(ACC.at) : null, hm = when ? ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2) : '';
-      var use = pro ? Z(nf + ' 个列表 · ' + ns + ' 只', nf + ' lists · ' + ns + ' stocks') : Z(nf + '/' + lim.folders + ' 个列表 · ' + ns + '/' + lim.stocks + ' 只', nf + '/' + lim.folders + ' lists · ' + ns + '/' + lim.stocks + ' stocks');
+      var use = plus ? Z(nf + ' 个列表 · ' + ns + ' 只', nf + ' lists · ' + ns + ' stocks') : Z(nf + '/' + lim.folders + ' 个列表 · ' + ns + '/' + lim.stocks + ' 只', nf + '/' + lim.folders + ' lists · ' + ns + '/' + lim.stocks + ' stocks');
       h += '<div class="acct-me"><span class="av big" aria-hidden="true">' + esc((ACC.name || ACC.email).charAt(0).toUpperCase()) + '</span><div><b>' + esc(ACC.email) + '</b>' +
-        '<p><span class="plan' + (pro ? ' pro' : '') + '">' + (pro ? 'Pro' : Z('免费版', 'Free')) + '</span>' + (pro && ACC.until ? ' <span class="dim">' + Z('到期 ', 'until ') + esc(ACC.until) + '</span>' : '') + '</p></div></div>' +
+        '<p><span class="plan' + (plus ? ' plus' : '') + '">' + (plus ? 'Plus' : Z('免费版', 'Free')) + '</span>' + (plus && ACC.until ? ' <span class="dim">' + Z('到期 ', 'until ') + esc(ACC.until) + '</span>' : '') + '</p></div></div>' +
         '<p class="acct-st ' + st + '"><span>' + (st === 'busy' ? Z('同步中…', 'Syncing…') : st === 'err' ? '⚠ ' + esc(SY.err) : st === 'ok' ? Z('✓ 已同步 · ', '✓ Synced · ') + hm : Z('还没同步', 'Not synced yet')) + '</span>' +
         '<span class="acct-use' + (over ? ' warn' : '') + '">' + esc(use) + '</span></p>' +
-        (over || ACC.trimmed ? '<p class="warn">' + Z('免费版只同步前 ' + lim.folders + ' 个列表、共 ' + lim.stocks + ' 只股票；其余只存在这台设备。', 'The free plan syncs the first ' + lim.folders + ' lists and ' + lim.stocks + ' stocks; the rest stay on this device only.') + upg + '</p>' : '') +
+        (over || ACC.trimmed ? '<p class="warn">' + Z('免费版只同步' + (lim.folders > 1 ? '前 ' + lim.folders + ' 个列表' : '第一个列表') + ' (最多 ' + lim.stocks + ' 只股票)；其余只存在这台设备。', 'The free plan syncs ' + (lim.folders > 1 ? 'the first ' + lim.folders + ' lists' : 'your first list') + ' (up to ' + lim.stocks + ' stocks); the rest stay on this device only.') + upg + '</p>' : '') +
         (SY.lang ? '<p class="dim">' + Z('语言设定已从别的设备同步过来 (English)。', 'Language synced from another device (中文).') + ' <button type="button" class="more" data-acct="lang">' + Z('现在切换', 'Switch now') + '</button></p>' : '') +
         '<div class="opts acct-act"><button type="button" class="ok" data-acct="sync"' + (SY.busy ? ' disabled' : '') + '>' + Z('立即同步', 'Sync now') + '</button>' +
         '<button type="button" data-acct="out">' + Z('登出', 'Sign out') + '</button><button type="button" class="danger" data-acct="del">' + Z('删除云端资料', 'Delete cloud data') + '</button></div>' +

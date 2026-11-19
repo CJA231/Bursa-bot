@@ -3,5 +3,5 @@
   "google_client_id": "",
   "worker": "",
   "upgrade": "",
-  "plans": {"free": {"folders": 3, "stocks": 30}, "pro": {"folders": 50, "stocks": 2000}}
+  "plans": {"free": {"folders": 1, "stocks": 30}, "plus": {"folders": 5, "stocks": 2000}}
 }
