@@ -362,6 +362,48 @@ pre.ipo-t button { font: inherit; padding: 0; border: 0; background: none; curso
 .ai-set { display: grid; gap: 8px; overflow-y: auto; }
 .ai-set label { display: grid; gap: 4px; color: var(--mut); font-size: 12px; }
 .ai-note { font-size: 11px; }
+/* 👤 账号：右上角的登录按钮 + 下拉的玻璃面板 */
+.top-row { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.top-row .prompt { flex: 1; min-width: 0; }
+#acct-btn { flex: none; position: relative; display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 12px; color: var(--acc2); cursor: pointer;
+  background: color-mix(in srgb, var(--fg) 7%, transparent); border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent); border-radius: 999px; padding: 3px 11px 3px 8px; min-height: 30px; }
+#acct-btn[hidden] { display: none; }
+#acct-btn svg { width: 15px; height: 15px; fill: currentColor; }
+#acct-btn.on { padding: 3px; border-color: transparent; background: transparent; }
+#acct-btn .av, .acct-me .av { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--acc); color: var(--bg); font-weight: 700; font-size: 13px; }
+.acct-me .av.big { width: 40px; height: 40px; font-size: 18px; flex: none; }
+#acct-btn .dot { position: absolute; right: 1px; bottom: 1px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--bg); background: var(--mut); transition: background .3s; }
+#acct-btn[data-st="ok"] .dot { background: var(--up); }
+#acct-btn[data-st="err"] .dot { background: var(--dn); }
+#acct-btn[data-st="busy"] .dot { background: var(--warn); animation: acct-pulse 1s ease-in-out infinite; }
+@keyframes acct-pulse { 50% { transform: scale(.6); } }
+#acct-panel { position: fixed; left: 8px; right: 8px; top: 60px; z-index: 31; max-height: calc(100vh - 170px); overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px 14px; border-radius: max(18px, var(--r, 0px)); transform-origin: top right;
+  background: rgba(48, 48, 48, 0.95); background: color-mix(in srgb, var(--bg) 95%, transparent);
+  -webkit-backdrop-filter: blur(26px) saturate(170%); backdrop-filter: blur(26px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.14); border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12); animation: acct-in .26s cubic-bezier(.2, .9, .3, 1); }
+#acct-panel[hidden] { display: none; }
+#acct-panel .ai-top b { margin-right: auto; }
+@keyframes acct-in { from { transform: translateY(-10px) scale(.97); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (min-width: 780px) { #acct-panel { width: 400px; max-height: 70vh; } }
+.acct-body { display: grid; gap: 10px; }
+.acct-body p { margin: 0; line-height: 1.6; }
+.acct-me { display: flex; gap: 10px; align-items: center; }
+.acct-me b { display: block; word-break: break-all; }
+.plan { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; color: var(--mut); border: 1px solid var(--line); }
+.plan.pro { color: var(--bg); background: var(--acc); border-color: var(--acc); font-weight: 700; }
+.acct-st { padding: 6px 10px; border-radius: 10px; background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.acct-st.ok { color: var(--up); } .acct-st.err { color: var(--dn); } .acct-st.busy { color: var(--warn); }
+.acct-what { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; font-size: 12px; }
+.acct-what .no { color: var(--mut); }
+.acct-act { gap: 6px; }
+.acct-act button { border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; min-height: 40px; color: var(--fg); }
+.acct-act .ok { border: 0; color: var(--bg); background: var(--acc); font-weight: 700; }
+.acct-act .ok[disabled] { opacity: .5; }
+.acct-act .danger { color: var(--dn); border-color: color-mix(in srgb, var(--dn) 45%, transparent); }
+.g-btn { min-height: 44px; display: flex; align-items: center; }
+.wg #acct-btn, .wg #acct-panel { display: none !important; }
 /* 🎨 自定义界面 */
 .th { display: grid; gap: 10px; overflow-y: auto; }
 .th p { margin: 0; }
@@ -536,5 +578,5 @@ h2 .ed-b { font-size: 11px; }
   .wg .tabbar { display: none !important; }
 }
 @media (max-width: 779px) and (prefers-reduced-motion: reduce) { .tb-ind, .tb-blob, .tabbar, .tabbar svg { transition: none; } .tb-blob.tb-squish { animation: none; } main.pg-out, main.pg-in, main.sw-back { transition: none; } }
-@media (prefers-reduced-motion: reduce) { #ai-fab, #ai-fab .fab-ic, #ai-fab .fab-x { transition: none; } #ai-panel, .ai-dots i, #ai-fab.busy .fab-ring { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #ai-fab, #ai-fab .fab-ic, #ai-fab .fab-x { transition: none; } #ai-panel, #acct-panel, #acct-btn .dot, .ai-dots i, #ai-fab.busy .fab-ring { animation: none; } }
 @media print { .tabbar, .qtabs { display: none !important; } }

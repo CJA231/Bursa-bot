@@ -15,6 +15,13 @@
 //   GH_TOKEN      (Secret) GitHub fine-grained token：只选这个仓库，权限只开 Contents = Read and write
 //   GH_REPO       (Text)   CJA231/Bursa-bot
 //   GH_BRANCH     (Text)   main (GitHub Pages 发布的那个分支；不写就是 main)
+// 5) POST /auth/login  👤 用 Google 账号登录 (任何人都可以，不用通行码)；POST /sync/pull、/sync/push、/sync/delete 跨设备同步观察列表和界面设定。
+//   以下只有要开登录 / 同步才需要 (没设置 = 登录功能关闭，其他照常)：
+//   GOOGLE_CLIENT_ID (Text)  Google Cloud 的 OAuth 用户端 ID (xxx.apps.googleusercontent.com)
+//   SESSION_SECRET   (Secret) 随便一串 32 个字以上的乱码 (签登录凭证用；换掉 = 所有人要重新登录)
+//   KV 绑定 SYNC              Workers → Settings → Bindings → KV namespace，变量名称 SYNC
+//   PRO_EMAILS       (Text)   付费 (Pro) 用户的电邮，逗号分隔；也可以在 KV 加一笔 pro:<电邮> = 到期日 YYYY-MM-DD (或 forever)
+//   FREE_MAX_FOLDERS / FREE_MAX_STOCKS / PRO_MAX_FOLDERS / PRO_MAX_STOCKS (Text，可不设) 同步上限，默认 3 / 30 / 50 / 2000
 const SYSTEM = `你是 Bursa Bot 终端版里的 AI 助手，帮用户看懂马来西亚股票的公开资料。
 用户的问题后面会附上「当前页面资料」(价格、技术指标、财报数字、公告、新闻、AI 整理的近况)，回答要以这些资料为根据，资料里没有的就说没有，不要编造数字或事件。
 用简体中文回答，条理清楚、简短；需要时分点。可以解释指标是什么意思、财报数字的变化、公告在说什么、有哪些需要留意的事项。
@@ -27,9 +34,9 @@ function cors(env, req) {
   const origin = req.headers.get('Origin') || '';
   const ok = !env.ALLOW_ORIGIN || origin === env.ALLOW_ORIGIN;
   return { ok, h: { 'Access-Control-Allow-Origin': ok ? origin || '*' : 'null', 'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Pass, X-Edit-Pass', 'Access-Control-Max-Age': '86400', 'Vary': 'Origin' } };
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Pass, X-Edit-Pass', 'Access-Control-Max-Age': '86400', 'Vary': 'Origin' } };
 }
-const json = (c, obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { ...c.h, 'Content-Type': 'application/json; charset=utf-8' } });
+const json = (c, obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { ...c.h, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 
 export default {
   async fetch(req, env) {
@@ -37,10 +44,16 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: c.h });
     if (req.method !== 'POST') return new Response('POST only', { status: 405, headers: c.h });
     if (!c.ok) return new Response('origin not allowed', { status: 403, headers: c.h });
+    const path = new URL(req.url).pathname.replace(/\/+$/, '');
+    // 👤 登录 / 跨设备同步：用 Google 账号登录，不用通行码 (任何人都可以登录)
+    if (path.startsWith('/auth/') || path.startsWith('/sync/')) {
+      let b = {};
+      try { b = await req.json(); } catch (e) { b = {}; }
+      try { return json(c, await account(env, req, path, b || {})); } catch (e) { return json(c, { error: String(e && e.message || e), ...(e && e.extra || {}) }, e && e.status || 500); }
+    }
     if (!env.PASS || req.headers.get('X-Pass') !== env.PASS) return new Response('wrong pass', { status: 401, headers: c.h });
     let body;
     try { body = await req.json(); } catch (e) { return new Response('bad json', { status: 400, headers: c.h }); }
-    const path = new URL(req.url).pathname.replace(/\/+$/, '');
     if (path === '/edit/ai' || path === '/edit/save') {
       if (!env.EDIT_PASS || req.headers.get('X-Edit-Pass') !== env.EDIT_PASS) return json(c, { error: 'wrong edit pass' }, 401);
       try {
@@ -55,6 +68,163 @@ export default {
     return chat(env, c, body);
   },
 };
+
+// ---------- 👤 Google 登录 + 跨设备同步 (Cloudflare KV) ----------
+// 网页的「用 Google 登录」按钮拿到 Google 的 ID token (JWT) → /auth/login 在这里验证 Google 的签名、发给谁 (aud)、有效期、电邮已验证
+// → 发一个 30 天的登录凭证 (HMAC 签名，服务器不用存)。之后 /sync/* 都带着这个凭证 (Authorization: Bearer …)。
+// 同步的资料存在 KV (绑定名称 SYNC)：一个账号一笔 d:<Google 账号 ID>，只有观察列表和界面设定；AI 密钥 / 通行码永远不会上传。
+// 免费 / Pro：PRO_EMAILS (逗号分隔) 里的电邮，或 KV 里有 pro:<电邮> (值 = 到期日 YYYY-MM-DD，或 forever) → Pro；其余是免费版。
+// 免费版只同步前 FREE_MAX_FOLDERS 个列表、共 FREE_MAX_STOCKS 只股票 (默认 3 / 30)，多出来的只留在那台设备。
+const GOOGLE_CERTS = 'https://www.googleapis.com/oauth2/v3/certs';
+const SESSION_DAYS = 30, DOC_MAX = 96 * 1024, CODE_RE = /^[0-9A-Z]{3,8}$/;
+const PREFS = { theme: ['dark', 'light'], lang: ['zh', 'en'], candle: ['hollow', 'solid'], btmode: ['ledger', 'custom'] };
+const THEME_KEYS = ['name', 'scheme', 'bg', 'bg2', 'fg', 'mut', 'line', 'acc', 'acc2', 'up', 'dn', 'warn', 'sel', 'font', 'radius', 'glass', 'note'];
+const enc = new TextEncoder(), dec = new TextDecoder();
+let JWKS = { at: 0, ttl: 0, keys: {} };
+
+function fail(status, msg, extra) { const e = new Error(msg); e.status = status; if (extra) e.extra = extra; return e; }
+function b64uEnc(buf) {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64uDec(s) {
+  s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s), out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+const myNow = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');  // 马来西亚时间
+
+async function googleKey(kid) {
+  const now = Date.now();
+  // 缓存 Google 的公钥 (按 Cache-Control，最多 6 小时)；遇到没见过的 kid (Google 换钥匙) 最多每分钟重新读一次
+  if (now - JWKS.at > JWKS.ttl || (!JWKS.keys[kid] && now - JWKS.at > 60e3)) {
+    const r = await fetch(GOOGLE_CERTS);
+    if (!r.ok) throw fail(502, 'google certs HTTP ' + r.status);
+    const m = /max-age=(\d+)/.exec(r.headers.get('Cache-Control') || '');
+    const keys = {};
+    for (const k of ((await r.json()) || {}).keys || []) if (k && k.kid && k.kty === 'RSA') keys[k.kid] = k;
+    JWKS = { at: now, ttl: Math.min(m ? +m[1] * 1000 : 3600e3, 6 * 3600e3), keys };
+  }
+  const jwk = JWKS.keys[kid];
+  if (!jwk) throw fail(401, 'unknown google key');
+  return crypto.subtle.importKey('jwk', { kty: 'RSA', n: jwk.n, e: jwk.e, alg: 'RS256', ext: true }, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+}
+
+async function verifyGoogle(env, idt) {
+  if (!env.GOOGLE_CLIENT_ID) throw fail(501, 'GOOGLE_CLIENT_ID not set');
+  const parts = typeof idt === 'string' && idt.length < 4096 ? idt.split('.') : [];
+  if (parts.length !== 3) throw fail(400, 'bad token');
+  let head, pay;
+  try { head = JSON.parse(dec.decode(b64uDec(parts[0]))); pay = JSON.parse(dec.decode(b64uDec(parts[1]))); } catch (e) { throw fail(400, 'bad token'); }
+  if (!head || head.alg !== 'RS256' || !head.kid || !pay) throw fail(401, 'bad token');
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', await googleKey(String(head.kid)), b64uDec(parts[2]), enc.encode(parts[0] + '.' + parts[1]));
+  if (!ok) throw fail(401, 'bad signature');
+  const now = Math.floor(Date.now() / 1000);
+  if (pay.iss !== 'accounts.google.com' && pay.iss !== 'https://accounts.google.com') throw fail(401, 'bad issuer');
+  if (!String(env.GOOGLE_CLIENT_ID).split(',').map(s => s.trim()).filter(Boolean).includes(pay.aud)) throw fail(401, 'bad audience');
+  if (!(pay.exp > now - 60)) throw fail(401, 'token expired');
+  if (pay.iat > now + 300) throw fail(401, 'bad token time');
+  if (!pay.sub || typeof pay.email !== 'string' || !(pay.email_verified === true || pay.email_verified === 'true')) throw fail(401, 'email not verified');
+  return { sub: String(pay.sub), email: pay.email.toLowerCase(), name: str(pay.name, 80), picture: url(pay.picture) };
+}
+
+async function hmacKey(env) {
+  if (!env.SESSION_SECRET || String(env.SESSION_SECRET).length < 16) throw fail(501, 'SESSION_SECRET not set (at least 16 characters)');
+  return crypto.subtle.importKey('raw', enc.encode(env.SESSION_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+async function sessionIssue(env, u) {
+  const body = b64uEnc(enc.encode(JSON.stringify({ s: u.sub, e: u.email, x: Math.floor(Date.now() / 1000) + SESSION_DAYS * 86400 })));
+  return body + '.' + b64uEnc(await crypto.subtle.sign('HMAC', await hmacKey(env), enc.encode(body)));
+}
+async function sessionCheck(env, req) {
+  const m = /^Bearer ([\w-]{10,600})\.([\w-]{20,100})$/.exec(req.headers.get('Authorization') || '');
+  if (!m) throw fail(401, 'login required');
+  if (!(await crypto.subtle.verify('HMAC', await hmacKey(env), b64uDec(m[2]), enc.encode(m[1])))) throw fail(401, 'login expired');
+  let p = null;
+  try { p = JSON.parse(dec.decode(b64uDec(m[1]))); } catch (e) { p = null; }
+  if (!p || !p.s || !(p.x > Date.now() / 1000)) throw fail(401, 'login expired');
+  return { sub: String(p.s), email: String(p.e || '') };
+}
+
+async function planOf(env, email) {
+  if (String(env.PRO_EMAILS || '').toLowerCase().split(/[\s,;]+/).includes(email)) return { plan: 'pro', until: null };
+  const v = env.SYNC && email ? await env.SYNC.get('pro:' + email) : null;  // Cloudflare 后台 KV 加一笔就升级，不用重新部署
+  const s = String(v || '').trim();
+  if (/^(forever|true|1)$/i.test(s)) return { plan: 'pro', until: null };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s) && s >= myNow().slice(0, 10)) return { plan: 'pro', until: s };
+  return { plan: 'free', until: null };
+}
+function limitsOf(env, plan) {
+  const n = (v, d) => { const x = parseInt(v, 10); return x > 0 ? x : d; };
+  return plan === 'pro' ? { folders: n(env.PRO_MAX_FOLDERS, 50), stocks: n(env.PRO_MAX_STOCKS, 2000) }
+    : { folders: n(env.FREE_MAX_FOLDERS, 3), stocks: n(env.FREE_MAX_STOCKS, 30) };
+}
+
+// 只收这些栏位；超过免费 / Pro 上限的列表、股票不存 (那些只留在原来的设备)
+function cleanDoc(d, lim) {
+  d = d && typeof d === 'object' && !Array.isArray(d) ? d : {};
+  const out = { v: 1, watch: null, prefs: {}, theme: null, cbt: null };
+  let trimmed = false;
+  const w = d.watch && typeof d.watch === 'object' ? d.watch : null;
+  if (w) {
+    const folders = [], ids = new Set();
+    let total = 0;
+    for (const f of Array.isArray(w.folders) ? w.folders : []) {
+      const id = f && typeof f === 'object' ? str(f.id, 24) : '';
+      if (!id || ids.has(id)) continue;
+      if (folders.length >= lim.folders) { trimmed = true; break; }
+      const codes = [];
+      for (const c of Array.isArray(f.codes) ? f.codes : []) {
+        const k = String(c).toUpperCase();
+        if (!CODE_RE.test(k) || codes.includes(k)) continue;
+        if (total >= lim.stocks) { trimmed = true; break; }
+        codes.push(k); total++;
+      }
+      ids.add(id); folders.push({ id, name: str(f.name, 40), codes });
+    }
+    if (folders.length) out.watch = { folders, cur: ids.has(w.cur) ? w.cur : folders[0].id };
+  }
+  const p = d.prefs && typeof d.prefs === 'object' ? d.prefs : {};
+  for (const k in PREFS) if (PREFS[k].includes(p[k])) out.prefs[k] = p[k];
+  const t = d.theme && typeof d.theme === 'object' && d.theme.t && typeof d.theme.t === 'object' ? d.theme : null;
+  if (t) {
+    const tt = {};
+    THEME_KEYS.forEach(k => { const v = t.t[k]; if (typeof v === 'number' && isFinite(v)) tt[k] = v; else if (typeof v === 'string') tt[k] = v.slice(0, 200); });
+    out.theme = { on: t.on !== false, t: tt };
+  }
+  if (d.cbt && typeof d.cbt === 'object' && !Array.isArray(d.cbt) && JSON.stringify(d.cbt).length <= 6000) out.cbt = d.cbt;
+  if (JSON.stringify(out).length > DOC_MAX) throw fail(413, 'too large');
+  return { doc: out, trimmed };
+}
+
+async function account(env, req, path, b) {
+  if (path === '/auth/login') {
+    const u = await verifyGoogle(env, b.credential);
+    const pl = await planOf(env, u.email);
+    return { token: await sessionIssue(env, u), email: u.email, name: u.name, picture: u.picture, days: SESSION_DAYS, ...pl, limits: limitsOf(env, pl.plan) };
+  }
+  const u = await sessionCheck(env, req);
+  if (!env.SYNC) throw fail(501, 'KV binding SYNC not set');
+  const key = 'd:' + u.sub;
+  if (path === '/sync/delete') { await env.SYNC.delete(key); return { ok: true }; }
+  const pl = await planOf(env, u.email), lim = limitsOf(env, pl.plan);
+  const cur = await env.SYNC.get(key, 'json');
+  const rev = cur && cur.rev || 0, info = { email: u.email, ...pl, limits: lim };
+  if (path === '/sync/pull') return { rev, data: cur ? cur.data : null, updated: cur ? cur.updated : null, ...info };
+  if (path === '/sync/push') {
+    // 别的设备先存了新版本 → 409 + 最新版本，网页合并后再送一次 (KV 不是即时一致，这只防常见的情况；网页那边是三方合并，不会丢资料)
+    if (b.rev !== rev) throw fail(409, 'conflict', { rev, data: cur ? cur.data : null, updated: cur ? cur.updated : null, ...info });
+    const r = cleanDoc(b.data, lim);
+    const rec = { rev: rev + 1, updated: myNow(), email: u.email, data: r.doc };
+    await env.SYNC.put(key, JSON.stringify(rec), { metadata: { email: u.email, updated: rec.updated } });  // 后台的 key 列表看得到是谁
+    return { rev: rec.rev, updated: rec.updated, data: rec.data, trimmed: r.trimmed, ...info };
+  }
+  throw fail(404, 'not found');
+}
 
 // ---------- /theme：🎨 用一句话设计界面主题 (网页那边会再检查颜色格式和对比度) ----------
 const THEME_SYS = '你是网页界面配色设计师。根据用户的描述，为一个股票资讯终端 (等宽字体、很多数字和表格) 设计一套界面主题。只输出 JSON：' +

@@ -44,7 +44,7 @@ def out(*args, **kw):
 
 
 # 留在 main 的手写文件 (其余 docs/ 都是每次运行生成的)
-SOURCE = {"docs/report.js", "docs/i18n.js", "docs/i18n-gloss.js", "docs/fold.js", "docs/terminal/overrides.json"}
+SOURCE = {"docs/report.js", "docs/i18n.js", "docs/i18n-gloss.js", "docs/fold.js", "docs/terminal/overrides.json", "docs/terminal/account.json"}
 SOURCE_PREFIX = ("docs/vendor/", "docs/icons/")
 
 

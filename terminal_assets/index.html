@@ -24,7 +24,11 @@
 <body>
 <div class="term">
   <header class="top">
-    <p class="prompt"><span class="u">user@bursa</span>:<span class="d">~</span>$ report --market MY <span id="prompt-arg"></span><span class="cur" aria-hidden="true"></span></p>
+    <div class="top-row">
+      <p class="prompt"><span class="u">user@bursa</span>:<span class="d">~</span>$ report --market MY <span id="prompt-arg"></span><span class="cur" aria-hidden="true"></span></p>
+      <!-- 👤 登录 / 跨设备同步 (account.json 设好才会出现) -->
+      <button type="button" id="acct-btn" hidden aria-haspopup="dialog" aria-controls="acct-panel" aria-expanded="false"></button>
+    </div>
     <p class="status" id="status">loading…</p>
     <nav class="keys" id="keys" aria-label="页面"></nav>
   </header>

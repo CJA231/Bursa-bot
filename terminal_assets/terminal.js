@@ -65,7 +65,7 @@
   // 空心框用 CSS 画 (.hc，四边 + 半格)，不靠字体里的框线字符，手机上粗细跟实心一样
   var CANDLE = 'hollow';
   try { if (localStorage.getItem('bterm_candle') === 'solid') CANDLE = 'solid'; } catch (e) {}
-  function toggleCandle() { CANDLE = CANDLE === 'hollow' ? 'solid' : 'hollow'; try { localStorage.setItem('bterm_candle', CANDLE); } catch (e) {} render(); }
+  function toggleCandle() { CANDLE = CANDLE === 'hollow' ? 'solid' : 'hollow'; try { localStorage.setItem('bterm_candle', CANDLE); } catch (e) {} syncSoon(); render(); }
   function candleChart(bars, opt) {
     opt = opt || {};
     var rows = opt.rows || 12, axis = 7, W = Math.min(bars.length, (opt.cols || cols()) - axis);
@@ -273,7 +273,7 @@
     if (!j || !Array.isArray(j.folders) || !j.folders.length) j = { folders: [{ id: 'f1', name: T('默认'), codes: [] }], cur: 'f1' };
     return j;
   })();
-  function saveW() { try { localStorage.setItem('bterm_watch', JSON.stringify(W)); } catch (e) {} }
+  function saveW() { try { localStorage.setItem('bterm_watch', JSON.stringify(W)); } catch (e) {} syncSoon(); }
   function curFolder() { return W.folders.filter(function (f) { return f.id === W.cur; })[0] || W.folders[0]; }
   function watchCount() { var u = {}; W.folders.forEach(function (f) { f.codes.forEach(function (c) { u[c] = 1; }); }); return Object.keys(u).length; }
   function wSug() {
@@ -336,7 +336,9 @@
     var rows = f.codes.length ? '<div class="rows">' + f.codes.map(watchRow).join('') + '</div>' : T('<p class="dim">这个文件夹还是空的。上面搜索加入，或在个股页点「☆ 文件夹名」。</p>');
     var tools = T('<div class="opts"><button type="button" data-wa="ren">改名</button>') + (W.folders.length > 1 ? T('<button type="button" data-wa="del">删除文件夹</button>') : '') +
       T('<button type="button" data-wa="exp">导出备份</button><button type="button" data-wa="imp">导入</button></div>') +
-      T('<p class="dim">观察列表只存在这台设备的浏览器里，换手机或清除网站资料会不见，记得「导出备份」。</p>');
+      (ACC && ACCT ? '<p class="dim">' + Z('☁ 已用 ' + esc(ACC.email) + ' 登录：观察列表会自动同步到你的其他设备。', '☁ Signed in as ' + esc(ACC.email) + ': your watchlists sync to your other devices.') + '</p>'
+        : ACCT ? '<p class="dim">' + Z('观察列表现在只存在这台设备。', 'Watchlists are only on this device right now.') + ' <button type="button" class="more" data-acct="toggle">' + Z('用 Google 登录，跨设备同步 →', 'Sign in with Google to sync across devices →') + '</button></p>'
+        : T('<p class="dim">观察列表只存在这台设备的浏览器里，换手机或清除网站资料会不见，记得「导出备份」。</p>'));
     var topForm = WF.mode === 'new' && !WF.code ? wForm('page') : '', botForm = WF.mode && WF.mode !== 'new' ? wForm('page') : '';
     return pn(T('WATCHLIST 观察列表'), W.folders.length + T(' 个文件夹 · ') + watchCount() + T(' 支'), tabs + topForm) + pn('📁 ' + esc(f.name), f.codes.length + T(' 支'), add + rows + tools + botForm);
   }
@@ -399,7 +401,7 @@
     d.q = ''; d.res = null; d.busy = false; d.err = '';
     return d;
   })();
-  function cbSave() { try { localStorage.setItem('bterm_cbt', JSON.stringify({ codes: CB.codes, from: CB.from, to: CB.to, rules: CB.rules, take: CB.take, stop: CB.stop, hold: CB.hold, emab: CB.emab, combo: CB.combo })); } catch (e) {} }
+  function cbSave() { try { localStorage.setItem('bterm_cbt', JSON.stringify({ codes: CB.codes, from: CB.from, to: CB.to, rules: CB.rules, take: CB.take, stop: CB.stop, hold: CB.hold, emab: CB.emab, combo: CB.combo })); } catch (e) {} syncSoon(); }
   var DAILY = {}, PROF = {}, FIN = {};  // 代码 → 日线 [{d,o,h,l,c,v}]；代码 → 公司简介 (stock/<代码>.json 的 profile)
   var DLOAD = {};  // 同一支股票同时只下载一次
   function loadDaily(code) {
@@ -581,7 +583,7 @@
   }
   function cbClick(t) {
     var a = t.dataset.cb, v = t.dataset.v;
-    if (a === 'mode') { S.bt = v; try { localStorage.setItem('bterm_btmode', v); } catch (e) {} render(); }
+    if (a === 'mode') { S.bt = v; try { localStorage.setItem('bterm_btmode', v); } catch (e) {} syncSoon(); render(); }
     else if (a === 'add') cbAdd([v]);
     else if (a === 'add-sig') cbAdd((D.signals || []).map(function (x) { return x.code; }));
     else if (a === 'add-watch') cbAdd(curFolder().codes);
@@ -1046,6 +1048,7 @@
   function themeSaved() { try { return JSON.parse(localStorage.getItem('bterm_custom_theme') || 'null'); } catch (e) { return null; } }
   function themeStore(t, on) {  // 页面开头的小脚本 (index.html) 也读这一份，所以 vars 先算好存着
     try { if (!t) localStorage.removeItem('bterm_custom_theme'); else localStorage.setItem('bterm_custom_theme', JSON.stringify({ on: on !== false, t: t, vars: themeVars(t) })); } catch (e) {}
+    syncSoon();
   }
   function themeCurrent() { var sv = themeSaved(); return sv && sv.on && sv.t ? sv.t : null; }
   (function () { var c = themeCurrent(); if (c) themeApply(c); })();
@@ -1178,7 +1181,7 @@
   }
   function aiClick(t) {
     var a = t.dataset.ai;
-    if (a === 'toggle') { AI.open = !AI.open; }
+    if (a === 'toggle') { AI.open = !AI.open; if (AI.open && SY.open) { SY.open = false; acctRender(); } }
     else if (a === 'close') AI.open = false;
     else if (a === 'setup') AI.setup = !AI.setup;
     else if (a === 'theme') { TH.view = !TH.view; AI.setup = false; }
@@ -1969,6 +1972,7 @@
     var cbt = e.target.closest('[data-cb]'); if (cbt) { cbClick(cbt); return; }
     var thb = e.target.closest('[data-th]'); if (thb) { themeClick(thb); return; }
     var ai = e.target.closest('[data-ai]'); if (ai) { aiClick(ai); return; }
+    var ac = e.target.closest('[data-acct]'); if (ac) { acctClick(ac); return; }
     if (e.target.closest('.ai-stk') && window.innerWidth < 780) AI.open = false;  // 手机上点 AI 回答里的股票：关掉面板去看个股页
     var ct = e.target.closest('[data-calg],[data-calw],[data-calm],[data-cald]'); if (ct) { calClick(ct); return; }
     if (e.target.closest('[data-candle]')) { toggleCandle(); return; }
@@ -2017,6 +2021,7 @@
     if (e.key === 'Enter' && e.target.id === 'wf-name') { e.preventDefault(); wSubmit(); render(); return; }
     if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'ai-q') { e.preventDefault(); aiAsk(e.target.value); return; }
     if (e.key === 'Escape' && AI.open) { AI.open = false; aiRender(); return; }
+    if (e.key === 'Escape' && SY.open) { SY.open = false; acctRender(); return; }
     if (e.key === 'Escape') { if (typing) e.target.blur(); if (S.code) go(S.page); return; }
     if (typing) return;
     var n = parseInt(e.key, 10);
@@ -2039,6 +2044,7 @@
     var root = document.documentElement, dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
     root.dataset.theme = dark ? 'light' : 'dark';
     try { localStorage.setItem('bterm_theme', root.dataset.theme); } catch (e) {}
+    syncSoon();
   }
   try { var th = localStorage.getItem('bterm_theme'); if (th === 'dark' || th === 'light') document.documentElement.dataset.theme = th; } catch (e) {}
   document.getElementById('theme-btn').addEventListener('click', toggleTheme);
@@ -2056,6 +2062,268 @@
     set('legal-link', 'Terms of use & disclaimer');
     if (main.querySelector('.dim')) main.innerHTML = '<p class="dim">Loading data…</p>';
   })();
+
+  // ---------- 👤 账号 (用 Google 登录) + 跨设备同步 ----------
+  // account.json (手写、公开，跟页面放在一起)：google_client_id + worker 网址，两个都有才显示右上角的「登录」。
+  // 登录后，观察列表、主题、语言、K 线样式、🎨 自定义主题、自定义回测的设定在各设备之间同步 (Worker → Cloudflare KV)。
+  // AI 密钥、通行码 (bterm_ai) 和登录凭证本身永远不会放进同步的资料。
+  // 合并 = 三方合并 (上次同步的版本、这台设备、云端)：两边各自新增 / 删除的股票都保留；同一个设定两边都改了，以这台设备为准。
+  var ACCT = null;  // account.json
+  var ACC = (function () { try { var a = JSON.parse(localStorage.getItem('bterm_acct') || 'null'); return a && a.token && a.email ? a : null; } catch (e) { return null; } })();
+  var SY = { open: false, busy: false, again: false, t: null, err: '', note: '', applying: false, lang: '' };
+  var GIS = { p: null, init: false };
+  function accSave() { try { if (ACC) localStorage.setItem('bterm_acct', JSON.stringify(ACC)); else localStorage.removeItem('bterm_acct'); } catch (e) {} }
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function canon(o) {  // 比较用：物件的 key 排好顺序再转成文字
+    return JSON.stringify(o == null ? null : o, function (k, v) { return v && typeof v === 'object' && !Array.isArray(v) ? Object.keys(v).sort().reduce(function (a, x) { a[x] = v[x]; return a; }, {}) : v; });
+  }
+  function same(a, b) { return canon(a) === canon(b); }
+  function syncLocal() {  // 这台设备要同步的资料
+    var p = {}, v, th = themeSaved(), cbt = null;
+    if ((v = lsGet('bterm_theme')) === 'dark' || v === 'light') p.theme = v;
+    if ((v = lsGet('bursa_lang')) === 'zh' || v === 'en') p.lang = v;
+    if ((v = lsGet('bterm_candle')) === 'solid' || v === 'hollow') p.candle = v;
+    if ((v = lsGet('bterm_btmode')) === 'ledger' || v === 'custom') p.btmode = v;
+    try { cbt = JSON.parse(lsGet('bterm_cbt') || 'null'); } catch (e) { cbt = null; }
+    return { v: 1, watch: { folders: W.folders.map(function (f) { return { id: f.id, name: f.name, codes: f.codes.slice() }; }), cur: W.cur },
+      prefs: p, theme: th && th.t ? { on: th.on !== false, t: th.t } : null, cbt: cbt && typeof cbt === 'object' && !Array.isArray(cbt) ? cbt : null };
+  }
+  function mergeWatch(b, l, r, first) {
+    if (!r || !r.folders || !r.folders.length) return l;
+    if (!l || !l.folders || !l.folders.length) return r;
+    var idx = function (w) { var m = {}; ((w && w.folders) || []).forEach(function (f) { m[f.id] = f; }); return m; };
+    var B = idx(b), L = idx(l), seen = {}, out = [];
+    r.folders.forEach(function (rf) {
+      var lf = L[rf.id], bf = B[rf.id];
+      if (!lf) { if (!bf) out.push({ id: rf.id, name: rf.name, codes: rf.codes.slice() }); return; }  // 别的设备新增的留着；这台设备删掉的就不要
+      var bc = bf ? bf.codes : [];
+      var codes = rf.codes.filter(function (c) { return !(bc.indexOf(c) >= 0 && lf.codes.indexOf(c) < 0); });  // 这台设备删掉的股票
+      lf.codes.forEach(function (c) { if (bc.indexOf(c) < 0 && codes.indexOf(c) < 0) codes.push(c); });         // 这台设备新增的股票
+      out.push({ id: rf.id, name: bf && lf.name !== bf.name ? lf.name : rf.name, codes: codes }); seen[rf.id] = 1;
+    });
+    l.folders.forEach(function (lf) {  // 这台设备新增的列表 (上次同步时还没有)；上次有、云端现在没有 = 别的设备删掉了
+      if (seen[lf.id] || B[lf.id] || (first && !lf.codes.length)) return;
+      out.push({ id: lf.id, name: lf.name, codes: lf.codes.slice() });
+    });
+    if (!out.length) return l;
+    var has = function (id) { return out.some(function (f) { return f.id === id; }); };
+    return { folders: out, cur: has(l.cur) ? l.cur : has(r.cur) ? r.cur : out[0].id };
+  }
+  function merge3(b, l, r) {  // b = null：这台设备第一次同步 → 观察列表取联集，设定以云端为准
+    var first = !b, out = { v: 1, prefs: {}, watch: null, theme: null, cbt: null };
+    b = b || {};
+    var pick = function (lv, rv, bv) { return first ? (rv != null ? rv : lv) : !same(lv, bv) ? lv : rv; };
+    var lp = l.prefs || {}, rp = r.prefs || {}, bp = b.prefs || {};
+    ['theme', 'lang', 'candle', 'btmode'].forEach(function (k) { var v = pick(lp[k], rp[k], bp[k]); if (v != null) out.prefs[k] = v; });
+    var nt = function (x) { return x && x.t ? { on: x.on !== false, t: themeClean(x.t) || x.t } : null; };  // 主题先整理成同一个格式再比较
+    out.theme = pick(nt(l.theme), nt(r.theme), nt(b.theme)) || null;
+    out.cbt = pick(l.cbt, r.cbt, b.cbt) || null;
+    out.watch = mergeWatch(first ? null : b.watch, l.watch, r.watch, first);
+    return out;
+  }
+  function applyDoc(d) {  // 把合并好的版本套用到这台设备
+    var redraw = false, p = d.prefs || {}, root = document.documentElement;
+    var w = d.watch && Array.isArray(d.watch.folders) ? d.watch.folders.filter(function (f) { return f && f.id && Array.isArray(f.codes); }) : [];
+    if (w.length && !same({ folders: W.folders, cur: W.cur }, d.watch)) {
+      W = { folders: w.map(function (f) { return { id: String(f.id), name: String(f.name || '').slice(0, 40), codes: f.codes.map(String).filter(function (c) { return /^[0-9A-Z]{3,8}$/.test(c); }) }; }), cur: d.watch.cur };
+      if (!W.folders.some(function (f) { return f.id === W.cur; })) W.cur = W.folders[0].id;
+      saveW(); redraw = true;
+    }
+    if (p.theme) { lsSet('bterm_theme', p.theme); if (root.dataset.theme !== p.theme) root.dataset.theme = p.theme; }
+    if (p.lang) lsSet('bursa_lang', p.lang);
+    SY.lang = p.lang && p.lang !== LANG ? p.lang : '';
+    if (p.candle) { if (p.candle !== CANDLE) { CANDLE = p.candle; redraw = true; } lsSet('bterm_candle', p.candle); }
+    if (p.btmode) { if (p.btmode !== S.bt) { S.bt = p.btmode; redraw = true; } lsSet('bterm_btmode', p.btmode); }
+    var sv = themeSaved(), mine = sv && sv.t ? { on: sv.on !== false, t: sv.t } : null;
+    if (!same(mine, d.theme)) {
+      var t = d.theme && themeClean(d.theme.t);
+      if (!d.theme) { themeStore(null); themeApply(null); } else if (t) { themeStore(t, d.theme.on); themeApply(d.theme.on !== false ? t : null); }
+      TH.preview = null; redraw = true;
+    }
+    var cb0 = null; try { cb0 = JSON.parse(lsGet('bterm_cbt') || 'null'); } catch (e) { cb0 = null; }
+    if (d.cbt && !same(cb0, d.cbt)) {
+      ['codes', 'from', 'to', 'rules', 'take', 'stop', 'hold', 'emab', 'combo'].forEach(function (k) { if (d.cbt[k] !== undefined) CB[k] = d.cbt[k]; });
+      if (!Array.isArray(CB.codes)) CB.codes = [];
+      if (!CB.rules || typeof CB.rules !== 'object') CB.rules = {};
+      CB.res = null; cbSave(); redraw = true;
+    }
+    if (redraw && D) render();
+  }
+  function accApi(path, body) {
+    var h = { 'Content-Type': 'application/json' };
+    if (ACC && ACC.token) h.Authorization = 'Bearer ' + ACC.token;
+    return fetch(ACCT.worker.replace(/\/+$/, '') + path, { method: 'POST', headers: h, body: JSON.stringify(body || {}) }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) { var e = new Error((j && j.error) || 'HTTP ' + r.status); e.status = r.status; e.body = j || {}; throw e; }
+        return j;
+      });
+    });
+  }
+  function accInfo(j) { if (ACC && j) ['plan', 'until', 'limits'].forEach(function (k) { if (j[k] !== undefined) ACC[k] = j[k]; }); }
+  function syncSoon(ms) {
+    if (!SY || !ACC || !ACCT || SY.applying || WIDGET) return;
+    clearTimeout(SY.t); SY.t = setTimeout(syncRun, ms == null ? 2500 : ms);
+  }
+  function syncRun() {
+    if (!ACC || !ACCT) return Promise.resolve();
+    if (SY.busy) { SY.again = true; return Promise.resolve(); }
+    clearTimeout(SY.t); SY.t = null; SY.busy = true; SY.err = ''; SY.note = ''; acctRender();
+    var who = ACC.token;
+    function step(r, n) {
+      if (!ACC || ACC.token !== who) return null;  // 同步途中登出了
+      accInfo(r);
+      var lim = r.limits, pl = ACC.plim;  // 升级 (上限变大) 之前被截掉的股票，现在送上去
+      var grown = ACC.trimmed && lim && pl && (lim.folders > pl.folders || lim.stocks > pl.stocks);
+      var mine = syncLocal(), changed = !ACC.synced || canon(mine) !== ACC.sent || grown;
+      if (r.rev !== ACC.rev || !ACC.synced) {  // 云端有新版本 (或这台设备第一次同步)：合并后套用
+        if (r.data) { SY.applying = true; try { applyDoc(merge3(ACC.synced ? ACC.base : null, mine, r.data)); } finally { SY.applying = false; } }
+        ACC.rev = r.rev; ACC.base = r.data || null;
+      }
+      var now = syncLocal(), s = canon(now);
+      if (!changed) { ACC.sent = s; return null; }  // 这台设备没改过：云端的版本已经套用，不用再送回去
+      return accApi('/sync/push', { rev: r.rev, data: now }).then(function (p) {
+        if (!ACC || ACC.token !== who) return;
+        accInfo(p); ACC.rev = p.rev; ACC.base = p.data; ACC.sent = s; ACC.synced = true; ACC.trimmed = !!p.trimmed; ACC.plim = p.limits || null;
+      }, function (e) {
+        if (e.status === 409 && n < 3 && e.body && typeof e.body.rev === 'number') return step(e.body, n + 1);  // 别的设备刚存了：再合并一次
+        throw e;
+      });
+    }
+    return accApi('/sync/pull').then(function (r) { return step(r, 0); }).then(function () {
+      if (ACC && ACC.token === who) { ACC.at = Date.now(); accSave(); }
+    }, function (e) {
+      if (!ACC || ACC.token !== who) return;
+      if (e.status === 401) { accOut(); SY.err = Z('登录已过期，请重新登录。', 'Your sign-in has expired. Please sign in again.'); return; }
+      SY.err = e.status ? e.message : Z('连不上同步服务器', 'Cannot reach the sync server'); accSave();
+    }).then(function () {
+      SY.busy = false; acctRender();
+      if (SY.again) { SY.again = false; syncSoon(400); }
+    });
+  }
+  function accOut() {
+    ACC = null; accSave(); clearTimeout(SY.t); SY.t = null; SY.lang = '';
+    try { if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect(); } catch (e) {}
+    if (D && S.page === 'watch' && !S.code) render();
+  }
+  function onCred(resp) {
+    if (!resp || !resp.credential) return;
+    SY.busy = true; SY.err = ''; SY.note = ''; acctRender();
+    accApi('/auth/login', { credential: resp.credential }).then(function (j) {
+      ACC = { token: j.token, email: j.email, name: j.name || '', plan: j.plan, until: j.until || null, limits: j.limits, exp: Date.now() + (j.days || 30) * 864e5,
+        rev: 0, base: null, sent: null, synced: false, trimmed: false };
+      accSave(); SY.busy = false;
+      if (D && S.page === 'watch' && !S.code) render();
+      return syncRun();
+    }).catch(function (e) { SY.busy = false; SY.err = Z('登录失败：', 'Sign-in failed: ') + e.message; acctRender(); });
+  }
+  function gisLoad() {
+    if (window.google && google.accounts && google.accounts.id) return Promise.resolve();
+    if (!GIS.p) GIS.p = new Promise(function (ok, no) {
+      var s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
+      s.onload = function () { ok(); }; s.onerror = function () { GIS.p = null; no(new Error(Z('Google 登录载入失败，请检查网络后再试。', 'Could not load Google sign-in. Check your connection and try again.'))); };
+      document.head.appendChild(s);
+    });
+    return GIS.p;
+  }
+  function gisButton() {
+    var el = document.getElementById('g-btn'); if (!el) return;
+    gisLoad().then(function () {
+      if (!GIS.init) { google.accounts.id.initialize({ client_id: ACCT.client_id || ACCT.google_client_id, callback: onCred, auto_select: false, cancel_on_tap_outside: true, ux_mode: 'popup', itp_support: true }); GIS.init = true; }
+      el = document.getElementById('g-btn'); if (!el || el.childNodes.length) return;
+      var bg = getComputedStyle(document.body).backgroundColor.match(/\d+/g) || [0, 0, 0];
+      google.accounts.id.renderButton(el, { type: 'standard', theme: (+bg[0] + +bg[1] + +bg[2]) / 3 < 128 ? 'filled_black' : 'outline', size: 'large', text: 'signin_with', shape: 'pill',
+        logo_alignment: 'left', locale: LANG === 'en' ? 'en' : 'zh_CN', width: Math.max(200, Math.min(320, el.clientWidth || 280)) });
+    }, function (e) { el = document.getElementById('g-btn'); if (el) el.innerHTML = '<p class="dn">' + esc(e.message) + '</p>'; });
+  }
+  var PERSON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0 2c-4.4 0-8 2.3-8 5.2V21h16v-1.8c0-2.9-3.6-5.2-8-5.2Z"/></svg>';
+  function acctRender() {
+    var btn = document.getElementById('acct-btn'), box = document.getElementById('acct-panel'), u = document.querySelector('.prompt .u');
+    if (!btn || !box) return;
+    if (u) u.textContent = (ACC ? (ACC.email.split('@')[0] || 'user').slice(0, 18) : 'user') + '@bursa';
+    btn.hidden = !ACCT; box.hidden = !ACCT || !SY.open; btn.setAttribute('aria-expanded', String(!box.hidden));
+    if (!ACCT) return;
+    var st = SY.busy ? 'busy' : SY.err ? 'err' : ACC && ACC.at ? 'ok' : '';
+    btn.dataset.st = ACC ? st : ''; btn.classList.toggle('on', !!ACC);
+    btn.title = ACC ? ACC.email + ' · ' + (st === 'ok' ? Z('已同步', 'Synced') : st === 'busy' ? Z('同步中…', 'Syncing…') : st === 'err' ? Z('同步失败', 'Sync failed') : '') : Z('登录以同步观察列表和设定', 'Sign in to sync your watchlists and settings');
+    btn.innerHTML = ACC ? '<span class="av" aria-hidden="true">' + esc((ACC.name || ACC.email).charAt(0).toUpperCase()) + '</span><span class="dot" aria-hidden="true"></span><span class="sr-only">' + esc(btn.title) + '</span>'
+      : PERSON + '<span>' + Z('登录', 'Sign in') + '</span>';
+    if (box.hidden) return;
+    var r = btn.getBoundingClientRect();
+    box.style.top = Math.round(r.bottom + 8) + 'px';
+    if (window.innerWidth >= 780) { box.style.left = 'auto'; box.style.right = Math.max(8, Math.round(window.innerWidth - r.right)) + 'px'; } else { box.style.left = ''; box.style.right = ''; }
+    var num = function (o, d) { o = o || {}; return { folders: parseInt(o.folders, 10) || d.folders, stocks: parseInt(o.stocks, 10) || d.stocks }; };
+    var plans = ACCT.plans || {}, fr = num(plans.free, { folders: 3, stocks: 30 }), pr = num(plans.pro, { folders: 50, stocks: 2000 });
+    var nf = W.folders.length, ns = W.folders.reduce(function (n, f) { return n + f.codes.length; }, 0), legal = 'legal.html#' + (LANG === 'en' ? 'e14' : 'c14');
+    var what = '<li>' + Z('✓ 观察列表', '✓ Watchlists') + (ACC ? Z('：', ': ') + nf + Z(' 个列表 · ', ' lists · ') + ns + Z(' 只股票', ' stocks') : Z(' (全部列表和股票)', ' (all lists and stocks)')) + '</li>' +
+      '<li>' + Z('✓ 深色 / 浅色、🎨 自定义主题、语言、K 线样式', '✓ Dark / light, 🎨 custom theme, language, candle style') + '</li>' +
+      '<li>' + Z('✓ 自定义回测的设定', '✓ Custom backtest settings') + '</li>' +
+      '<li class="no">' + Z('✗ AI 密钥、通行码：只存在这台设备，不会上传', '✗ AI keys and passcodes stay on this device and are never uploaded') + '</li>';
+    var h = '<div class="ai-top"><span class="ai-logo" aria-hidden="true">' + PERSON + '</span><b>' + Z('账号 · 跨设备同步', 'Account · Sync') + '</b><span class="ai-ctx"></span>' +
+      '<button type="button" data-acct="close" aria-label="' + Z('关闭', 'Close') + '">×</button></div><div class="acct-body">';
+    if (!ACC) {
+      h += '<p>' + Z('用 Google 账号登录，观察列表、主题和界面设定就会在手机、平板、电脑之间自动同步。不登录也可以照常使用全部功能。', 'Sign in with Google and your watchlists, theme and settings sync across your phone, tablet and computer. Everything still works without signing in.') + '</p>' +
+        '<ul class="acct-what">' + what + '</ul>' +
+        '<p class="dim">' + Z('免费版：同步 ' + fr.folders + ' 个列表、共 ' + fr.stocks + ' 只股票 · Pro：' + pr.folders + ' 个列表、' + pr.stocks + ' 只股票', 'Free: sync ' + fr.folders + ' lists, ' + fr.stocks + ' stocks in total · Pro: ' + pr.folders + ' lists, ' + pr.stocks + ' stocks') + '</p>' +
+        '<div id="g-btn" class="g-btn">' + (SY.busy ? '<span class="ai-dots"><i></i><i></i><i></i></span>' : '') + '</div>' +
+        (SY.err ? '<p class="dn">' + esc(SY.err) + '</p>' : '') + (SY.note ? '<p class="up">' + esc(SY.note) + '</p>' : '') +
+        '<p class="dim">' + Z('登录即表示你同意<a href="' + legal + '">使用条款</a> (第 14 条：会储存你的电邮地址和同步的设定)。', 'By signing in you agree to the <a href="' + legal + '">Terms</a> (clause 14: we store your email address and synced settings).') + '</p>';
+    } else {
+      var lim = num(ACC.limits, fr), pro = ACC.plan === 'pro', over = !pro && (nf > lim.folders || ns > lim.stocks);
+      var when = ACC.at ? new Date(ACC.at) : null, hm = when ? ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2) : '';
+      h += '<div class="acct-me"><span class="av big" aria-hidden="true">' + esc((ACC.name || ACC.email).charAt(0).toUpperCase()) + '</span><div><b>' + esc(ACC.email) + '</b>' +
+        '<p><span class="plan' + (pro ? ' pro' : '') + '">' + (pro ? 'Pro' : Z('免费版', 'Free')) + '</span>' + (pro && ACC.until ? ' <span class="dim">' + Z('到期 ', 'until ') + esc(ACC.until) + '</span>' : '') + '</p></div></div>' +
+        '<p class="acct-st ' + st + '">' + (st === 'busy' ? Z('同步中…', 'Syncing…') : st === 'err' ? '⚠ ' + esc(SY.err) : st === 'ok' ? Z('✓ 已同步 · ', '✓ Synced · ') + hm : Z('还没同步', 'Not synced yet')) + '</p>' +
+        '<ul class="acct-what">' + what + '</ul>' +
+        (over || ACC.trimmed ? '<p class="warn">' + Z('免费版只同步前 ' + lim.folders + ' 个列表、共 ' + lim.stocks + ' 只股票；其余只存在这台设备。', 'The free plan syncs the first ' + lim.folders + ' lists and ' + lim.stocks + ' stocks; the rest stay on this device only.') +
+          (ACCT.upgrade && /^(https:|mailto:)/.test(ACCT.upgrade) ? ' <a href="' + esc(ACCT.upgrade) + '" target="_blank" rel="noopener">' + Z('升级 Pro ↗', 'Upgrade to Pro ↗') + '</a>' : '') + '</p>' : '') +
+        (SY.lang ? '<p class="dim">' + Z('语言设定已从别的设备同步过来 (English)。', 'Language synced from another device (中文).') + ' <button type="button" class="more" data-acct="lang">' + Z('现在切换', 'Switch now') + '</button></p>' : '') +
+        '<div class="opts acct-act"><button type="button" class="ok" data-acct="sync"' + (SY.busy ? ' disabled' : '') + '>' + Z('立即同步', 'Sync now') + '</button>' +
+        '<button type="button" data-acct="out">' + Z('登出', 'Sign out') + '</button><button type="button" class="danger" data-acct="del">' + Z('删除云端资料', 'Delete cloud data') + '</button></div>' +
+        '<p class="dim">' + Z('登出后，这台设备上的列表和设定会保留。', 'Signing out keeps the lists and settings on this device.') + ' <a href="' + legal + '">' + Z('隐私说明', 'Privacy') + '</a></p>';
+    }
+    box.innerHTML = h + '</div>';
+    if (!ACC && !SY.busy) gisButton();
+  }
+  function acctClick(t) {
+    var a = t.dataset.acct;
+    if (a === 'toggle') { SY.open = !SY.open; if (SY.open && AI.open) { AI.open = false; aiRender(); } if (SY.open) SY.note = ''; }
+    else if (a === 'close') SY.open = false;
+    else if (a === 'sync') { syncRun(); return; }
+    else if (a === 'out') { accOut(); SY.err = ''; SY.note = Z('已登出。这台设备上的列表和设定都还在。', 'Signed out. Your lists and settings are still on this device.'); }
+    else if (a === 'lang') { location.replace(location.pathname + location.search.replace(/([?&])lang=(en|zh)&?/, '$1').replace(/[?&]$/, '') + location.hash); return; }
+    else if (a === 'del') {
+      if (!window.confirm(Z('删除云端的同步资料并登出？这台设备上的列表和设定会保留。', 'Delete your synced data from the cloud and sign out? Lists and settings on this device are kept.'))) return;
+      SY.busy = true; acctRender();
+      accApi('/sync/delete').then(function () { accOut(); SY.err = ''; SY.note = Z('云端资料已删除，已登出。', 'Cloud data deleted. You are signed out.'); },
+        function (e) { SY.err = e.message; }).then(function () { SY.busy = false; acctRender(); });
+      return;
+    }
+    acctRender();
+  }
+  if (!WIDGET) {
+    (function () {
+      var btn = document.getElementById('acct-btn'); if (!btn) return;
+      btn.dataset.acct = 'toggle';
+      var box = document.createElement('section'); box.id = 'acct-panel'; box.hidden = true; box.setAttribute('aria-label', Z('账号', 'Account'));
+      document.body.appendChild(box);
+    })();
+    fetch('account.json?v=' + V).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (!j || !(j.google_client_id || j.client_id) || !/^https?:\/\/[^\s"'<>]+$/.test(j.worker || '')) return;
+      ACCT = j;
+      if (ACC && ACC.exp && ACC.exp < Date.now()) { accOut(); SY.err = Z('登录已过期，请重新登录。', 'Your sign-in has expired. Please sign in again.'); }
+      acctRender();
+      if (D && S.page === 'watch' && !S.code) render();  // 观察列表页的「登录 / 已同步」提示
+      if (ACC) syncRun();
+    }).catch(function () {});
+    document.addEventListener('visibilitychange', function () {
+      if (!ACC || !ACCT) return;
+      if (document.visibilityState === 'hidden') { if (SY.t) syncRun(); }  // 离开前把还没送出的改动送出去
+      else if (Date.now() - (ACC.at || 0) > 60e3) syncRun();               // 回到页面：超过 1 分钟没同步就拿一次最新的
+    });
+    window.addEventListener('online', function () { if (ACC && ACCT && SY.err) syncSoon(500); });
+    window.addEventListener('resize', function () { if (SY.open) acctRender(); });
+  }
 
   // 离线 (PWA)：sw.js 存着最后一次的页面和 data.json / bars.json；连不上网时用存着的，顶部显示「离线 · 数据时间」
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
