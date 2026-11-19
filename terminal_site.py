@@ -153,11 +153,14 @@ def build(stocks, market, backtest, board, focus_new, state, updated, tz_label, 
         else:
             shutil.copyfile(src, os.path.join(out_dir, name))
     # 自托管字体 (JetBrains Mono woff2 + OFL 授权文件)：文件没变就不重写，git 不会每次都看到改动
-    fdir = os.path.join(here, "terminal_assets", "fonts")
-    if os.path.isdir(fdir):
-        os.makedirs(os.path.join(out_dir, "fonts"), exist_ok=True)
+    # vendor/：Claude 用的 Anthropic SDK (打包成一个浏览器模块，只有选了 Claude 才下载) + 授权文件；做法同字体
+    for sub in ("fonts", "vendor"):
+        fdir = os.path.join(here, "terminal_assets", sub)
+        if not os.path.isdir(fdir):
+            continue
+        os.makedirs(os.path.join(out_dir, sub), exist_ok=True)
         for name in sorted(os.listdir(fdir)):
-            src, dst = os.path.join(fdir, name), os.path.join(out_dir, "fonts", name)
+            src, dst = os.path.join(fdir, name), os.path.join(out_dir, sub, name)
             if not os.path.exists(dst) or os.path.getsize(dst) != os.path.getsize(src):
                 shutil.copyfile(src, dst)
     return out_dir

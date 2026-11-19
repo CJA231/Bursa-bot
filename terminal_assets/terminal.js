@@ -912,14 +912,196 @@
     render();
   }
 
-  // ---------- ✦ AI 问答：每一页右下角的按钮，问题 + 当前页面的资料一起送给 DeepSeek ----------
-  // 两种连线方式 (⚙ 设置，只存在这台设备的浏览器)：Worker (worker/ai-proxy.js，密钥在 Cloudflare，推荐) / 自己的 DeepSeek 密钥 (浏览器直接连)
+  // ---------- ✦ AI 问答：每一页右下角的按钮，问题 + 当前页面的资料一起送给用户选的模型 (DeepSeek / ChatGPT / Gemini / Claude) ----------
+  // ⚙ 设置 (只存在这台设备的浏览器)：DeepSeek = Worker (worker/ai-proxy.js，密钥在 Cloudflare) 或自己的密钥；其他三家 = 用户自己的 API 密钥 (浏览器直接连)
   var AI_SYS = T('你是 Bursa Bot 终端版里的 AI 助手，帮用户看懂马来西亚股票的公开资料。用户的问题后面会附上「当前页面资料」，回答要以这些资料为根据，资料里没有的就说没有，不要编造数字或事件。') +
     T('用简体中文回答，条理清楚、简短；需要时分点。可以解释指标、财报数字的变化、公告在说什么、有哪些需要留意的事项。') +
     T('绝对不要给买入、卖出、持有、加仓、止损、目标价或任何操作建议，也不要预测股价涨跌；用户问「该不该买」时，说明你不能给建议，改为整理相关事实和需要留意的地方。');
-  var AI = { open: false, busy: false, msgs: [], ctxKey: null, cfg: (function () { try { return JSON.parse(localStorage.getItem('bterm_ai') || '{}'); } catch (e) { return {}; } })(), setup: false };
+  var AI = { open: false, busy: false, msgs: [], ctxKey: null, cfg: (function () { try { return JSON.parse(localStorage.getItem('bterm_ai') || '{}'); } catch (e) { return {}; } })(), setup: false, setp: null };
   function aiSave() { try { localStorage.setItem('bterm_ai', JSON.stringify(AI.cfg)); } catch (e) {} }
-  function aiReady() { return AI.cfg.mode === 'worker' ? !!(AI.cfg.url && AI.cfg.pass) : AI.cfg.mode === 'key' ? !!AI.cfg.key : false; }
+
+  // ---------- 🤖 选模型：DeepSeek / ChatGPT / Gemini / Claude ----------
+  // 面板上方一排可以左右滑的模型 (或按 ‹ ›、方向键 ← →)。各家的 API 密钥用户自己填 (⚙ 设置)，只存在这台设备 (bterm_ai，不会同步、不会传到本网站)；
+  // 问问题时浏览器直接连到那一家。DeepSeek 另外可以走网站的 Worker (通行码)。ChatGPT / Gemini 的模型名称失效时，自动改用该服务商现在提供的名称。
+  var PROV = {
+    deepseek: { name: 'DeepSeek', ph: 'sk-…', models: [['auto', 'Flash']] },
+    openai: { name: 'ChatGPT', ph: 'sk-…', models: [['gpt-5-mini', 'GPT-5 mini'], ['gpt-5', 'GPT-5']] },
+    gemini: { name: 'Gemini', ph: 'AIza…', models: [['gemini-2.5-flash', '2.5 Flash'], ['gemini-2.5-pro', '2.5 Pro']] },
+    claude: { name: 'Claude', ph: 'sk-ant-…', models: [['claude-opus-5-5', 'Opus 5.5'], ['claude-sonnet-5-5', 'Sonnet 5.5'], ['claude-haiku-5-5', 'Haiku 5.5']] }
+  };
+  var PROV_IDS = ['deepseek', 'openai', 'gemini', 'claude'];
+  (function () { var c = AI.cfg; if (!PROV[c.prov]) c.prov = 'deepseek'; c.keys = c.keys && typeof c.keys === 'object' ? c.keys : {}; c.model = c.model && typeof c.model === 'object' ? c.model : {}; c.extra = c.extra && typeof c.extra === 'object' ? c.extra : {}; c.alias = c.alias && typeof c.alias === 'object' ? c.alias : {}; })();
+  function provReady(p) {
+    var c = AI.cfg;
+    if (p === 'deepseek') return c.mode === 'worker' ? !!(c.url && c.pass) : c.mode === 'key' ? !!c.key : false;
+    return !!c.keys[p];
+  }
+  function aiReady() { return provReady(AI.cfg.prov); }
+  function anyReady() { return PROV_IDS.some(provReady); }
+  function curModel(p) { p = p || AI.cfg.prov; return AI.cfg.model[p] || PROV[p].models[0][0]; }
+  function realModel(p, id) { id = id || curModel(p); var a = AI.cfg.alias[p]; return a && a[id] || id; }  // 原本的名称失效后自动换成的名称
+  function modelLabel(p, id) { var r = realModel(p, id); if (r !== id) return r; var m = PROV[p].models.filter(function (x) { return x[0] === id; })[0]; return m ? m[1] : id; }
+  function modelName(p, id) { p = p || AI.cfg.prov; id = id || curModel(p); return p === 'deepseek' ? 'DeepSeek' + (AI.cfg.mode === 'worker' ? ' · Worker' : '') : PROV[p].name + ' · ' + modelLabel(p, id); }
+  function modelList() {  // 每家的预设模型 + 用户自己填的 + 自动换过的名称
+    var out = [];
+    PROV_IDS.forEach(function (p) {
+      var ms = PROV[p].models.slice();
+      [AI.cfg.extra[p], AI.cfg.model[p]].forEach(function (x) { if (x && !ms.some(function (m) { return m[0] === x; })) ms.push([x, x]); });
+      ms.forEach(function (m) { out.push({ p: p, id: m[0], label: m[1] }); });
+    });
+    return out;
+  }
+  function modelRow() {
+    var p0 = AI.cfg.prov, m0 = curModel();
+    return '<div class="ai-mrow"><button type="button" class="ai-mnav" data-ai="mprev" aria-label="' + Z('上一个模型', 'Previous model') + '">‹</button>' +
+      '<div class="ai-models" role="radiogroup" aria-label="' + Z('选择 AI 模型 (左右滑动，或按 ← →)', 'Choose the AI model (swipe, or press ← →)') + '">' + modelList().map(function (x) {
+        var on = x.p === p0 && x.id === m0, ok = provReady(x.p);
+        return '<button type="button" role="radio" class="pm pm-' + x.p + (ok ? '' : ' nokey') + '" aria-checked="' + on + '" tabindex="' + (on ? 0 : -1) + '" data-ai="model" data-p="' + x.p + '" data-v="' + esc(x.id) + '">' +
+          '<b>' + PROV[x.p].name + '</b><small>' + esc(x.p === 'deepseek' ? (AI.cfg.mode === 'worker' ? 'Worker' : x.label) : modelLabel(x.p, x.id)) + (ok ? '' : Z(' · 未设密钥', ' · no key')) + '</small></button>';
+      }).join('') + '</div><button type="button" class="ai-mnav" data-ai="mnext" aria-label="' + Z('下一个模型', 'Next model') + '">›</button></div>';
+  }
+  function modelPick(p, id) {
+    if (!PROV[p]) return;
+    AI.cfg.prov = p; if (p !== 'deepseek') AI.cfg.model[p] = id; aiSave();  // 还没设密钥的也可以选：输入框那里会提示去设置
+  }
+  function modelStep(d) {  // ‹ › / ← →：换到上一个 / 下一个模型
+    var list = modelList(), i = 0;
+    list.forEach(function (x, k) { if (x.p === AI.cfg.prov && x.id === curModel()) i = k; });
+    var x = list[(i + d + list.length) % list.length]; modelPick(x.p, x.id);
+  }
+  // 那一排滑到选中的模型 (从原本的位置平滑滑过去)
+  function modelScroll(prev) {
+    var row = document.querySelector('#ai-panel .ai-models'), on = row && row.querySelector('[aria-checked="true"]'); if (!on) return;
+    var to = Math.max(0, on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2);
+    if (prev != null) { row.scrollLeft = prev; if (row.scrollTo) row.scrollTo({ left: to, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); else row.scrollLeft = to; }
+    else row.scrollLeft = to;
+  }
+
+  // ---------- 各家 API (浏览器直接连) ----------
+  function sseRead(r, onData) {  // 读 Server-Sent Events：每个 data: 行交给 onData (JSON)
+    var rd = r.body.getReader(), dec = new TextDecoder(), buf = '';
+    function line(ln) { ln = ln.trim(); if (ln.indexOf('data:') !== 0) return; var d = ln.slice(5).trim(); if (!d || d === '[DONE]') return; try { onData(JSON.parse(d)); } catch (e) {} }
+    function pump() {
+      return rd.read().then(function (x) {
+        if (x.done) { if (buf) line(buf); return; }
+        buf += dec.decode(x.value, { stream: true });
+        var lines = buf.split('\n'); buf = lines.pop(); lines.forEach(line);
+        return pump();
+      });
+    }
+    return pump();
+  }
+  function httpErr(p, status, text) {
+    var why = status === 401 || status === 403 ? Z(' 密钥不对或没有权限', ' wrong key or no access') : status === 402 ? Z(' 余额不足', ' insufficient balance')
+      : status === 429 ? Z(' 太频繁或额度用完', ' rate limit or quota reached') : status === 404 ? Z(' 找不到这个模型', ' model not found') : '';
+    var e = new Error(PROV[p].name + ' HTTP ' + status + why + (text ? ' · ' + String(text).replace(/\s+/g, ' ').slice(0, 140) : '')); e.status = status; return e;
+  }
+  var OA_URL = 'https://api.openai.com/v1', GM_URL = 'https://generativelanguage.googleapis.com/v1beta';
+  function oaHeaders() { return { 'Content-Type': 'application/json', Authorization: 'Bearer ' + AI.cfg.keys.openai }; }
+  function gmHeaders() { return { 'Content-Type': 'application/json', 'x-goog-api-key': AI.cfg.keys.gemini }; }
+  // 模型名称失效 (ChatGPT / Gemini)：列出这把密钥能用的模型，挑同一类最新的 (mini / flash 优先跟原本一样)，记在这台设备
+  function listModels(p) {
+    var req = p === 'openai' ? fetch(OA_URL + '/models', { headers: oaHeaders() }) : fetch(GM_URL + '/models?pageSize=200', { headers: gmHeaders() });
+    return req.then(function (r) { if (!r.ok) throw httpErr(p, r.status); return r.json(); }).then(function (j) {
+      return p === 'openai' ? (j.data || []).map(function (m) { return m.id; })
+        : (j.models || []).filter(function (m) { return (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0; }).map(function (m) { return String(m.name || '').replace(/^models\//, ''); });
+    });
+  }
+  function pickModel(p, ids, want) {
+    var ver = function (id) { var m = /(\d+(?:\.\d+)?)/.exec(id); return m ? parseFloat(m[1]) : 0; };
+    var ok = p === 'openai' ? ids.filter(function (id) { return /^gpt-\d/.test(id) && !/audio|realtime|transcribe|tts|image|search|instruct|codex|oss|preview|chat-latest|\d{4}-\d{2}-\d{2}/.test(id); })
+      : ids.filter(function (id) { return /^gemini-\d/.test(id) && !/tts|image|live|audio|embed|lite|exp|preview|thinking|-\d{3}$/.test(id); });
+    var fam = p === 'openai' ? (/mini/.test(want) ? /mini/ : /nano/.test(want) ? /nano/ : /^gpt-[\d.]+$/) : (/pro/.test(want) ? /pro/ : /flash/);
+    var same = ok.filter(function (id) { return fam.test(id); }), pool = same.length ? same : ok;
+    return pool.sort(function (a, b) { return ver(b) - ver(a) || a.length - b.length; })[0] || null;
+  }
+  function withModel(p, run) {  // run(model) → fetch；模型失效就换一次
+    var want = curModel(p), real = realModel(p, want);
+    return run(real).then(function (r) {
+      if (r.ok || (r.status !== 400 && r.status !== 404)) return r;
+      return r.clone().text().then(function (t) {
+        if (!(/model/i.test(t) && /not.?found|does not exist|not supported|unsupported|invalid|deprecat|no longer|not available/i.test(t))) return r;
+        return listModels(p).then(function (ids) {
+          var nm = pickModel(p, ids, real); if (!nm || nm === real) return r;
+          (AI.cfg.alias[p] = AI.cfg.alias[p] || {})[want] = nm; aiSave(); return run(nm);
+        }, function () { return r; });
+      });
+    });
+  }
+  // Claude：用 Anthropic 官方 SDK (terminal_assets/vendor/，选了 Claude 才下载)；dangerouslyAllowBrowser = 用户自己的密钥、浏览器直接连
+  var CLAUDE_SDK = 'vendor/anthropic-sdk-1.5.0.js', claudeLib = null;
+  function claudeClient() {
+    if (!claudeLib) claudeLib = new Function('u', 'return import(u)')(new URL(CLAUDE_SDK, location.href).href).then(function (m) { return m.default; }, function (e) { claudeLib = null; throw new Error(Z('Claude 套件载入失败：', 'Could not load the Claude SDK: ') + e.message); });
+    return claudeLib.then(function (Anthropic) { return new Anthropic({ apiKey: AI.cfg.keys.claude, dangerouslyAllowBrowser: true, maxRetries: 1 }); });
+  }
+  function claudeParams(sys, msgs, max) {
+    var model = realModel('claude'), q = { model: model, max_tokens: max, system: sys, messages: msgs,
+      betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' };  // 安全分类拒绝时，服务器自动改用预设的备用模型
+    if (model === 'claude-opus-5-5') q.output_config = { effort: 'medium' };
+    return q;
+  }
+  function claudeErr(e) { return e && e.status ? httpErr('claude', e.status, e.error && e.error.error && e.error.error.message || e.message) : e; }
+  // 问答 (一段一段传回来)：onText(片段)；回传 Promise (完成 / 失败)
+  function aiStream(sys, hist, onText) {
+    var p = AI.cfg.prov, c = AI.cfg;
+    if (p === 'deepseek') {
+      var req = c.mode === 'worker' ? fetch(c.url.replace(/\/$/, ''), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pass': c.pass }, body: JSON.stringify({ messages: hist, lang: LANG }) })
+        : dsFetch(c.key, { temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: sys }].concat(hist) });
+      return req.then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error(r.status + (r.status === 401 ? T(' 通行码 / 密钥不对') : r.status === 403 ? T(' 网址不被允许 (检查 ALLOW_ORIGIN)') : r.status === 402 ? T(' DeepSeek 额度不足') : '') + ' ' + t.slice(0, 120)); });
+        return sseRead(r, function (j) { var d = j.choices && j.choices[0] && j.choices[0].delta; if (d && d.content) onText(d.content); });
+      });
+    }
+    if (p === 'openai') {
+      return withModel('openai', function (m) {
+        return fetch(OA_URL + '/chat/completions', { method: 'POST', headers: oaHeaders(), body: JSON.stringify({ model: m, stream: true, max_completion_tokens: 6000, messages: [{ role: 'system', content: sys }].concat(hist) }) });
+      }).then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw httpErr('openai', r.status, t); });
+        return sseRead(r, function (j) { var d = j.choices && j.choices[0] && j.choices[0].delta; if (d && d.content) onText(d.content); });
+      });
+    }
+    if (p === 'gemini') {
+      var contents = hist.map(function (m) { return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }; });
+      return withModel('gemini', function (m) {
+        return fetch(GM_URL + '/models/' + encodeURIComponent(m) + ':streamGenerateContent?alt=sse', { method: 'POST', headers: gmHeaders(),
+          body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: contents, generationConfig: { temperature: 0.3, maxOutputTokens: 8192 } }) });
+      }).then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw httpErr('gemini', r.status, t); });
+        return sseRead(r, function (j) { var ps = j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts || []; ps.forEach(function (x) { if (x.text && !x.thought) onText(x.text); }); });
+      });
+    }
+    return claudeClient().then(function (cl) {
+      var st = cl.beta.messages.stream(claudeParams(sys, hist, 16000));
+      st.on('text', function (d) { onText(d); });
+      return st.finalMessage().then(function (msg) {
+        if (msg.stop_reason === 'refusal') onText(Z('\n\n(Claude 没有回答这个问题。)', '\n\n(Claude declined to answer this.)'));
+      });
+    }).catch(function (e) { throw claudeErr(e); });
+  }
+  // 一次拿完整回答 (🎨 主题设计用，要 JSON)
+  function aiOnce(sys, user) {
+    var p = AI.cfg.prov, c = AI.cfg;
+    if (p === 'deepseek') {
+      if (c.mode === 'worker') return fetch(c.url.replace(/\/$/, '') + '/theme', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pass': c.pass }, body: JSON.stringify({ prompt: user, lang: LANG }) })
+        .then(function (r) { if (r.status === 404 || r.status === 405) throw new Error(Z('Worker 要更新 (重新部署 worker/ai-proxy.js) 才能生成主题', 'Redeploy worker/ai-proxy.js to enable theme generation')); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (j) { return JSON.stringify(j.theme || j); });
+      return dsFetch(c.key, { temperature: 0.7, max_tokens: 600, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] })
+        .then(function (r) { if (!r.ok) throw httpErr('deepseek', r.status); return r.json(); })
+        .then(function (j) { return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ''; });
+    }
+    if (p === 'openai') return withModel('openai', function (m) {
+      return fetch(OA_URL + '/chat/completions', { method: 'POST', headers: oaHeaders(), body: JSON.stringify({ model: m, max_completion_tokens: 6000, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] }) });
+    }).then(function (r) { if (!r.ok) return r.text().then(function (t) { throw httpErr('openai', r.status, t); }); return r.json(); })
+      .then(function (j) { return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ''; });
+    if (p === 'gemini') return withModel('gemini', function (m) {
+      return fetch(GM_URL + '/models/' + encodeURIComponent(m) + ':generateContent', { method: 'POST', headers: gmHeaders(),
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ text: user }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 8192, responseMimeType: 'application/json' } }) });
+    }).then(function (r) { if (!r.ok) return r.text().then(function (t) { throw httpErr('gemini', r.status, t); }); return r.json(); })
+      .then(function (j) { return ((j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || []).filter(function (x) { return !x.thought; }).map(function (x) { return x.text || ''; }).join(''); });
+    return claudeClient().then(function (cl) { return cl.beta.messages.create(claudeParams(sys, [{ role: 'user', content: user }], 16000)); })
+      .then(function (msg) { return (msg.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join(''); }, function (e) { throw claudeErr(e); });
+  }
+  function jsonIn(s) { var m = /\{[\s\S]*\}/.exec(s || ''); if (!m) return null; try { return JSON.parse(m[0]); } catch (e) { return null; } }
   function num(v, d) { return isNum(v) ? +v.toFixed(d == null ? 2 : d) : null; }
   // 当前页面的资料 (送给 AI 当根据)：个股页 = 这支股票的全部资料；其他页 = 今天的大盘 + 这一页的重点
   function aiContext() {
@@ -1057,13 +1239,8 @@
     if (!aiReady()) { TH.err = Z('要先在 ⚙ 设置里设好 AI，才能用一句话生成；也可以直接用上面的预设。', 'Set up AI in ⚙ first to generate from a sentence; or use a preset above.'); aiRender(); return; }
     TH.busy = true; TH.err = ''; aiRender();
     var cur = TH.preview || themeCurrent(), user = q + (cur ? Z('\n\n(现在的主题，可以在这个基础上改：', '\n\n(current theme, you may adjust it: ') + JSON.stringify(cur) + ')' : '');
-    var req = AI.cfg.mode === 'worker'
-      ? fetch(AI.cfg.url.replace(/\/$/, '') + '/theme', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pass': AI.cfg.pass }, body: JSON.stringify({ prompt: user, lang: LANG }) })
-        .then(function (r) { if (r.status === 404 || r.status === 405) throw new Error(Z('Worker 要更新 (重新部署 worker/ai-proxy.js) 才能生成主题', 'Redeploy worker/ai-proxy.js to enable theme generation')); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      : dsFetch(AI.cfg.key, { temperature: 0.7, max_tokens: 600, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: THEME_SYS }, { role: 'user', content: user }] })
-        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(function (j) { return JSON.parse((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '{}'); });
-    req.then(function (o) {
+    aiOnce(THEME_SYS + (LANG === 'en' ? ' Write name and note in English.' : ''), user).then(function (s) {
+      var o = jsonIn(s);
       var t = themeClean(o && o.theme ? o.theme : o);
       if (!t) throw new Error(Z('AI 回传的主题格式不对，再试一次', 'The AI returned an invalid theme; try again'));
       TH.preview = t; TH.note = t.note; themeApply(t);
@@ -1098,29 +1275,53 @@
     var box = document.getElementById('ai-panel'); if (!box) return;
     var fab0 = document.getElementById('ai-fab'); box.hidden = !AI.open; fab0.setAttribute('aria-expanded', String(AI.open)); fab0.classList.toggle('busy', !!(AI.busy || TH.busy));
     if (!AI.open) return;
+    var oldRow = box.querySelector('.ai-models'), prevX = oldRow ? oldRow.scrollLeft : null;
     var label = S.code ? nameOf(S.code) + ' ' + S.code : ((PAGES.filter(function (p) { return p[0] === S.page; })[0] || [])[1] || '') + T(' · 今日市场');
-    var h = '<div class="ai-top"><span class="ai-logo" aria-hidden="true">' + AI_ICON + '</span><b>' + (TH.view ? Z('自定义界面', 'Customize') : Z('AI 问答', 'Ask AI')) + '</b>' +
-      (TH.view ? '<span class="ai-ctx"></span>' : '<span class="ai-ctx" title="' + esc(label) + '">' + esc(label) + '</span>') +
-      '<button type="button" data-ai="theme" aria-pressed="' + TH.view + '" title="' + Z('自定义界面', 'Customize the look') + '">🎨</button><button type="button" data-ai="setup" title="' + Z('设置', 'Settings') + '">⚙</button><button type="button" data-ai="close" aria-label="' + Z('关闭', 'Close') + '">×</button></div>';
-    if (TH.view && !AI.setup) { h += themeView(); box.innerHTML = h; return; }
-    if (AI.setup || !aiReady()) {
-      var md0 = AI.cfg.mode || 'worker';
-      h += T('<div class="ai-set"><p class="dim">选择连线方式 (只存在这台设备的浏览器)：</p>') +
-        '<div class="opts"><button type="button" data-ai="mode" data-v="worker" aria-pressed="' + (md0 === 'worker') + T('">Worker (推荐)</button><button type="button" data-ai="mode" data-v="key" aria-pressed="') + (md0 === 'key') + T('">自己的 DeepSeek 密钥</button></div>') +
-        (md0 === 'worker' ? T('<label>Worker 网址<input id="ai-url" type="url" autocomplete="off" placeholder="https://bursa-ai.xxx.workers.dev" value="') + esc(AI.cfg.url || '') + '"></label>' +
-          T('<label>通行码<input id="ai-pass" type="password" autocomplete="off" value="') + esc(AI.cfg.pass || '') + T('"></label><p class="dim">设置方法见仓库 worker/README.md：密钥放在 Cloudflare，网页上看不到。</p>') +
-          T('<label>编辑通行码 (只有网站管理员需要，可留空)<input id="ai-edit" type="password" autocomplete="off" value="') + esc(AI.cfg.edit || '') + T('"></label><p class="dim">填了之后，AI 资讯、公司简介、日历和 IPO 旁边会出现 ✎，可以用 AI 改写后发布到网站。</p>')
-          : T('<label>DeepSeek API 密钥<input id="ai-key" type="password" autocomplete="off" placeholder="sk-…" value="') + esc(AI.cfg.key || '') + T('"></label><p class="dim">密钥只存在这台手机，问问题时浏览器直接连 DeepSeek。建议用另外开的、设了用量上限的密钥。</p>')) +
-        T('<div class="opts"><button type="button" class="ok" data-ai="save">保存</button>') + (aiReady() ? T('<button type="button" data-ai="setup">取消</button>') : '') + '</div></div>';
-    } else {
-      h += '<div class="ai-log" id="ai-log">' + (AI.msgs.length ? AI.msgs.map(function (m) { return '<div class="ai-m ai-' + m.role + '">' + (m.role === 'user' ? esc(m.show || m.content) : aiFmt(m.content) || '<span class="ai-dots"><i></i><i></i><i></i></span>') + '</div>'; }).join('') :
-        T('<p class="dim">会把这一页的资料 (价格、指标、财报、公告、AI 整理) 一起交给 AI。可以点下面的问题，或自己输入。</p>')) + '</div>' +
-        '<div class="opts ai-chips">' + aiChips().map(function (q) { return '<button type="button" data-ai="ask" data-v="' + esc(q) + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
-        T('<div class="ai-in"><textarea id="ai-q" rows="2" placeholder="问 AI… (例如：这家公司的负债高吗？)"></textarea><button type="button" class="ok" data-ai="send"') + (AI.busy ? ' disabled' : '') + '>' + (AI.busy ? '…' : T('发送')) + '</button></div>' +
+    var setOn = AI.setup || (!TH.view && !anyReady());
+    var h = '<div class="ai-top"><span class="ai-logo" aria-hidden="true">' + AI_ICON + '</span><b>' + (setOn ? Z('AI 设置', 'AI settings') : TH.view ? Z('自定义界面', 'Customize') : Z('AI 问答', 'Ask AI')) + '</b>' +
+      (TH.view || setOn ? '<span class="ai-ctx"></span>' : '<span class="ai-ctx" title="' + esc(label) + '">' + esc(label) + '</span>') +
+      '<button type="button" data-ai="theme" aria-pressed="' + (TH.view && !AI.setup) + '" title="' + Z('自定义界面', 'Customize the look') + '" aria-label="' + Z('自定义界面', 'Customize the look') + '">🎨</button>' +
+      '<button type="button" data-ai="setup" aria-pressed="' + setOn + '" title="' + Z('AI 设置 (模型、密钥)', 'AI settings (models, keys)') + '" aria-label="' + Z('AI 设置', 'AI settings') + '">⚙</button>' +
+      '<button type="button" data-ai="close" aria-label="' + Z('关闭', 'Close') + '">×</button></div>';
+    if (setOn) h += aiSetView();
+    else {
+      h += modelRow();
+      if (TH.view) h += themeView();
+      else h += '<div class="ai-log" id="ai-log">' + (AI.msgs.length ? AI.msgs.map(function (m) { return '<div class="ai-m ai-' + m.role + '">' + (m.role === 'user' ? esc(m.show || m.content) : (aiFmt(m.content) || '<span class="ai-dots"><i></i><i></i><i></i></span>') + (m.by ? '<small class="ai-by">' + esc(m.by) + '</small>' : '')) + '</div>'; }).join('') :
+          T('<p class="dim">会把这一页的资料 (价格、指标、财报、公告、AI 整理) 一起交给 AI。可以点下面的问题，或自己输入。</p>')) + '</div>' +
+        (aiReady() ? '<div class="opts ai-chips">' + aiChips().map(function (q) { return '<button type="button" data-ai="ask" data-v="' + esc(q) + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
+          T('<div class="ai-in"><textarea id="ai-q" rows="2" placeholder="问 AI… (例如：这家公司的负债高吗？)"></textarea><button type="button" class="ok" data-ai="send"') + (AI.busy ? ' disabled' : '') + '>' + (AI.busy ? '…' : T('发送')) + '</button></div>'
+          : '<div class="ai-need"><span>' + PROV[AI.cfg.prov].name + Z(' 还没设 API 密钥', ' has no API key yet') + '</span><button type="button" class="ok" data-ai="setp" data-v="' + AI.cfg.prov + '">' + Z('设置 ', 'Set up ') + PROV[AI.cfg.prov].name + '</button></div>') +
         T('<p class="dim ai-note">AI 生成，只根据页面资料整理，可能有错漏；不构成投资建议。') + (AI.msgs.length ? T(' <button type="button" class="more" data-ai="clear">清空对话</button>') : '') + '</p>';
     }
     box.innerHTML = h;
+    modelScroll(prevX);
     var lg = document.getElementById('ai-log'); if (lg) lg.scrollTop = lg.scrollHeight;
+  }
+  // ⚙ 设置：上面选一家 (DeepSeek / ChatGPT / Gemini / Claude)，下面填那一家的密钥和模型
+  function aiSetView() {
+    var p = AI.setp || AI.cfg.prov, c = AI.cfg;
+    var h = '<div class="ai-set"><div class="opts ai-ptabs" role="tablist" aria-label="' + Z('服务商', 'Provider') + '">' + PROV_IDS.map(function (q) {
+      return '<button type="button" role="tab" data-ai="setp" data-v="' + q + '" aria-selected="' + (q === p) + '" aria-pressed="' + (q === p) + '">' + PROV[q].name + (provReady(q) ? ' <span class="up">✓</span>' : '') + '</button>'; }).join('') + '</div>';
+    if (p === 'deepseek') {
+      var md0 = c.mode === 'key' ? 'key' : 'worker';
+      h += '<div class="opts"><button type="button" data-ai="mode" data-v="worker" aria-pressed="' + (md0 === 'worker') + T('">Worker (推荐)</button><button type="button" data-ai="mode" data-v="key" aria-pressed="') + (md0 === 'key') + T('">自己的 DeepSeek 密钥</button></div>') +
+        (md0 === 'worker' ? T('<label>Worker 网址<input id="ai-url" type="url" autocomplete="off" placeholder="https://bursa-ai.xxx.workers.dev" value="') + esc(c.url || '') + '"></label>' +
+          T('<label>通行码<input id="ai-pass" type="password" autocomplete="off" value="') + esc(c.pass || '') + T('"></label><p class="dim">设置方法见仓库 worker/README.md：密钥放在 Cloudflare，网页上看不到。</p>') +
+          T('<label>编辑通行码 (只有网站管理员需要，可留空)<input id="ai-edit" type="password" autocomplete="off" value="') + esc(c.edit || '') + T('"></label><p class="dim">填了之后，AI 资讯、公司简介、日历和 IPO 旁边会出现 ✎，可以用 AI 改写后发布到网站。</p>')
+          : T('<label>DeepSeek API 密钥<input id="ai-key" type="password" autocomplete="off" placeholder="sk-…" value="') + esc(c.key || '') + '"></label>');
+    } else {
+      var cur = curModel(p), ex = c.extra[p] || '';
+      h += '<label>' + PROV[p].name + ' API key<input id="ai-k" type="password" autocomplete="off" spellcheck="false" placeholder="' + PROV[p].ph + '" value="' + esc(c.keys[p] || '') + '"></label>' +
+        '<label>' + Z('模型', 'Model') + '<select id="ai-m">' + PROV[p].models.map(function (m) { return '<option value="' + m[0] + '"' + (m[0] === cur ? ' selected' : '') + '>' + esc(PROV[p].name + ' ' + m[1]) + ' (' + m[0] + ')</option>'; }).join('') +
+        (cur && !PROV[p].models.some(function (m) { return m[0] === cur; }) ? '<option value="' + esc(cur) + '" selected>' + esc(cur) + '</option>' : '') + '</select></label>' +
+        '<label>' + Z('其他模型名称 (可留空；填了就用这个)', 'Other model id (optional; used if filled in)') + '<input id="ai-x" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(ex) + '"></label>';
+    }
+    h += (p === 'deepseek' && c.mode !== 'key' ? '' : '<p class="dim">' + Z('密钥只存在这台设备的浏览器：问问题时直接连到 ', 'Keys stay in this browser only: questions go straight to ') + PROV[p].name +
+      Z('，不会传到本网站的服务器，也不会跨设备同步。费用由该服务商按你的用量收取，建议另开一个设了用量上限的密钥。', ', never through this site’s servers, and keys are not synced across devices. The provider bills your own usage; a separate key with a spending limit is a good idea.') + '</p>') +
+      '<div class="opts"><button type="button" class="ok" data-ai="save">' + T('保存') + '</button>' + (anyReady() ? '<button type="button" data-ai="done">' + Z('返回', 'Back') + '</button>' : '') +
+      (p !== 'deepseek' && c.keys[p] ? '<button type="button" data-ai="forget">' + Z('删除这个密钥', 'Remove this key') + '</button>' : '') + '</div></div>';
+    return h;
   }
   // DeepSeek (浏览器直接连，用自己的密钥)：模型名称失效时自动换新名称 (从错误信息读出 DeepSeek 现在支持的名称)，记在这台设备
   var DS_URL = 'https://api.deepseek.com/chat/completions', DS_FB = ['deepseek-flash', 'deepseek-v4-flash'];
@@ -1150,46 +1351,48 @@
     return attempt();
   }
   function aiAsk(q) {
-    q = (q || '').trim(); if (!q || AI.busy) return;
+    q = (q || '').trim(); if (!q || AI.busy || !aiReady()) return;
     var key = S.code || S.page; if (AI.ctxKey !== key) { AI.msgs = []; AI.ctxKey = key; }  // 换了股票 / 页面就开新对话
     var first = !AI.msgs.length, ctx = first ? T('\n\n【当前页面资料】\n') + JSON.stringify(aiContext()) : '';
-    AI.msgs.push({ role: 'user', content: q + ctx, show: q }, { role: 'assistant', content: '' });
+    AI.msgs.push({ role: 'user', content: q + ctx, show: q }, { role: 'assistant', content: '', by: modelName() });
     AI.busy = true; aiRender();
-    var cur = AI.msgs[AI.msgs.length - 1], hist = AI.msgs.slice(0, -1).map(function (m) { return { role: m.role, content: m.content }; });
-    var req = AI.cfg.mode === 'worker' ? fetch(AI.cfg.url.replace(/\/$/, ''), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pass': AI.cfg.pass }, body: JSON.stringify({ messages: hist, lang: LANG }) })
-      : dsFetch(AI.cfg.key, { temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: AI_SYS }].concat(hist) });
-    req.then(function (r) {
-      if (!r.ok) return r.text().then(function (t) { throw new Error(r.status + (r.status === 401 ? T(' 通行码 / 密钥不对') : r.status === 403 ? T(' 网址不被允许 (检查 ALLOW_ORIGIN)') : r.status === 402 ? T(' DeepSeek 额度不足') : '') + ' ' + t.slice(0, 120)); });
-      var rd = r.body.getReader(), dec = new TextDecoder(), buf = '';
-      function pump() {
-        return rd.read().then(function (x) {
-          if (x.done) return;
-          buf += dec.decode(x.value, { stream: true });
-          var lines = buf.split('\n'); buf = lines.pop();
-          lines.forEach(function (ln) {
-            ln = ln.trim(); if (ln.indexOf('data:') !== 0) return; var dta = ln.slice(5).trim(); if (dta === '[DONE]') return;
-            try { var j = JSON.parse(dta), dl = j.choices && j.choices[0] && j.choices[0].delta; if (dl && dl.content) cur.content += dl.content; } catch (e) {}
-          });
-          var el = document.querySelectorAll('#ai-log .ai-assistant'); if (el.length) { el[el.length - 1].innerHTML = aiFmt(cur.content); var lg = document.getElementById('ai-log'); lg.scrollTop = lg.scrollHeight; }
-          return pump();
-        });
-      }
-      return pump();
-    }).catch(function (e) {
-      cur.content = (cur.content ? cur.content + '\n\n' : '') + T('⚠ 连线失败：') + e.message + (AI.cfg.mode === 'key' && /fetch|Load failed|NetworkError/i.test(e.message) ? T('\n浏览器可能挡掉直接连线，请改用 Worker 方式 (worker/README.md)。') : '');
+    var cur = AI.msgs[AI.msgs.length - 1], hist = AI.msgs.slice(0, -1).map(function (m) { return { role: m.role, content: m.content }; }), raf = 0;
+    function paint() {  // 一帧最多画一次 (Claude / Gemini 一次来很多小片段)
+      raf = 0; var el = document.querySelectorAll('#ai-log .ai-assistant'); if (!el.length) return;
+      el[el.length - 1].innerHTML = aiFmt(cur.content) + '<small class="ai-by">' + esc(cur.by) + '</small>'; var lg = document.getElementById('ai-log'); lg.scrollTop = lg.scrollHeight;
+    }
+    var p0 = AI.cfg.prov;
+    aiStream(AI_SYS, hist, function (d) { cur.content += d; if (!raf) raf = requestAnimationFrame(paint); }).then(function () { cur.by = modelName(p0); }).catch(function (e) {  // 模型自动换过名称：标示实际回答的模型
+      var p = AI.cfg.prov, net = /fetch|Load failed|NetworkError|network/i.test(e.message);
+      cur.content = (cur.content ? cur.content + '\n\n' : '') + T('⚠ 连线失败：') + e.message +
+        (net && p === 'deepseek' && AI.cfg.mode === 'key' ? T('\n浏览器可能挡掉直接连线，请改用 Worker 方式 (worker/README.md)。') : net ? Z('\n连不上 ' + PROV[p].name + '：检查网络，或这个服务商不接受浏览器直接连线。', '\nCould not reach ' + PROV[p].name + ': check the connection, or the provider may block direct browser calls.') : '');
     }).then(function () { AI.busy = false; aiRender(); });
   }
   function aiClick(t) {
     var a = t.dataset.ai;
     if (a === 'toggle') { AI.open = !AI.open; if (AI.open && SY.open) { SY.open = false; acctRender(); } }
     else if (a === 'close') AI.open = false;
-    else if (a === 'setup') AI.setup = !AI.setup;
-    else if (a === 'theme') { TH.view = !TH.view; AI.setup = false; }
-    else if (a === 'mode') { AI.cfg.mode = t.dataset.v; AI.setup = true; }
+    else if (a === 'setup') { var setOn = AI.setup || (!TH.view && !aiReady()); AI.setup = !setOn; AI.setp = null; if (AI.setup) TH.view = false; }
+    else if (a === 'done') { AI.setup = false; AI.setp = null; }
+    else if (a === 'theme') { TH.view = !(TH.view && !AI.setup); AI.setup = false; AI.setp = null; }
+    else if (a === 'setp') { AI.setp = t.dataset.v; AI.setup = true; }
+    else if (a === 'mode') { AI.cfg.mode = t.dataset.v; AI.setp = 'deepseek'; AI.setup = true; }
+    else if (a === 'model') modelPick(t.dataset.p, t.dataset.v);
+    else if (a === 'mprev' || a === 'mnext') modelStep(a === 'mprev' ? -1 : 1);
+    else if (a === 'forget') { var fp = AI.setp || AI.cfg.prov; delete AI.cfg.keys[fp]; aiSave(); }
     else if (a === 'save') {
-      if (AI.cfg.mode !== 'key') { AI.cfg.mode = 'worker'; AI.cfg.url = (document.getElementById('ai-url') || {}).value || ''; AI.cfg.pass = (document.getElementById('ai-pass') || {}).value || ''; AI.cfg.edit = (document.getElementById('ai-edit') || {}).value || ''; OV = null; ovLoading = false; loadOv(); }
-      else AI.cfg.key = (document.getElementById('ai-key') || {}).value || '';
-      aiSave(); AI.setup = !aiReady();
+      var sp = AI.setp || AI.cfg.prov, val = function (id) { return ((document.getElementById(id) || {}).value || '').trim(); };
+      if (sp === 'deepseek') {
+        if (AI.cfg.mode !== 'key') { AI.cfg.mode = 'worker'; AI.cfg.url = val('ai-url'); AI.cfg.pass = val('ai-pass'); AI.cfg.edit = val('ai-edit'); OV = null; ovLoading = false; loadOv(); }
+        else AI.cfg.key = val('ai-key');
+      } else {
+        AI.cfg.keys[sp] = val('ai-k'); var x = val('ai-x').replace(/[^\w.\-:\/]/g, '').slice(0, 80);
+        if (x) AI.cfg.extra[sp] = x; else delete AI.cfg.extra[sp];
+        AI.cfg.model[sp] = x || val('ai-m') || PROV[sp].models[0][0];
+        if (!AI.cfg.keys[sp]) delete AI.cfg.keys[sp];
+      }
+      if (provReady(sp)) AI.cfg.prov = sp;  // 存好就改用这一家
+      aiSave(); AI.setup = !provReady(sp); AI.setp = AI.setup ? sp : null;
     } else if (a === 'clear') AI.msgs = [];
     else if (a === 'ask') { aiAsk(t.dataset.v); return; }
     else if (a === 'send') { var q = document.getElementById('ai-q'); aiAsk(q && q.value); return; }
@@ -2020,6 +2223,10 @@
     if (e.key === 'Enter' && e.target.id === 'sq') { e.preventDefault(); var h0 = sqHits(S.sq)[0]; if (h0) { e.target.blur(); go(S.page, h0); } return; }
     if (e.key === 'Enter' && e.target.id === 'wf-name') { e.preventDefault(); wSubmit(); render(); return; }
     if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'ai-q') { e.preventDefault(); aiAsk(e.target.value); return; }
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && AI.open && e.target.closest && e.target.closest('.ai-mrow')) {  // 模型那一排：← → 换模型
+      e.preventDefault(); modelStep(e.key === 'ArrowLeft' ? -1 : 1); aiRender();
+      var on = document.querySelector('#ai-panel .ai-models [aria-checked="true"]'); if (on) on.focus({ preventScroll: true }); return;
+    }
     if (e.key === 'Escape' && AI.open) { AI.open = false; aiRender(); return; }
     if (e.key === 'Escape' && SY.open) { SY.open = false; acctRender(); return; }
     if (e.key === 'Escape') { if (typing) e.target.blur(); if (S.code) go(S.page); return; }
