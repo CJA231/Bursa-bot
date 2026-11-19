@@ -1769,8 +1769,9 @@
     var ind = document.querySelector('#tabbar .tb-ind');
     if (!ind) return;
     opt = opt || {};
-    ind.classList.toggle('tb-free', !!opt.free);
-    ind.style.width = w + 'px'; ind.style.transform = 'translateX(' + x + 'px)';
+    ind.classList.toggle('tb-free', !!opt.free);  // 拖动时没有过渡：泡泡跟手指同一帧
+    if (TB.w !== w) { ind.style.width = w + 'px'; TB.w = w; }  // 宽度只在变的时候设 (改宽度要重新排版，会卡)
+    ind.style.transform = 'translate3d(' + x.toFixed(1) + 'px,0,0)';
     var blob = ind.firstChild;
     if (blob && opt.stretch != null) blob.style.transform = 'scale(' + (1 + opt.stretch).toFixed(3) + ',' + (1 - opt.stretch * 0.45).toFixed(3) + ')';
     else if (blob && opt.squish && !calmUI()) { blob.style.transform = ''; blob.classList.remove('tb-squish'); void blob.offsetWidth; blob.classList.add('tb-squish'); }
@@ -1814,23 +1815,32 @@
     tb.addEventListener('pointermove', function (e) {
       if (!TB.drag) return;
       if (!TB.moved && Math.abs(e.clientX - TB.x0) < 6) return;
-      if (!TB.moved) { try { tb.setPointerCapture(e.pointerId); } catch (err) {} }  // 真的开始拖才锁定指针 (只点一下照常是按钮的 click)
+      if (!TB.moved) { try { tb.setPointerCapture(e.pointerId); } catch (err) {} TB.rect = inner().getBoundingClientRect(); TB.bw = (tbButtons()[0] || {}).offsetWidth || 50; TB.v = 0; }  // 真的开始拖才锁定指针 (只点一下照常是按钮的 click)
       TB.moved = true;
-      var r = inner().getBoundingClientRect(), bs = tbButtons(), w = bs[0] ? bs[0].offsetWidth : 50;
-      var x = Math.max(0, Math.min(r.width - w, e.clientX - r.left - w / 2));
       var dt = Math.max(8, e.timeStamp - TB.lastT), v = Math.abs(e.clientX - TB.lastX) / dt;  // px / ms
-      TB.lastX = e.clientX; TB.lastT = e.timeStamp;
-      tbPlace(x, w, { free: true, stretch: Math.min(0.32, v * 0.22) });
-      tbHot(tbNearest(x + w / 2));
+      TB.v = TB.v * 0.6 + v * 0.4;  // 速度平滑一下，拉长的程度不会一跳一跳
+      TB.lastX = e.clientX; TB.lastT = e.timeStamp; TB.px = e.clientX;
+      if (!TB.raf) TB.raf = requestAnimationFrame(tbFrame);  // 一帧只更新一次
     });
+    function tbFrame() {
+      TB.raf = 0;
+      if (!TB.drag || !TB.moved) return;
+      var r = TB.rect, w = TB.bw, x = Math.max(0, Math.min(r.width - w, TB.px - r.left - w / 2));
+      tbPlace(x, w, { free: true, stretch: Math.min(0.3, TB.v * 0.2) });
+      tbHot(tbNearest(x + w / 2));
+    }
     var end = function (e, cancel) {
       if (!TB.drag) return;
       TB.drag = false; tb.classList.remove('tb-press');
       var hot = TB.hot; tbHot(null);
+      if (TB.raf) { cancelAnimationFrame(TB.raf); TB.raf = 0; }
       if (TB.moved) {
         TB.eat = true;  // 拖完放开不要再当成点一下
-        if (!cancel && hot && (hot.dataset.page !== S.page || S.code)) go(hot.dataset.page, null, { swipe: true });
-        else tabbar(true);
+        if (!cancel && hot && (hot.dataset.page !== S.page || S.code)) {
+          tbPlace(hot.offsetLeft, hot.offsetWidth, { squish: true });  // 泡泡先弹过去，下一帧才换页 (重画整页时动画已经在跑，不会卡住)
+          var pg = hot.dataset.page;
+          requestAnimationFrame(function () { requestAnimationFrame(function () { go(pg, null, { swipe: true, tbDone: true }); }); });
+        } else tabbar(true);
       }
     };
     tb.addEventListener('pointerup', function (e) { end(e, false); });
@@ -1860,40 +1870,58 @@
   document.addEventListener('touchmove', function (e) {
     if (!SW) return;
     var t = e.touches[0], dx = t.clientX - SW.x, dy = t.clientY - SW.y;
-    if (!SW.lock) { if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; SW.lock = Math.abs(dx) > Math.abs(dy) * 1.3 ? 'x' : 'y'; }
+    if (!SW.lock) { if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; SW.lock = Math.abs(dx) > Math.abs(dy) * 1.3 ? 'x' : 'y'; if (SW.lock === 'x') main.classList.add('sw-drag'); }
     if (SW.lock !== 'x') return;
     e.preventDefault();
     SW.dx = dx;
-    var tg = swTarget(dx), damp = tg ? 0.55 : 0.18;  // 头尾没有下一页：拉得动但有阻力
-    main.classList.add('sw-drag');
-    main.style.transform = 'translateX(' + (dx * damp).toFixed(1) + 'px)';
-    main.style.opacity = String(Math.max(0.55, 1 - Math.abs(dx) / 700));
+    if (!SW.raf) SW.raf = requestAnimationFrame(swFrame);  // 一帧只更新一次
+  }, { passive: false });
+  function swFrame() {
+    if (!SW) return;
+    SW.raf = 0;
+    var dx = SW.dx, tg = swTarget(dx), damp = tg ? 0.55 : 0.18;  // 头尾没有下一页：拉得动但有阻力
+    SW.off = dx * damp;
+    main.style.transform = 'translate3d(' + SW.off.toFixed(1) + 'px,0,0)';
+    main.style.opacity = String(Math.max(0.6, 1 - Math.abs(dx) / 800));
     if (tg && tg.page) {  // 泡泡也往目标那一页挪 (按滑动的比例)
       var bs = tbButtons(), a = bs[swIndex()], b = bs.filter(function (x) { return x.dataset.page === tg.page; })[0];
-      if (a && b) { var f = Math.min(1, Math.abs(dx) / (window.innerWidth * 0.5)); tbPlace(a.offsetLeft + (b.offsetLeft - a.offsetLeft) * f, a.offsetWidth, { free: true, stretch: f * 0.28 * (1 - f) * 2 }); }
+      if (a && b) { var f = Math.min(1, Math.abs(dx) / (window.innerWidth * 0.5)); tbPlace(a.offsetLeft + (b.offsetLeft - a.offsetLeft) * f, a.offsetWidth, { free: true, stretch: f * 0.26 * (1 - f) * 2 }); }
     }
-  }, { passive: false });
+  }
   document.addEventListener('touchend', function (e) {
     if (!SW) return;
     var s0 = SW; SW = null;
+    if (s0.raf) cancelAnimationFrame(s0.raf);
     if (s0.lock !== 'x') return;
     var dx = s0.dx, fast = Math.abs(dx) / Math.max(1, e.timeStamp - s0.t) > 0.5, tg = swTarget(dx);
     main.classList.remove('sw-drag');
     if (tg && (Math.abs(dx) > window.innerWidth * 0.28 || (fast && Math.abs(dx) > 40))) {
-      main.style.transform = ''; main.style.opacity = '';
-      if (tg.back) go(S.page, null, { swipe: true, dir: -1 }); else go(tg.page, null, { swipe: true });
+      // 顺着手指的方向继续滑出去，再换页 (不会先弹回原位再跳)
+      if (tg.back) go(S.page, null, { swipe: true, dir: -1 }); else go(tg.page, null, { swipe: true, dir: dx < 0 ? 1 : -1 });
     } else {
       main.classList.add('sw-back'); main.style.transform = ''; main.style.opacity = '';
-      setTimeout(function () { main.classList.remove('sw-back'); }, 320);
+      setTimeout(function () { main.classList.remove('sw-back'); }, 360);
       tabbar(true);
     }
   });
   document.addEventListener('touchcancel', function () { if (SW) { SW = null; main.classList.remove('sw-drag'); main.style.transform = ''; main.style.opacity = ''; tabbar(); } });
-  // 换页动画：新的一页从滑动的方向滑进来
-  function pageIn(dir) {
-    if (!narrowUI() || calmUI() || !dir) return;
-    main.classList.remove('pg-l', 'pg-r'); void main.offsetWidth;
-    main.classList.add(dir > 0 ? 'pg-l' : 'pg-r');
+  // 换页动画 (手机)：旧页顺着方向滑出、淡出 (从手指放开的位置接着走)，看不见的那一瞬间换内容，新页从另一边滑进来 —— 一个连贯的动作。
+  // dir 1 = 往左走 (下一页)，-1 = 往右走 (上一页)。只动 transform / opacity (合成层，不重新排版)
+  var PG = { busy: false, t: 0 };
+  function pageSwap(dir, apply) {
+    if (!narrowUI() || calmUI() || !dir) { apply(); return; }
+    clearTimeout(PG.t);
+    var W = Math.min(window.innerWidth, 520), out = -dir * W * 0.32, inn = dir * W * 0.22;
+    main.classList.remove('pg-in'); main.classList.add('pg-out');
+    main.style.transform = 'translate3d(' + out.toFixed(0) + 'px,0,0)'; main.style.opacity = '0';
+    PG.t = setTimeout(function () {
+      apply();  // 这时旧页已经看不见：换内容、卷回顶部
+      main.classList.remove('pg-out');
+      main.style.transform = 'translate3d(' + inn.toFixed(0) + 'px,0,0)'; main.style.opacity = '0';
+      void main.offsetWidth;
+      main.classList.add('pg-in'); main.style.transform = ''; main.style.opacity = '';
+      PG.t = setTimeout(function () { main.classList.remove('pg-in'); }, 340);
+    }, 120);
   }
   function stdUrl() { return (D.report || '../') + '?ui=std'; }
   function render() {
@@ -1916,8 +1944,8 @@
     S.page = page || S.page; S.code = code || null;
     var h = S.code ? '#q-' + S.code : '#' + S.page;
     if (location.hash !== h) history.replaceState(null, '', h);
-    TB.sq = pageChanged; render(); TB.sq = false; window.scrollTo(0, 0);
-    if (pageChanged) pageIn(dir);
+    var apply = function () { render(); if (window.scrollY) window.scrollTo(0, 0); };
+    if (pageChanged) { if (!(opt && opt.tbDone)) tabbar(true); pageSwap(dir, apply); } else apply();  // 先让导航栏的泡泡动起来，再换页
   }
   function fromHash() {
     var h = location.hash.slice(1);

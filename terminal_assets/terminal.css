@@ -30,6 +30,9 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); }
+/* 电脑：卷轴的位置一直留着，长页面 / 短页面切换时内容不会左右跳；手机：换页动画滑出去的部分不会撑出横向卷动 */
+html { scrollbar-gutter: stable; }
+.term { overflow-x: clip; }
 body { font-family: var(--font); font-size: var(--fs, 13px); line-height: 1.5; -webkit-text-size-adjust: 100%; font-variant-numeric: tabular-nums; }
 a { color: var(--acc); }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
@@ -515,25 +518,23 @@ h2 .ed-b { font-size: 11px; }
   .tabbar button[aria-current] { color: var(--acc); font-weight: 700; }
   .tabbar button[aria-current="true"] { opacity: 0.8; }
   /* 玻璃泡泡：外层滑动 (弹簧曲线)，里面的 blob 做液体拉伸 / 回弹 */
-  .tb-ind { position: absolute; top: 0; bottom: 0; left: 0; width: 0; pointer-events: none;
-    transition: transform .5s cubic-bezier(.25, 1.45, .45, 1), width .5s cubic-bezier(.25, 1.45, .45, 1); }
-  .tb-ind.tb-free { transition: transform .07s linear, width .07s linear; }
+  .tb-ind { position: absolute; top: 0; bottom: 0; left: 0; width: 0; pointer-events: none; will-change: transform;
+    transition: transform .42s cubic-bezier(.22, 1.3, .36, 1); }
+  .tb-ind.tb-free { transition: none; }
   .tb-blob { position: absolute; inset: 0; border-radius: 24px;
     background: rgba(255, 255, 255, 0.12); background: color-mix(in srgb, var(--fg) 15%, transparent);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 0 -1px 0 rgba(0, 0, 0, 0.10), 0 2px 10px rgba(0, 0, 0, 0.14);
-    transition: transform .4s cubic-bezier(.3, 1.6, .5, 1), background .25s; }
+    transition: transform .35s cubic-bezier(.3, 1.5, .5, 1), background .25s; will-change: transform; }
   .tb-press .tb-blob { background: rgba(255, 255, 255, 0.18); background: color-mix(in srgb, var(--fg) 22%, transparent); transform: scale(1.1, 1.06); }
   .tb-blob.tb-squish { animation: tb-squish .55s cubic-bezier(.3, 1.2, .5, 1); }
   @keyframes tb-squish { 0% { transform: scale(1, 1); } 30% { transform: scale(1.28, 0.84); } 60% { transform: scale(0.94, 1.06); } 100% { transform: scale(1, 1); } }
   /* 页面：滑动时跟着手指；切换时从滑动方向滑进来；没滑够就弹回去 */
-  main.sw-drag { will-change: transform; }
-  main.sw-back { transition: transform .32s cubic-bezier(.3, 1.35, .5, 1), opacity .25s; }
-  main.pg-l { animation: pg-l .34s cubic-bezier(.2, .9, .3, 1); }
-  main.pg-r { animation: pg-r .34s cubic-bezier(.2, .9, .3, 1); }
-  @keyframes pg-l { from { transform: translateX(36px); opacity: 0; } to { transform: none; opacity: 1; } }
-  @keyframes pg-r { from { transform: translateX(-36px); opacity: 0; } to { transform: none; opacity: 1; } }
+  main.sw-drag, main.pg-out, main.pg-in { will-change: transform, opacity; }
+  main.sw-back { transition: transform .36s cubic-bezier(.25, 1.3, .4, 1), opacity .25s; }
+  main.pg-out { transition: transform .12s cubic-bezier(.4, 0, 1, 1), opacity .12s linear; }
+  main.pg-in { transition: transform .32s cubic-bezier(.16, 1, .3, 1), opacity .22s ease-out; }
   .wg .tabbar { display: none !important; }
 }
-@media (max-width: 779px) and (prefers-reduced-motion: reduce) { .tb-ind, .tb-blob, .tabbar, .tabbar svg { transition: none; } .tb-blob.tb-squish, main.pg-l, main.pg-r { animation: none; } }
+@media (max-width: 779px) and (prefers-reduced-motion: reduce) { .tb-ind, .tb-blob, .tabbar, .tabbar svg { transition: none; } .tb-blob.tb-squish { animation: none; } main.pg-out, main.pg-in, main.sw-back { transition: none; } }
 @media (prefers-reduced-motion: reduce) { #ai-fab, #ai-fab .fab-ic, #ai-fab .fab-x { transition: none; } #ai-panel, .ai-dots i, #ai-fab.busy .fab-ring { animation: none; } }
 @media print { .tabbar, .qtabs { display: none !important; } }
