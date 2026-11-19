@@ -1,3 +1,19 @@
 __pycache__/
 *.pyc
 public_site/
+
+# 生成的网站资料放在 site-data 分支 (scripts/site_state.py)，main 不追踪；手写的 docs/ 文件要在下面放行，也要加进 site_state.py 的 SOURCE
+/docs/*
+!/docs/report.js
+!/docs/i18n.js
+!/docs/i18n-gloss.js
+!/docs/fold.js
+!/docs/vendor/
+!/docs/icons/
+!/docs/terminal/
+/docs/terminal/*
+!/docs/terminal/overrides.json
+/data/ann_latency.json
+/data/ipos.json
+/data/watchlist.json
+/data/watchlist_changes.json

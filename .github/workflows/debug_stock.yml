@@ -16,6 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # 调试也要用最新的网站资料 (site-data 分支)；只读，不保存
+      - name: Restore site data
+        continue-on-error: true
+        run: python3 scripts/site_state.py restore
 
       - name: Set up Python
         uses: actions/setup-python@v7

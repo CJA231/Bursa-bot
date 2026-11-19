@@ -30,6 +30,9 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+      # 网站资料在 site-data 分支 (main 不放生成的文件)：先放回 docs/ 和 data/
+      - name: Restore site data
+        run: python3 scripts/site_state.py restore
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -44,16 +47,6 @@ jobs:
         run: |
           python scripts/esg_extract.py --codes "$CODES" $FORCE | tee esg_log.txt
           { echo '### ESG'; echo '```'; tail -n 40 esg_log.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # 保存到 site-data 分支 (只换 docs/esg)；跑完后「Deploy site」自动部署
       - name: Publish
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A docs/esg
-          git diff --staged --quiet && exit 0
-          git commit -m "Update ESG extracts"
-          # 别的流程 (报告 / 公司资讯 / ESG) 可能同时推送：接上最新的再推，被拒就等一下重试
-          for i in 1 2 3 4 5; do
-            { git pull --rebase origin "${GITHUB_REF_NAME}" || { git rebase --abort 2>/dev/null; false; }; } && git push && break
-            [ "$i" = 5 ] && exit 1
-            sleep $((i * 10))
-          done
+        run: python3 scripts/site_state.py save --role esg -m "Update ESG extracts"

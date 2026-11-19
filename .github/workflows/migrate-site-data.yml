@@ -1,0 +1,49 @@
+# 一次性迁移：把网站资料从 main 移到 site-data 分支，main 只留程序和手写文件 (仓库不再每天变大)。
+# 先在 Settings → Pages → Source 选「GitHub Actions」，再到 Actions 手动跑一次这个流程。跑过以后不用再跑 (再跑也没关系)。
+name: Migrate site data (one-time)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: publish-report   # 跟报告排同一队：迁移时报告不会同时在写
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create site-data (if it does not exist yet)
+        run: |
+          if git ls-remote --exit-code --heads origin site-data >/dev/null; then
+            echo "site-data 已经存在 (合并后已经有流程保存过)，不重建"
+          else
+            python3 scripts/site_state.py restore
+            python3 scripts/site_state.py save --role all -m "Site data (moved from main)"
+          fi
+      - name: Stop tracking generated files on main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          python3 scripts/site_state.py untrack
+          git diff --staged --quiet && { echo "main 已经迁移过了"; exit 0; }
+          git commit -q -m "Stop tracking generated site files (they live on the site-data branch now)"
+          for i in 1 2 3 4 5; do
+            { git pull --rebase origin main || { git rebase --abort 2>/dev/null; false; }; } && git push origin HEAD:main && break
+            [ "$i" = 5 ] && exit 1
+            sleep $((i * 10))
+          done
+  deploy:
+    needs: migrate
+    uses: ./.github/workflows/deploy.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
