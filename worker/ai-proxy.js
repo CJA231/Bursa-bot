@@ -179,6 +179,7 @@ function cleanTpl(a) {
     if (!t || typeof t !== 'object' || !Array.isArray(t.conds) || out.length >= 80) continue;
     const id = str(t.id, 24); if (!id || ids.has(id)) continue;
     const o = { id, name: str(t.name, 60) || id, conds: t.conds.slice(0, 15) };
+    if (Array.isArray(t.exits)) o.exits = t.exits.slice(0, 12);
     ['take', 'stop', 'hold', 'emab', 'combo'].forEach(k => { if (typeof t[k] === 'number' && isFinite(t[k])) o[k] = t[k]; });
     if (JSON.stringify(o).length > 4000) continue;
     ids.add(id); out.push(o);
