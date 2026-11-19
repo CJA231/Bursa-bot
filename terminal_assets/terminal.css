@@ -186,6 +186,11 @@ pre::-webkit-scrollbar { display: none; }
 .cbp-n { display: flex; align-items: center; gap: 8px; }
 .cbp-n span { white-space: nowrap; }
 .cbp-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cbp-ps { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; }
+.cbp-rt { margin: 0; }
+.cbp-rt button { flex: 1; }
+.cbpop optgroup { color: var(--mut); font-style: normal; }
+.cbpop input[type="text"] { font: inherit; font-size: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r, 0px) + 6px); padding: 7px 10px; min-width: 0; width: 100%; box-sizing: border-box; }
 .cbpop .grep { border: 1px solid var(--line); border-radius: calc(var(--r, 0px) + 6px); padding: 2px 10px; background: var(--bg); }
 .cbpop .grep input { font-size: 16px; }
 #cb-clist { display: grid; gap: 8px; max-height: min(46vh, 340px); overflow-y: auto; overscroll-behavior: contain; }
@@ -636,6 +641,7 @@ h2 .ed-b { font-size: 11px; }
 /* 浮动搜索 (市场页以外)：电脑浮在底部中间；手机浮在导航栏上面，旁边留位给 ✦ AI 按钮；结果往上展开 */
 .fsq { position: fixed; z-index: 28; left: 50%; transform: translateX(-50%); width: min(560px, calc(100% - 28px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
 .fsq[hidden] { display: none; }
+body.cbp-open .fsq { display: none; }
 .fsq .sq { display: flex; flex-direction: column-reverse; gap: 6px; margin: 0; }
 .fsq .grep, .fsq .sq-res { border-radius: 22px;
   background: rgba(48, 48, 48, 0.62); background: color-mix(in srgb, var(--bg) var(--glass, 58%), transparent);
