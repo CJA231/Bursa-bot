@@ -18,8 +18,8 @@
   var V = (document.currentScript && /v=([^&]+)/.exec(document.currentScript.src) || [])[1] || Date.now();
   var D = null, BARS = null, barsLoading = false;
   var main = document.getElementById('main');
-  var PAGES = [['sig', T('信号')], ['mkt', T('市场')], ['watch', T('观察列表')], ['bt', T('回测')], ['pool', T('股票池')], ['ann', T('公告')], ['cal', T('日历')]];
-  var S = { page: 'sig', code: null, flt: {}, sort: 'to', dir: -1, q: '', limit: 50, cat: 'all' };
+  var PAGES = [['mkt', T('市场')], ['sig', T('信号')], ['watch', T('观察列表')], ['bt', T('回测')], ['pool', T('股票池')], ['ann', T('公告')], ['cal', T('日历')]];
+  var S = { page: 'mkt', code: null, flt: {}, sort: 'to', dir: -1, q: '', limit: 50, cat: 'all' };
   var CAT = { results: T('财报'), dividend: T('派息'), corporate: T('企业'), holding: T('持股'), buyback: T('回购'), uma: T('异常'), people: T('人事'), meeting: T('会议'), other: T('其他') };
   var EXIT = { take: T('涨幅达标'), emab: T('EMA 破位'), combo: T('趋势转坏'), time: T('期满'), swing: T('跌破低点'), stop: T('跌破风险线'), sar: T('SAR 转空'), red: T('回调红K'), open: T('跟踪中'), high: T('前高'), res: T('阻力') };
   var STN = { hold: T('ACTIVE 跟踪中'), near: T('NEAR 近风险线'), out: T('ENDED 已结束') };
@@ -229,7 +229,26 @@
     return '<div class="sq"><div class="grep"><label for="sq">' + (LANG === 'en' ? 'find&gt;' : '搜索&gt;') + '</label><input id="sq" type="search" inputmode="search" enterkeyhint="go" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="' +
       (LANG === 'en' ? 'Any stock: code or name' : '全部股票：代码或名称') + '" value="' + esc(S.sq || '') + '"></div><div class="sq-res" id="sq-res">' + sqRes() + '</div></div>';
   }
-  function pageSig() { return sqBox() + pageSigBody(); }
+  function pageSig() { return pageSigBody(); }
+  // 搜索：市场页 (首页) 放在大盘图上面；其他页 (含个股页) 浮在页面底部 (#fsq，在 main 外面，换页不重建，打字不会掉焦点)
+  var FSQ = { on: null };
+  function fsq() {
+    var el = document.getElementById('fsq'), on = !WIDGET && !!D && (S.page !== 'mkt' || !!S.code);
+    if (!el) { el = document.createElement('div'); el.id = 'fsq'; el.className = 'fsq'; el.hidden = true; document.body.appendChild(el); fsqKb(el); }
+    if (on === FSQ.on) return;
+    FSQ.on = on; el.innerHTML = on ? sqBox() : ''; el.hidden = !on; el.classList.remove('shut');
+    document.body.classList.toggle('has-fsq', on);
+  }
+  function sqClear() {
+    S.sq = ''; var i = document.getElementById('sq'), r = document.getElementById('sq-res');
+    if (i) { i.value = ''; i.blur(); } if (r) r.innerHTML = '';
+  }
+  // 手机键盘弹出时，把浮动搜索框抬到键盘上面
+  function fsqKb(el) {
+    var vv = window.visualViewport; if (!vv) return;
+    var f = function () { var kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop); el.classList.toggle('kb', kb > 80); el.style.setProperty('--kb', Math.round(kb) + 'px'); };
+    vv.addEventListener('resize', f); vv.addEventListener('scroll', f);
+  }
   function pageSigBody() {
     var sigs = D.signals || [];
     if (!sigs.length) return pn(T('SIGNALS 信号'), md(D.date), T('<p>今天没有股票符合「SAR 转多」的全部条件。</p><p class="dim">之前的信号还在跟进的列在下面；回测结果看 [4]。</p>')) + pageTrack();
@@ -656,7 +675,7 @@
     return pn(T('HEATMAP 热力图'), T('按成交额 · ▲') + up + ' ▼' + dn, opts + '<div class="hm ' + dens + '">' + cells + '</div>' + legend);
   }
   function pageMkt() {
-    var m = D.market || {}, ix = m.index, b = m.breadth, h = '';
+    var m = D.market || {}, ix = m.index, b = m.breadth, h = sqBox();
     if (ix) h += pn(T('INDEX 大盘'), esc(tr(ix.label)), '<p><b>' + ix.last.toLocaleString('en', { minimumFractionDigits: 2 }) + '</b> <span class="' + cls(ix.chg) + '">' + (ix.chg > 0 ? '+' : '') + ix.chg + ' (' + pct(ix.pct) + ')</span>' + (isNum(m.usd_myr) ? '　<span class="dim">USD/MYR ' + m.usd_myr.toFixed(4) + '</span>' : '') + '</p>' +
       blockChart(ix.spark, { rows: 6, label: ix.label + T(' 近 30 日'), fmt: function (v) { return v.toFixed(0); }, color: function (v, j, a) { return j && a[j] < a[j - 1] ? 'cd' : 'cu'; } }));
     h += heatmap();
@@ -1416,6 +1435,7 @@
     var w = fab.offsetWidth || 52;  // 一律用 left + bottom 的像素值，贴边时才能平滑滑过去
     fab.style.right = 'auto'; fab.style.top = 'auto';
     fab.style.left = (p.side === 'l' ? 12 : window.innerWidth - w - 12) + 'px'; fab.style.bottom = 'calc(' + Math.round(y) + 'px + env(safe-area-inset-bottom, 0px))';
+    document.body.classList.toggle('fab-l', p.side === 'l'); document.body.classList.toggle('fab-low', y - b.lo < 60);  // 浮动搜索框给 ✦ 按钮让位
   }
   function fabDrag(fab) {
     var st = null;
@@ -2131,7 +2151,7 @@
   function stdUrl() { return (D.report || '../') + '?ui=std'; }
   function render() {
     if (!D) return;
-    keys(); tabbar(TB.sq); EVREG = [];
+    keys(); tabbar(TB.sq); fsq(); EVREG = [];
     document.getElementById('prompt-arg').textContent = S.code ? 'quote ' + S.code : '--' + S.page;
     var fn = { cal: pageCal, sig: pageSig, watch: pageWatch, bt: pageBt, pool: pagePool, mkt: pageMkt, ann: pageAnn }[S.page] || pageSig;
     var focusId = document.activeElement && /^(grep|cb-q|sq)$/.test(document.activeElement.id) ? document.activeElement.id : null, focusGrep = !!focusId, pos = focusGrep ? document.activeElement.selectionStart : null;
@@ -2187,7 +2207,7 @@
     var t = e.target.closest('[data-page],[data-q],[data-back],[data-flt],[data-sort],[data-more],[data-cat],[data-heat]');
     if (!t) return;
     if (t.dataset.page) go(t.dataset.page);
-    else if (t.dataset.q) go(S.page, t.dataset.q);
+    else if (t.dataset.q) { if (t.classList.contains('sq-r')) sqClear(); go(S.page, t.dataset.q); }
     else if (t.dataset.back) go(S.page);
     else if (t.dataset.flt) { S.flt[t.dataset.flt] = !S.flt[t.dataset.flt]; S.limit = 50; render(); }
     else if (t.dataset.sort) setSort(t.dataset.sort);
@@ -2203,6 +2223,9 @@
     else if (d.cbn) { var n = parseFloat(el.value); CB[d.cbn] = isFinite(n) && n >= 0 ? n : 0; cbSave(); }
     else if (el.id === 'cb-from' || el.id === 'cb-to') { CB[el.id === 'cb-from' ? 'from' : 'to'] = el.value; cbSave(); render(); }
   });
+  // 点浮动搜索框外面：收起结果 (文字留着，再点输入框就回来)
+  document.addEventListener('pointerdown', function (e) { var el = document.getElementById('fsq'); if (el && !el.hidden && !(e.target.closest && e.target.closest('#fsq'))) el.classList.add('shut'); });
+  document.addEventListener('focusin', function (e) { if (e.target.id === 'sq') { var el = document.getElementById('fsq'); if (el) el.classList.remove('shut'); } });
   // 搜索框打字时只换下面的列表 / 建议，不重画整页：重画会换掉输入框，iPhone 键盘就从数字跳回字母
   document.addEventListener('input', function (e) {
     var id = e.target.id, box;
@@ -2219,7 +2242,7 @@
   document.addEventListener('keydown', function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey || !D) return;
     var typing = e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
-    if (e.key === 'Enter' && e.target.id === 'sq') { e.preventDefault(); var h0 = sqHits(S.sq)[0]; if (h0) { e.target.blur(); go(S.page, h0); } return; }
+    if (e.key === 'Enter' && e.target.id === 'sq') { e.preventDefault(); var h0 = sqHits(S.sq)[0]; if (h0) { sqClear(); go(S.page, h0); } return; }
     if (e.key === 'Enter' && e.target.id === 'wf-name') { e.preventDefault(); wSubmit(); render(); return; }
     if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'ai-q') { e.preventDefault(); aiAsk(e.target.value); return; }
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && AI.open && e.target.closest && e.target.closest('.ai-mrow')) {  // 模型那一排：← → 换模型
@@ -2228,12 +2251,13 @@
     }
     if (e.key === 'Escape' && AI.open) { AI.open = false; aiRender(); return; }
     if (e.key === 'Escape' && SY.open) { SY.open = false; acctRender(); return; }
+    if (e.key === 'Escape' && e.target.id === 'sq') { var fe = document.getElementById('fsq'); if (fe) fe.classList.add('shut'); e.target.blur(); return; }
     if (e.key === 'Escape') { if (typing) e.target.blur(); if (S.code) go(S.page); return; }
     if (typing) return;
     var n = parseInt(e.key, 10);
     if (n >= 1 && n <= PAGES.length) { go(PAGES[n - 1][0]); e.preventDefault(); return; }
     if (e.key === 'q' && S.code) { go(S.page); return; }
-    if (e.key === '/') { e.preventDefault(); if (S.page === 'sig' && !S.code) { var sq = document.getElementById('sq'); if (sq) sq.focus(); return; } go('pool'); var g = document.getElementById('grep'); if (g) g.focus(); return; }
+    if (e.key === '/') { e.preventDefault(); var sq = document.getElementById('sq'); if (sq) { var fe = document.getElementById('fsq'); if (fe) fe.classList.remove('shut'); sq.focus(); } return; }
     if (e.key === 't') { toggleTheme(); return; }
     if (e.key === 'k') { toggleCandle(); return; }
     if (S.page === 'pool' && !S.code) {
