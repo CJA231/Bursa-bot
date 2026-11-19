@@ -1556,32 +1556,145 @@
     cal: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'
   };
   var TBL = { sig: ['信号', 'Signals'], mkt: ['市场', 'Market'], watch: ['观察', 'Watch'], bt: ['回测', 'Backtest'], pool: ['股票池', 'Pool'], ann: ['公告', 'Filings'], cal: ['日历', 'Calendar'] };
-  var tbBuilt = false;
-  function tabbar() {
+  var tbBuilt = false, TB = { drag: false, x0: 0, moved: false, hot: null, lastX: 0, lastT: 0, eat: false };
+  var narrowUI = function () { return window.innerWidth < 780 && !WIDGET; };
+  var calmUI = function () { return window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches; };
+  function tbButtons() { return [].slice.call(document.querySelectorAll('#tabbar button[data-page]')); }
+  // 玻璃泡泡：外层负责位置 (translateX)，里面的 blob 负责「液体」拉伸变形
+  function tbPlace(x, w, opt) {
+    var ind = document.querySelector('#tabbar .tb-ind');
+    if (!ind) return;
+    opt = opt || {};
+    ind.classList.toggle('tb-free', !!opt.free);
+    ind.style.width = w + 'px'; ind.style.transform = 'translateX(' + x + 'px)';
+    var blob = ind.firstChild;
+    if (blob && opt.stretch != null) blob.style.transform = 'scale(' + (1 + opt.stretch).toFixed(3) + ',' + (1 - opt.stretch * 0.45).toFixed(3) + ')';
+    else if (blob && opt.squish && !calmUI()) { blob.style.transform = ''; blob.classList.remove('tb-squish'); void blob.offsetWidth; blob.classList.add('tb-squish'); }
+  }
+  function tbNearest(x) {
+    var bs = tbButtons(), best = null, bd = 1e9;
+    bs.forEach(function (b) { var d = Math.abs(b.offsetLeft + b.offsetWidth / 2 - x); if (d < bd) { bd = d; best = b; } });
+    return best;
+  }
+  function tbHot(b) {
+    if (TB.hot === b) return;
+    if (TB.hot) TB.hot.classList.remove('tb-hot');
+    TB.hot = b;
+    if (b) { b.classList.add('tb-hot'); try { if (navigator.vibrate) navigator.vibrate(4); } catch (e) {} }
+  }
+  function tabbar(squish) {
     var tb = document.getElementById('tabbar');
     if (!tb || WIDGET) return;
     if (!tbBuilt) {
       tb.setAttribute('aria-label', LANG === 'en' ? 'Pages' : '页面');
-      tb.innerHTML = '<div class="tb-in"><span class="tb-ind" aria-hidden="true"></span>' + PAGES.map(function (p) {
+      tb.innerHTML = '<div class="tb-in"><span class="tb-ind" aria-hidden="true"><span class="tb-blob"></span></span>' + PAGES.map(function (p) {
         return '<button type="button" data-page="' + p[0] + '"><svg viewBox="0 0 24 24" aria-hidden="true">' + TBI[p[0]] + '</svg><span>' + TBL[p[0]][LANG === 'en' ? 1 : 0] + '</span></button>'; }).join('') + '</div>';
       tbBuilt = true;
+      tbBind(tb);
     }
     var on = null;
-    [].forEach.call(tb.querySelectorAll('button[data-page]'), function (b) {
+    tbButtons().forEach(function (b) {
       var cur = b.dataset.page === S.page;
       if (cur) { b.setAttribute('aria-current', S.code ? 'true' : 'page'); on = b; } else b.removeAttribute('aria-current');
     });
-    var ind = tb.querySelector('.tb-ind');
-    if (on && ind && on.offsetWidth) {
-      ind.style.width = on.offsetWidth + 'px'; ind.style.transform = 'translateX(' + on.offsetLeft + 'px)';
-      var left = on.offsetLeft - (tb.clientWidth - on.offsetWidth) / 2;
-      if (tb.scrollWidth > tb.clientWidth) { try { tb.scrollTo({ left: Math.max(0, left), behavior: 'smooth' }); } catch (e) { tb.scrollLeft = left; } }
+    if (on && on.offsetWidth && !TB.drag) tbPlace(on.offsetLeft, on.offsetWidth, { squish: squish });
+  }
+  // 按住导航栏左右滑：泡泡跟着手指走 (边走边拉长)，经过的图标放大；放开就弹到最近那一页并切过去
+  function tbBind(tb) {
+    var inner = function () { return tb.querySelector('.tb-in'); };
+    tb.addEventListener('pointerdown', function (e) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      TB.drag = true; TB.moved = false; TB.x0 = e.clientX; TB.lastX = e.clientX; TB.lastT = e.timeStamp;
+      tb.classList.add('tb-press');
+    });
+    tb.addEventListener('pointermove', function (e) {
+      if (!TB.drag) return;
+      if (!TB.moved && Math.abs(e.clientX - TB.x0) < 6) return;
+      if (!TB.moved) { try { tb.setPointerCapture(e.pointerId); } catch (err) {} }  // 真的开始拖才锁定指针 (只点一下照常是按钮的 click)
+      TB.moved = true;
+      var r = inner().getBoundingClientRect(), bs = tbButtons(), w = bs[0] ? bs[0].offsetWidth : 50;
+      var x = Math.max(0, Math.min(r.width - w, e.clientX - r.left - w / 2));
+      var dt = Math.max(8, e.timeStamp - TB.lastT), v = Math.abs(e.clientX - TB.lastX) / dt;  // px / ms
+      TB.lastX = e.clientX; TB.lastT = e.timeStamp;
+      tbPlace(x, w, { free: true, stretch: Math.min(0.32, v * 0.22) });
+      tbHot(tbNearest(x + w / 2));
+    });
+    var end = function (e, cancel) {
+      if (!TB.drag) return;
+      TB.drag = false; tb.classList.remove('tb-press');
+      var hot = TB.hot; tbHot(null);
+      if (TB.moved) {
+        TB.eat = true;  // 拖完放开不要再当成点一下
+        if (!cancel && hot && (hot.dataset.page !== S.page || S.code)) go(hot.dataset.page, null, { swipe: true });
+        else tabbar(true);
+      }
+    };
+    tb.addEventListener('pointerup', function (e) { end(e, false); });
+    tb.addEventListener('pointercancel', function (e) { end(e, true); });
+    tb.addEventListener('click', function (e) { if (TB.eat) { TB.eat = false; e.stopPropagation(); e.preventDefault(); } }, true);
+  }
+  // 在页面上左右滑：换到前 / 后一页 (第 1 → 7 页)；页面和导航栏的泡泡都跟着手指动。个股页向右滑 = 返回
+  var SW = null;
+  function swScrollable(el) {
+    for (; el && el !== document.body; el = el.parentElement) {
+      if (/^(INPUT|TEXTAREA|SELECT|CANVAS)$/.test(el.tagName) || el.id === 'ai-panel' || el.id === 'ed-panel' || el.id === 'tabbar') return true;
+      if (el.scrollWidth > el.clientWidth + 2) { var ox = getComputedStyle(el).overflowX; if (ox === 'auto' || ox === 'scroll') return true; }
     }
+    return false;
+  }
+  function swIndex() { for (var i = 0; i < PAGES.length; i++) if (PAGES[i][0] === S.page) return i; return 0; }
+  function swTarget(dx) {
+    if (S.code) return dx > 0 ? { back: true } : null;
+    var i = swIndex() + (dx < 0 ? 1 : -1);
+    return i >= 0 && i < PAGES.length ? { page: PAGES[i][0] } : null;
+  }
+  document.addEventListener('touchstart', function (e) {
+    if (!narrowUI() || e.touches.length !== 1 || !main.contains(e.target) || swScrollable(e.target) || (AI && AI.open)) { SW = null; return; }
+    var t = e.touches[0];
+    SW = { x: t.clientX, y: t.clientY, dx: 0, lock: null, t: e.timeStamp };
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    if (!SW) return;
+    var t = e.touches[0], dx = t.clientX - SW.x, dy = t.clientY - SW.y;
+    if (!SW.lock) { if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; SW.lock = Math.abs(dx) > Math.abs(dy) * 1.3 ? 'x' : 'y'; }
+    if (SW.lock !== 'x') return;
+    e.preventDefault();
+    SW.dx = dx;
+    var tg = swTarget(dx), damp = tg ? 0.55 : 0.18;  // 头尾没有下一页：拉得动但有阻力
+    main.classList.add('sw-drag');
+    main.style.transform = 'translateX(' + (dx * damp).toFixed(1) + 'px)';
+    main.style.opacity = String(Math.max(0.55, 1 - Math.abs(dx) / 700));
+    if (tg && tg.page) {  // 泡泡也往目标那一页挪 (按滑动的比例)
+      var bs = tbButtons(), a = bs[swIndex()], b = bs.filter(function (x) { return x.dataset.page === tg.page; })[0];
+      if (a && b) { var f = Math.min(1, Math.abs(dx) / (window.innerWidth * 0.5)); tbPlace(a.offsetLeft + (b.offsetLeft - a.offsetLeft) * f, a.offsetWidth, { free: true, stretch: f * 0.28 * (1 - f) * 2 }); }
+    }
+  }, { passive: false });
+  document.addEventListener('touchend', function (e) {
+    if (!SW) return;
+    var s0 = SW; SW = null;
+    if (s0.lock !== 'x') return;
+    var dx = s0.dx, fast = Math.abs(dx) / Math.max(1, e.timeStamp - s0.t) > 0.5, tg = swTarget(dx);
+    main.classList.remove('sw-drag');
+    if (tg && (Math.abs(dx) > window.innerWidth * 0.28 || (fast && Math.abs(dx) > 40))) {
+      main.style.transform = ''; main.style.opacity = '';
+      if (tg.back) go(S.page, null, { swipe: true, dir: -1 }); else go(tg.page, null, { swipe: true });
+    } else {
+      main.classList.add('sw-back'); main.style.transform = ''; main.style.opacity = '';
+      setTimeout(function () { main.classList.remove('sw-back'); }, 320);
+      tabbar(true);
+    }
+  });
+  document.addEventListener('touchcancel', function () { if (SW) { SW = null; main.classList.remove('sw-drag'); main.style.transform = ''; main.style.opacity = ''; tabbar(); } });
+  // 换页动画：新的一页从滑动的方向滑进来
+  function pageIn(dir) {
+    if (!narrowUI() || calmUI() || !dir) return;
+    main.classList.remove('pg-l', 'pg-r'); void main.offsetWidth;
+    main.classList.add(dir > 0 ? 'pg-l' : 'pg-r');
   }
   function stdUrl() { return (D.report || '../') + '?ui=std'; }
   function render() {
     if (!D) return;
-    keys(); tabbar(); EVREG = [];
+    keys(); tabbar(TB.sq); EVREG = [];
     document.getElementById('prompt-arg').textContent = S.code ? 'quote ' + S.code : '--' + S.page;
     var fn = { cal: pageCal, sig: pageSig, watch: pageWatch, bt: pageBt, pool: pagePool, mkt: pageMkt, ann: pageAnn }[S.page] || pageSig;
     var focusId = document.activeElement && /^(grep|cb-q|sq)$/.test(document.activeElement.id) ? document.activeElement.id : null, focusGrep = !!focusId, pos = focusGrep ? document.activeElement.selectionStart : null;
@@ -1590,13 +1703,17 @@
     if (!BARS) loadBars();
     if (AI.open && !AI.busy && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#ai-panel'))) aiRender();
   }
-  function go(page, code) {
+  function go(page, code, opt) {
+    var from = PAGES.map(function (p) { return p[0]; }).indexOf(S.page), to = PAGES.map(function (p) { return p[0]; }).indexOf(page || S.page);
+    var dir = opt && opt.dir ? opt.dir : (code ? 1 : !code && S.code ? -1 : to > from ? 1 : to < from ? -1 : 0);  // 1 = 从右边进来，-1 = 从左边进来
+    var pageChanged = (page || S.page) !== S.page || (code || null) !== S.code;
     if ((code || null) !== S.code) S.qtab = 'ov';
     if (page && page !== S.page) S.alim = 40;
     S.page = page || S.page; S.code = code || null;
     var h = S.code ? '#q-' + S.code : '#' + S.page;
     if (location.hash !== h) history.replaceState(null, '', h);
-    render(); window.scrollTo(0, 0);
+    TB.sq = pageChanged; render(); TB.sq = false; window.scrollTo(0, 0);
+    if (pageChanged) pageIn(dir);
   }
   function fromHash() {
     var h = location.hash.slice(1);
