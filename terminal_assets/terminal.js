@@ -2815,7 +2815,11 @@
       if (!q || q.t === 'ema50') return;
       q = JSON.parse(JSON.stringify(q));
       if (XS[q.t]) { if (isFinite(n)) q[path] = n; }
-      else if (path === 'l.k') q = L === 'e' ? xNew(val) : cbNew(val);  // 换指标：用它常用的写法重新开始
+      else if (path === 'l.k') {  // 换左边的指标：一定留在左边
+        var dd = IND[val] && IND[val].d;
+        if (dd && !dd.l && (dd.v != null || dd.r)) q = L === 'e' ? xNew(val) : cbNew(val);  // 有常用写法 (RSI < 30、MACD 上穿信号线…)：用它
+        else { q.l = { k: val }; if (!q.r && OPS[q.op][3] === 'rv') q.r = { k: val === 'close' ? 'ema' : 'close' }; }  // 均线等：保留原来的比较，右边是数值就改成跟收盘价比
+      }
       else if (path === 'r.k') q.r = { k: val };
       else if (path === 'op') { if (OPS[val][3] === 'range' && OPS[q.op][3] !== 'range') { q.v2 = nn(q.v) ? q.v * 2 || 10 : 10; } q.op = val; }
       else if (/^[lr]\.p\.\d+$/.test(path)) { var pv = parseFloat(val); if (isFinite(pv)) q[path[0]].p[+path.split('.')[2]] = pv; }
