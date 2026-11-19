@@ -52,16 +52,39 @@ export default {
   },
 };
 
+// DeepSeek：模型名称失效时自动换新名称 (从错误信息读出 DeepSeek 现在支持的名称)；新名称默认开思考模式，一律关掉
+const DS_URL = 'https://api.deepseek.com/chat/completions', DS_FB = ['deepseek-flash', 'deepseek-v4-flash'];
+let DS_MODEL = 'deepseek-chat';  // 同一个 Worker 实例里，换过一次就一直用新的
+async function dsFetch(env, payload) {
+  const tried = [], todo = [DS_MODEL, ...DS_FB];
+  for (;;) {
+    const model = todo.find(x => !tried.includes(x));
+    if (!model) { const e = new Error('DeepSeek: no usable model (tried ' + tried.join(', ') + ')'); e.status = 502; throw e; }
+    const body = { ...payload, model };
+    if (model !== 'deepseek-chat') body.thinking = { type: 'disabled' };
+    const r = await fetch(DS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.DEEPSEEK_KEY }, body: JSON.stringify(body) });
+    if (r.status === 400 || r.status === 404) {
+      const t = await r.clone().text();
+      if (/model/i.test(t) && /support|not exist|invalid|deprecat|not found/i.test(t)) {
+        tried.push(model);
+        const m = /model names are\s+(.+?)(?:,?\s+but\b|\.|$)/i.exec(t);
+        if (m) m[1].split(/,|\band\b/).map(x => x.replace(/['"\s]/g, '')).filter(x => /^[\w.-]+$/.test(x))
+          .sort((a, b) => (/flash/.test(a) ? 0 : 1) - (/flash/.test(b) ? 0 : 1)).forEach(x => { if (!todo.includes(x)) todo.push(x); });
+        continue;
+      }
+    }
+    if (r.ok) DS_MODEL = model;
+    return r;
+  }
+}
+
 async function chat(env, c, body) {
   const msgs = (Array.isArray(body.messages) ? body.messages : []).filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string').slice(-MAX_MSG);
   if (!msgs.length) return new Response('no messages', { status: 400, headers: c.h });
   let total = 0;
   for (const m of msgs) { m.content = m.content.slice(0, MAX_CHARS); total += m.content.length; }
   if (total > MAX_CHARS * 2) return new Response('too long', { status: 413, headers: c.h });
-  const r = await fetch('https://api.deepseek.com/chat/completions', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.DEEPSEEK_KEY },
-    body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: SYSTEM + (body.lang === 'en' ? '\nThe user is reading the English version: answer in English (keep the same rules).' : '') }, ...msgs] }),
-  });
+  const r = await dsFetch(env, { temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: SYSTEM + (body.lang === 'en' ? '\nThe user is reading the English version: answer in English (keep the same rules).' : '') }, ...msgs] });
   return new Response(r.body, { status: r.status, headers: { ...c.h, 'Content-Type': r.headers.get('Content-Type') || 'text/event-stream', 'Cache-Control': 'no-cache' } });
 }
 
@@ -133,11 +156,8 @@ async function editAi(env, b) {
   if (!instr) throw bad('instruction missing');
   const user = [`公司: ${str(b.name, 80)} (${str(b.code, 10)})`, KIND_HINT[kind], '现在的内容 (JSON):', JSON.stringify(cur), '管理员的指令:', instr,
     refs ? '管理员的参考资料:\n' + refs : '管理员没有贴参考资料。', '页面上已有的资料:', ctx].join('\n');
-  const r = await fetch('https://api.deepseek.com/chat/completions', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.DEEPSEEK_KEY },
-    body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.2, max_tokens: 1800, response_format: { type: 'json_object' },
-      messages: [{ role: 'system', content: EDIT_SYS }, { role: 'user', content: user }] }),
-  });
+  const r = await dsFetch(env, { temperature: 0.2, max_tokens: 1800, response_format: { type: 'json_object' },
+    messages: [{ role: 'system', content: EDIT_SYS }, { role: 'user', content: user }] });
   if (!r.ok) { const e = new Error('DeepSeek HTTP ' + r.status); e.status = 502; throw e; }
   const j = await r.json();
   let out = {};

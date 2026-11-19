@@ -985,6 +985,33 @@
     box.innerHTML = h;
     var lg = document.getElementById('ai-log'); if (lg) lg.scrollTop = lg.scrollHeight;
   }
+  // DeepSeek (浏览器直接连，用自己的密钥)：模型名称失效时自动换新名称 (从错误信息读出 DeepSeek 现在支持的名称)，记在这台设备
+  var DS_URL = 'https://api.deepseek.com/chat/completions', DS_FB = ['deepseek-flash', 'deepseek-v4-flash'];
+  function dsModel() { try { return localStorage.getItem('bterm_ds_model') || 'deepseek-chat'; } catch (e) { return 'deepseek-chat'; } }
+  function dsFetch(key, payload) {
+    var tried = [], todo = [dsModel()].concat(DS_FB);
+    function attempt() {
+      var model = todo.filter(function (x) { return tried.indexOf(x) < 0; })[0];
+      if (!model) return Promise.reject(new Error(T('DeepSeek 模型都不能用 (试过 ') + tried.join(', ') + ')'));
+      var body = Object.assign({}, payload, { model: model });
+      if (model !== 'deepseek-chat') body.thinking = { type: 'disabled' };  // 新名称默认开思考模式：关掉，直接回答
+      return fetch(DS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify(body) }).then(function (r) {
+        if (r.status !== 400 && r.status !== 404) {
+          if (r.ok && model !== dsModel()) { try { localStorage.setItem('bterm_ds_model', model); } catch (e) {} }
+          return r;
+        }
+        return r.clone().text().then(function (t) {
+          if (!(/model/i.test(t) && /support|not exist|invalid|deprecat|not found/i.test(t))) return r;
+          tried.push(model);
+          var m = /model names are\s+(.+?)(?:,?\s+but\b|\.|$)/i.exec(t);
+          if (m) m[1].split(/,|\band\b/).map(function (x) { return x.replace(/['"\s]/g, ''); }).filter(function (x) { return /^[\w.\-]+$/.test(x); })
+            .sort(function (a, b) { return (/flash/.test(a) ? 0 : 1) - (/flash/.test(b) ? 0 : 1); }).forEach(function (x) { if (todo.indexOf(x) < 0) todo.push(x); });
+          return attempt();
+        });
+      });
+    }
+    return attempt();
+  }
   function aiAsk(q) {
     q = (q || '').trim(); if (!q || AI.busy) return;
     var key = S.code || S.page; if (AI.ctxKey !== key) { AI.msgs = []; AI.ctxKey = key; }  // 换了股票 / 页面就开新对话
@@ -993,8 +1020,7 @@
     AI.busy = true; aiRender();
     var cur = AI.msgs[AI.msgs.length - 1], hist = AI.msgs.slice(0, -1).map(function (m) { return { role: m.role, content: m.content }; });
     var req = AI.cfg.mode === 'worker' ? fetch(AI.cfg.url.replace(/\/$/, ''), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pass': AI.cfg.pass }, body: JSON.stringify({ messages: hist, lang: LANG }) })
-      : fetch('https://api.deepseek.com/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + AI.cfg.key },
-        body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: AI_SYS }].concat(hist) }) });
+      : dsFetch(AI.cfg.key, { temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: AI_SYS }].concat(hist) });
     req.then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(r.status + (r.status === 401 ? T(' 通行码 / 密钥不对') : r.status === 403 ? T(' 网址不被允许 (检查 ALLOW_ORIGIN)') : r.status === 402 ? T(' DeepSeek 额度不足') : '') + ' ' + t.slice(0, 120)); });
       var rd = r.body.getReader(), dec = new TextDecoder(), buf = '';

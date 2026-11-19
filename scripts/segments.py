@@ -153,7 +153,7 @@ def annual_numbers(code, entry, old, log=print):
     if not sel:
         return dict(base, status="none", segments=[])
     lines = [f"公司代码 {code}，年报 {entry.get('year', '')}", "页面:"] + [f"【第 {p} 页】 {pages[p - 1][:AR_CHARS]}" for p in sel]
-    r = m.client.chat.completions.create(model=m.AI_MODEL, temperature=0.1, max_tokens=2500, response_format={"type": "json_object"},
+    r = m.ai_chat(temperature=0.1, max_tokens=2500, response_format={"type": "json_object"},
                                          messages=[{"role": "system", "content": AR_PROMPT}, {"role": "user", "content": "\n".join(lines)}])
     out = json.loads(r.choices[0].message.content or "{}")
     segs, dropped = [], 0
@@ -224,7 +224,7 @@ def ask(code, name, detail, anns, bodies, ar_segs, year):
     if bodies:
         lines.append("公告内文:")
         lines += [f"[{i}] {t}" for i, t in bodies.items()]
-    r = m.client.chat.completions.create(model=m.AI_MODEL, temperature=0.1, max_tokens=3000, response_format={"type": "json_object"},
+    r = m.ai_chat(temperature=0.1, max_tokens=3000, response_format={"type": "json_object"},
                                          messages=[{"role": "system", "content": PROMPT}, {"role": "user", "content": "\n".join(lines)}])
     return json.loads(r.choices[0].message.content or "{}")
 
