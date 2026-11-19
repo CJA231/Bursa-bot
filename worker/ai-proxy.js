@@ -4,6 +4,7 @@
 // 2) POST /edit/ai     owner 编辑：按你的指令用 DeepSeek 改写一个模块 (AI 资讯 / 公司简介 / 日历事件 / IPO)，回传建议版本，不保存。
 // 3) POST /edit/save   owner 编辑：检查格式和字眼后，把你的版本提交到 GitHub 仓库的 docs/terminal/overrides.json，
 //                      GitHub Pages 约 1–2 分钟后更新，所有人都看得到。
+// 4) POST /theme       🎨 自定义界面：用一句话描述想要的样子，DeepSeek 设计一套配色 / 字号 / 圆角 (JSON)，网页上预览、存在用户自己的设备。
 //
 // 密钥都只存在 Cloudflare 的 Secret 里，网页上看不到。需要设置 (Workers → Settings → Variables and Secrets)：
 //   DEEPSEEK_KEY  (Secret) DeepSeek API 密钥 —— 建议另外开一个、设好用量上限
@@ -48,9 +49,31 @@ export default {
         return json(c, { error: String(e && e.message || e) }, e && e.status || 500);
       }
     }
+    if (path === '/theme') {
+      try { return json(c, await theme(env, body)); } catch (e) { return json(c, { error: String(e && e.message || e) }, e && e.status || 500); }
+    }
     return chat(env, c, body);
   },
 };
+
+// ---------- /theme：🎨 用一句话设计界面主题 (网页那边会再检查颜色格式和对比度) ----------
+const THEME_SYS = '你是网页界面配色设计师。根据用户的描述，为一个股票资讯终端 (等宽字体、很多数字和表格) 设计一套界面主题。只输出 JSON：' +
+  '{"name": 2~6 个字的主题名, "scheme": "dark" 或 "light", "bg": 页面背景, "bg2": 卡片 / 输入框背景, "fg": 主要文字, "mut": 次要文字, "line": 线条和边框, "acc": 标题和强调色, "acc2": 第二强调色 (按钮、链接), ' +
+  '"up": 上涨的颜色 (绿色系), "dn": 下跌的颜色 (红色系), "warn": 提醒 (黄 / 橙色系), "sel": 选中项目的背景, "font": 字号 12~17 的整数 (默认 13), "radius": 圆角 0~18 的整数 px (默认 0), "glass": 玻璃感 0~1 (默认 0.6，越小越透明), "note": 一句话说明这套设计}。' +
+  '颜色一律用 #RRGGBB。fg 跟 bg 的对比度至少 7:1，mut 至少 4.5:1，up / dn / acc 在 bg 上都要看得清楚。只输出 JSON。';
+async function theme(env, body) {
+  const prompt = typeof body.prompt === 'string' ? body.prompt.slice(0, 1500) : '';
+  if (!prompt.trim()) { const e = new Error('prompt missing'); e.status = 400; throw e; }
+  const r = await dsFetch(env, { temperature: 0.7, max_tokens: 600, response_format: { type: 'json_object' },
+    messages: [{ role: 'system', content: THEME_SYS + (body.lang === 'en' ? ' Write name and note in English.' : '') }, { role: 'user', content: prompt }] });
+  if (!r.ok) { const e = new Error('DeepSeek HTTP ' + r.status); e.status = 502; throw e; }
+  const j = await r.json();
+  let out = {};
+  try { out = JSON.parse((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '{}'); } catch (e) { out = {}; }
+  const pick = {};  // 只回传主题需要的栏位
+  ['name', 'scheme', 'bg', 'bg2', 'fg', 'mut', 'line', 'acc', 'acc2', 'up', 'dn', 'warn', 'sel', 'font', 'radius', 'glass', 'note'].forEach(k => { if (out[k] != null) pick[k] = out[k]; });
+  return { theme: pick };
+}
 
 // DeepSeek：模型名称失效时自动换新名称 (从错误信息读出 DeepSeek 现在支持的名称)；新名称默认开思考模式，一律关掉
 const DS_URL = 'https://api.deepseek.com/chat/completions', DS_FB = ['deepseek-flash', 'deepseek-v4-flash'];
