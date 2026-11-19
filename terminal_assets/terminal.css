@@ -199,6 +199,19 @@ pre::-webkit-scrollbar { display: none; }
 .cbg button { text-align: left; padding: 8px 6px; min-height: 38px; color: var(--fg); background: none; border: 0; border-bottom: 1px dotted var(--line); font: inherit; cursor: pointer; }
 .cbg button:hover, .cbg button:focus-visible { background: var(--sel); }
 .cbpop .more { justify-self: start; }
+.tpl-save { display: flex; gap: 6px; }
+.tpl-save input { flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r, 0px) + 6px); padding: 7px 10px; }
+.tpl-save .ok { flex: none; padding: 6px 12px; border: 1px solid var(--acc); color: var(--acc); background: none; border-radius: calc(var(--r, 0px) + 6px); font: inherit; cursor: pointer; }
+.tpl-note { margin: -4px 0 0; font-size: 12px; }
+.tpl-list { display: grid; max-height: min(50vh, 380px); overflow-y: auto; overscroll-behavior: contain; }
+.tpl-row { display: flex; align-items: stretch; border-bottom: 1px dotted var(--line); }
+.tpl-row.on { background: var(--sel); }
+.tpl-load { flex: 1; min-width: 0; display: grid; gap: 1px; text-align: left; padding: 8px 6px; background: none; border: 0; color: var(--fg); font: inherit; cursor: pointer; }
+.tpl-load .dim { font-size: 12px; }
+.tpl-load:hover { background: var(--sel); }
+.tpl-row .px { min-width: 38px; background: none; border: 0; color: var(--mut); cursor: pointer; }
+.tpl-row .px:hover { color: var(--dn); }
+@media (max-width: 779px) { .tpl-list { max-height: none; overflow: visible; } }
 @media (max-width: 779px) {
   .cbf-sep { display: none; }
   .cbf-row { gap: 5px; }

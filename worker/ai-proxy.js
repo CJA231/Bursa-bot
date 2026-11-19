@@ -172,7 +172,20 @@ function limitsOf(env, plan) {
 }
 
 // 只收这些栏位；超过免费 / Plus 上限的列表、股票不存 (那些只留在原来的设备)
-function cleanDoc(d, lim) {
+// tpl (回测策略模板) 只有网站管理员 (OWNER_EMAILS) 的账号会存，别人送来的直接丢掉
+function cleanTpl(a) {
+  const out = [], ids = new Set();
+  for (const t of Array.isArray(a) ? a : []) {
+    if (!t || typeof t !== 'object' || !Array.isArray(t.conds) || out.length >= 80) continue;
+    const id = str(t.id, 24); if (!id || ids.has(id)) continue;
+    const o = { id, name: str(t.name, 60) || id, conds: t.conds.slice(0, 15) };
+    ['take', 'stop', 'hold', 'emab', 'combo'].forEach(k => { if (typeof t[k] === 'number' && isFinite(t[k])) o[k] = t[k]; });
+    if (JSON.stringify(o).length > 4000) continue;
+    ids.add(id); out.push(o);
+  }
+  return out;
+}
+function cleanDoc(d, lim, owner) {
   d = d && typeof d === 'object' && !Array.isArray(d) ? d : {};
   const out = { v: 1, watch: null, prefs: {}, theme: null, cbt: null };
   let trimmed = false;
@@ -204,6 +217,7 @@ function cleanDoc(d, lim) {
     out.theme = { on: t.on !== false, t: tt };
   }
   if (d.cbt && typeof d.cbt === 'object' && !Array.isArray(d.cbt) && JSON.stringify(d.cbt).length <= 6000) out.cbt = d.cbt;
+  if (owner && Array.isArray(d.tpl)) out.tpl = cleanTpl(d.tpl);
   if (JSON.stringify(out).length > DOC_MAX) throw fail(413, 'too large');
   return { doc: out, trimmed };
 }
@@ -227,7 +241,7 @@ async function account(env, req, path, b) {
   if (path === '/sync/push') {
     // 别的设备先存了新版本 → 409 + 最新版本，网页合并后再送一次 (KV 不是即时一致，这只防常见的情况；网页那边是三方合并，不会丢资料)
     if (b.rev !== rev) throw fail(409, 'conflict', { rev, data: cur ? cur.data : null, updated: cur ? cur.updated : null, ...info });
-    const r = cleanDoc(b.data, lim);
+    const r = cleanDoc(b.data, lim, isOwner(env, u.email));
     const rec = { rev: rev + 1, updated: myNow(), email: u.email, data: r.doc };
     await env.SYNC.put(key, JSON.stringify(rec), { metadata: { email: u.email, updated: rec.updated } });  // 后台的 key 列表看得到是谁
     return { rev: rec.rev, updated: rec.updated, data: rec.data, trimmed: r.trimmed, ...info };

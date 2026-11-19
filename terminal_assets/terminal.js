@@ -745,6 +745,55 @@
     return d;
   })();
   function cbSave() { try { localStorage.setItem('bterm_cbt', JSON.stringify({ codes: CB.codes, from: CB.from, to: CB.to, conds: CB.conds, take: CB.take, stop: CB.stop, hold: CB.hold, emab: CB.emab, combo: CB.combo })); } catch (e) {} syncSoon(); }
+  // ---------- 回测策略模板 (只有网站管理员看得到；存在管理员自己的同步资料里，别人拿不到) ----------
+  var TPL = (function () { try { var a = JSON.parse(localStorage.getItem('bterm_tpl') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } })();
+  function tplSave() { try { localStorage.setItem('bterm_tpl', JSON.stringify(TPL)); } catch (e) {} syncSoon(); }
+  function tplOn() { return !!(ACC && ACC.owner); }
+  var E = function (n) { return { k: 'ema', p: [n] }; }, CL = { k: 'close' };
+  var TPL_BUILTIN = [  // [中文名, English, 条件, 结束条件]
+    ['后台策略', 'Built-in strategy', null, { take: 15, stop: 0, hold: 90, emab: 1, combo: 1 }],
+    ['MACD 金叉 + 放量', 'MACD cross + volume', [{ l: { k: 'macd', o: 'line' }, op: 'xup', r: { k: 'macd', o: 'sig' } }, { l: { k: 'rvol' }, op: 'ge', v: 1.5 }, { l: CL, op: 'gt', r: E(50) }], { take: 15, stop: 8, hold: 60, emab: 1, combo: 0 }],
+    ['RSI 超卖反弹', 'RSI oversold bounce', [{ l: { k: 'rsi' }, op: 'xup', v: 30, w: 3 }, { l: CL, op: 'gt', r: E(5) }, { l: { k: 'vol' }, op: 'ge', v: 5e5 }], { take: 10, stop: 7, hold: 30, emab: 0, combo: 0 }],
+    ['布林带突破', 'Bollinger breakout', [{ l: CL, op: 'xup', r: { k: 'bb', o: 'up' } }, { l: { k: 'rvol' }, op: 'ge', v: 2 }], { take: 20, stop: 8, hold: 40, emab: 1, combo: 0 }],
+    ['均线多头排列', 'Moving averages stacked up', [{ l: CL, op: 'gt', r: E(5) }, { l: E(5), op: 'gt', r: E(20) }, { l: E(20), op: 'gt', r: E(50) }, { l: { k: 'adx', o: 'adx' }, op: 'gt', v: 20 }], { take: 20, stop: 8, hold: 90, emab: 1, combo: 1 }],
+    ['20 日新高 + 放量', '20-day high + volume', [{ l: CL, op: 'gt', r: { k: 'hh', p: [20] } }, { l: { k: 'rvol' }, op: 'ge', v: 2 }, { l: { k: 'chg' }, op: 'ge', v: 3 }], { take: 20, stop: 8, hold: 40, emab: 1, combo: 0 }],
+    ['KD 低位金叉', 'Stochastic cross from low', [{ l: { k: 'stoch', o: 'k' }, op: 'xup', r: { k: 'stoch', o: 'd' } }, { l: { k: 'stoch', o: 'd' }, op: 'lt', v: 30 }], { take: 10, stop: 6, hold: 30, emab: 0, combo: 0 }],
+    ['Supertrend 转多', 'Supertrend turns up', [{ l: { k: 'st', o: 'trend' }, op: 'xup', v: 0 }, { l: { k: 'vol' }, op: 'ge', v: 1e6 }], { take: 20, stop: 0, hold: 90, emab: 0, combo: 1 }],
+    ['一目云上', 'Above the Ichimoku cloud', [{ l: CL, op: 'gt', r: { k: 'ichi', o: 'a' } }, { l: CL, op: 'gt', r: { k: 'ichi', o: 'b' } }, { l: { k: 'ichi', o: 'conv' }, op: 'xup', r: { k: 'ichi', o: 'base' }, w: 3 }], { take: 20, stop: 8, hold: 60, emab: 0, combo: 1 }],
+    ['价值 + 趋势', 'Value + trend', [{ l: { k: 'pe' }, op: 'in', v: 5, v2: 15 }, { l: { k: 'roe' }, op: 'gt', v: 10 }, { l: CL, op: 'xup', r: E(50), w: 5 }], { take: 20, stop: 10, hold: 120, emab: 0, combo: 0 }],
+    ['成长股', 'Growth', [{ l: { k: 'rev_yoy' }, op: 'gt', v: 15 }, { l: { k: 'ni_yoy' }, op: 'gt', v: 15 }, { l: CL, op: 'xup', r: E(20), w: 3 }], { take: 25, stop: 10, hold: 120, emab: 1, combo: 0 }]
+  ];
+  function tplCur() { return { conds: CB.conds.map(function (q) { return JSON.parse(JSON.stringify(q)); }), take: CB.take, stop: CB.stop, hold: CB.hold, emab: CB.emab, combo: CB.combo }; }
+  function tplId() { return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+  function tplSum(t) { return Z(t.conds.length + ' 个条件', t.conds.length + ' conditions') + (t.take ? Z(' · 止盈 ', ' · TP ') + t.take + '%' : '') + (t.stop ? Z(' · 止损 ', ' · SL ') + t.stop + '%' : '') + (t.hold ? Z(' · 最长 ', ' · max ') + t.hold + Z(' 天', 'd') : ''); }
+  function tplClick(a, v) {
+    if (!tplOn()) return;
+    if (a === 'tsave') {
+      var nm = ((document.getElementById('tpl-name') || {}).value || '').trim().slice(0, 60); if (!nm) { var ie = document.getElementById('tpl-name'); if (ie) ie.focus(); return; }
+      var old = TPL.filter(function (t) { return t.name === nm; })[0], t = tplCur(); t.name = nm; t.id = old ? old.id : tplId();
+      if (old) TPL[TPL.indexOf(old)] = t; else TPL.unshift(t);
+      CB.tpl = t.id; CB.tnote = old ? Z('已更新', 'Updated') : Z('已保存', 'Saved'); tplSave(); render();
+    } else if (a === 'tload') {
+      var x = TPL.filter(function (t) { return t.id === v; })[0]; if (!x) return;
+      CB.conds = cbConds(x); ['take', 'stop', 'hold', 'emab', 'combo'].forEach(function (k) { if (x[k] != null) CB[k] = x[k]; });
+      CB.tpl = x.id; CB.tnote = ''; CB.pop = null; cbSave(); render(); cbRe();
+    } else if (a === 'tdel') {
+      var y = TPL.filter(function (t) { return t.id === v; })[0]; if (!y || !window.confirm(Z('删除模板「' + y.name + '」？', 'Delete template “' + y.name + '”?'))) return;
+      TPL = TPL.filter(function (t) { return t !== y; }); if (CB.tpl === v) CB.tpl = null; CB.tnote = ''; tplSave(); render();
+    } else if (a === 'tseed') {
+      TPL_BUILTIN.forEach(function (b) { var t = { id: tplId(), name: Z(b[0], b[1]), conds: (b[2] || CB_DEF).map(cbCond).filter(Boolean) }; Object.keys(b[3]).forEach(function (k) { t[k] = b[3][k]; }); TPL.push(t); });
+      CB.tnote = ''; tplSave(); render();
+    }
+  }
+  function tplPop(head) {
+    var cur = TPL.filter(function (t) { return t.id === CB.tpl; })[0];
+    return head(Z('策略模板', 'Strategy templates')) +
+      '<div class="tpl-save"><input id="tpl-name" type="text" maxlength="60" autocomplete="off" placeholder="' + Z('模板名称', 'Template name') + '" value="' + esc(cur ? cur.name : '') + '"><button type="button" class="ok" data-cb="tsave">' + Z('保存目前设定', 'Save current') + '</button></div>' +
+      (CB.tnote ? '<p class="up tpl-note">' + esc(CB.tnote) + '</p>' : '') +
+      (TPL.length ? '<div class="tpl-list">' + TPL.map(function (t) {
+        return '<div class="tpl-row' + (t.id === CB.tpl ? ' on' : '') + '"><button type="button" class="tpl-load" data-cb="tload" data-v="' + esc(t.id) + '"><b>' + esc(t.name) + '</b><span class="dim">' + esc(tplSum(t)) + '</span></button><button type="button" class="px" data-cb="tdel" data-v="' + esc(t.id) + '" aria-label="' + Z('删除 ', 'Delete ') + esc(t.name) + '">🗑</button></div>';
+      }).join('') + '</div>' : '<button type="button" class="more" data-cb="tseed">' + Z('载入 ' + TPL_BUILTIN.length + ' 个内置策略模板', 'Load ' + TPL_BUILTIN.length + ' built-in strategy templates') + '</button>');
+  }
   var DAILY = {}, PROF = {}, FIN = {};  // 代码 → 日线 [{d,o,h,l,c,v}]；代码 → 公司简介 (stock/<代码>.json 的 profile)
   var DLOAD = {};  // 同一支股票同时只下载一次
   function loadDaily(code) {
@@ -912,6 +961,9 @@
     var h = '';
     if (p.indexOf('c:') === 0) {
       h = condEd(+p.slice(2)); if (!h) return '';
+    } else if (p === 'tpl') {
+      if (!tplOn()) return '';
+      h = tplPop(head);
     } else if (p === 'add') {
       h = head(Z('添加进场条件', 'Add entry condition')) + '<div class="grep"><label for="cb-cq">' + Z('搜索&gt;', 'find&gt;') + '</label><input id="cb-cq" type="search" autocomplete="off" spellcheck="false" placeholder="' + Z('RSI、MACD、本益比…', 'RSI, MACD, P/E…') + '" value="' + esc(CB.cq || '') + '"></div>' +
         '<div id="cb-clist">' + cbList() + '</div><button type="button" class="more" data-cb="reset">' + Z('恢复后台策略的 6 个条件', 'Reset to the 6 default conditions') + '</button>';
@@ -939,7 +991,8 @@
     var name = function (c) { return ST[c] ? ST[c].name : NAMES[c] || c; };
     var stk = CB.codes.length === 1 ? esc(name(CB.codes[0])) : CB.codes.length ? Z(CB.codes.length + ' 支', CB.codes.length + ' stocks') : Z('未选', 'none');
     var per = !CB.from && !CB.to ? Z('全部', 'All') : md(CB.from || (CB.res && CB.res.first) || '') + ' ~ ' + (CB.to ? md(CB.to) : Z('最新', 'now'));
-    var row1 = pill('stocks', Z('股票', 'Stocks'), stk) + pill('period', Z('期间', 'Period'), per) + '<span class="cbf-sep" aria-hidden="true"></span>' +
+    var tcur = TPL.filter(function (t) { return t.id === CB.tpl; })[0];
+    var row1 = (tplOn() ? pill('tpl', Z('模板', 'Template'), tcur ? esc(tcur.name) : TPL.length ? Z(TPL.length + ' 个', TPL.length + '') : '+') : '') + pill('stocks', Z('股票', 'Stocks'), stk) + pill('period', Z('期间', 'Period'), per) + '<span class="cbf-sep" aria-hidden="true"></span>' +
       CB.conds.map(function (q, i) { var l = cbLbl(q); return pill('c:' + i, esc(l[0]), esc(l[1]), ['cdel', i], l.join(' ')); }).join('') +
       (CB.conds.length < 15 ? '<button type="button" class="padd" data-cb="pop" data-v="add" aria-expanded="' + (CB.pop === 'add') + '">+ ' + Z('条件', 'Condition') + '</button>' : '');
     var xs = Object.keys(CBX).filter(cbXon);
@@ -992,7 +1045,8 @@
     else if (a === 'del') { CB.codes = CB.codes.filter(function (c) { return c !== v; }); cbSave(); render(); cbRe(); }
     else if (a === 'preset') { cbPreset(v); cbRe(); }
     else if (a === 'run') { CB.pop = null; cbRun(); }
-    else if (a === 'pop') { CB.pop = v && CB.pop !== v ? v : null; CB.cq = ''; render(); var f = CB.pop && document.querySelector(CB.pop === 'add' ? '#cb-cq' : CB.pop === 'stocks' ? '#cb-q' : '#cbpop select, #cbpop input'); if (f && !narrowUI()) f.focus(); }
+    else if (a === 'tsave' || a === 'tload' || a === 'tdel' || a === 'tseed') tplClick(a, v);
+    else if (a === 'pop') { CB.pop = v && CB.pop !== v ? v : null; CB.cq = ''; CB.tnote = ''; render(); var f = CB.pop && document.querySelector(CB.pop === 'add' ? '#cb-cq' : CB.pop === 'stocks' ? '#cb-q' : '#cbpop select, #cbpop input'); if (f && !narrowUI()) f.focus(); }
     else if (a === 'cdel') { CB.conds.splice(+v, 1); CB.pop = null; cbSave(); render(); cbRe(); }
     else if (a === 'cadd') { var nq = cbNew(v); if (!nq) return; CB.conds.push(nq); CB.pop = nq.t ? null : 'c:' + (CB.conds.length - 1); cbSave(); render(); cbRe(); }
     else if (a === 'rt') { var rp = v.split(':'), rq = CB.conds[+rp[0]]; if (!rq || rq.t) return; rq = JSON.parse(JSON.stringify(rq));
@@ -2583,7 +2637,7 @@
       S.af = ab.dataset.af || ''; var sl = document.querySelector('.fscroll'), x = sl ? sl.scrollLeft : 0; render();
       var sl2 = document.querySelector('.fscroll'); if (sl2) { sl2.scrollLeft = x; var on = sl2.querySelector('[aria-pressed="true"]'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
       return; }
-    if (CB.pop && S.page === 'bt' && !e.target.closest('#cbf')) { CB.pop = null; if (!e.target.closest('[data-cb],[data-q],[data-page]')) { render(); return; } }
+    if (CB.pop && S.page === 'bt' && !e.target.closest('#cbf')) { CB.pop = null; CB.tnote = ''; render(); }  // 点编辑框外面：先收起，这一下照常生效 (例如点账号按钮)
     var cbt = e.target.closest('[data-cb]'); if (cbt) { cbClick(cbt); return; }
     var thb = e.target.closest('[data-th]'); if (thb) { themeClick(thb); return; }
     var ai = e.target.closest('[data-ai]'); if (ai) { aiClick(ai); return; }
@@ -2651,6 +2705,7 @@
     if (e.metaKey || e.ctrlKey || e.altKey || !D) return;
     var typing = e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
     if (e.key === 'Enter' && e.target.id === 'sq') { e.preventDefault(); var h0 = sqHits(S.sq)[0]; if (h0) { sqClear(); go(S.page, h0); } return; }
+    if (e.key === 'Enter' && e.target.id === 'tpl-name') { e.preventDefault(); tplClick('tsave'); return; }
     if (e.key === 'Enter' && e.target.id === 'wf-name') { e.preventDefault(); wSubmit(); render(); return; }
     if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'ai-q') { e.preventDefault(); aiAsk(e.target.value); return; }
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && AI.open && e.target.closest && e.target.closest('.ai-mrow')) {  // 模型那一排：← → 换模型
@@ -2726,7 +2781,7 @@
     if ((v = lsGet('bterm_btmode')) === 'ledger' || v === 'custom') p.btmode = v;
     try { cbt = JSON.parse(lsGet('bterm_cbt') || 'null'); } catch (e) { cbt = null; }
     return { v: 1, watch: { folders: W.folders.map(function (f) { return { id: f.id, name: f.name, codes: f.codes.slice() }; }), cur: W.cur },
-      prefs: p, theme: th && th.t ? { on: th.on !== false, t: th.t } : null, cbt: cbt && typeof cbt === 'object' && !Array.isArray(cbt) ? cbt : null };
+      prefs: p, theme: th && th.t ? { on: th.on !== false, t: th.t } : null, cbt: cbt && typeof cbt === 'object' && !Array.isArray(cbt) ? cbt : null, tpl: tplOn() ? TPL : undefined };
   }
   function mergeWatch(b, l, r, first) {
     if (!r || !r.folders || !r.folders.length) return l;
@@ -2758,6 +2813,7 @@
     var nt = function (x) { return x && x.t ? { on: x.on !== false, t: themeClean(x.t) || x.t } : null; };  // 主题先整理成同一个格式再比较
     out.theme = pick(nt(l.theme), nt(r.theme), nt(b.theme)) || null;
     out.cbt = pick(l.cbt, r.cbt, b.cbt) || null;
+    if (l.tpl || r.tpl) out.tpl = pick(l.tpl, r.tpl, b.tpl) || [];
     out.watch = mergeWatch(first ? null : b.watch, l.watch, r.watch, first);
     return out;
   }
@@ -2787,6 +2843,7 @@
       CB.conds = cbConds(d.cbt); CB.pop = null;
       CB.res = null; cbSave(); redraw = true;
     }
+    if (Array.isArray(d.tpl) && tplOn() && !same(TPL, d.tpl)) { TPL = d.tpl; try { localStorage.setItem('bterm_tpl', JSON.stringify(TPL)); } catch (e) {} redraw = true; }
     if (redraw && D) render();
   }
   function accApi(path, body) {
@@ -2857,7 +2914,7 @@
     var fin = function () {
       if ((pending() || (ACC && ACC.trimmed)) && !window.confirm(Z('部分观察列表没有存到云端 (超出免费版上限或同步失败)，登出后会从这台设备删除。仍然登出？',
         'Some watchlist items are not saved to the cloud (over the free limit or not synced) and will be removed from this device. Sign out anyway?'))) { acctRender(); return; }
-      accOut(); watchReset(); SY.err = ''; SY.note = Z('已登出', 'Signed out'); acctRender(); if (D) render();
+      accOut(); watchReset(); TPL = []; CB.tpl = null; try { localStorage.removeItem('bterm_tpl'); } catch (e) {} SY.err = ''; SY.note = Z('已登出', 'Signed out'); acctRender(); if (D) render();
     };
     if (pending()) syncRun().then(fin); else fin();
   }
