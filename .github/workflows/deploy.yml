@@ -32,6 +32,19 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # GitHub Pages 的来源要是「GitHub Actions」：还是「Deploy from a branch (main /docs)」的话，GitHub 会一直用 main 的 docs/ 发布
+      # (main 已经没有生成的网页 → 整个网站 404)，这里部署成功也不会生效。读得到设定而且不对就直接失败，不要假装成功
+      - name: Check Pages source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bt=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${{ github.repository }}/pages" \
+               | python3 -c "import json,sys; print(json.load(sys.stdin).get('build_type') or '')") || bt=""
+          if [ "$bt" = "legacy" ]; then
+            echo "::error::GitHub Pages 的来源还是「Deploy from a branch」，网站会是 404。到 Settings → Pages → Build and deployment → Source 改成「GitHub Actions」，再重新跑这个流程 (Run workflow)"
+            exit 1
+          fi
+          echo "Pages build_type: ${bt:-读不到 (继续部署)}"
       - uses: actions/checkout@v7
         with:
           ref: main
