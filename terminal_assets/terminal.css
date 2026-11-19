@@ -451,6 +451,19 @@ pre.ipo-t button { font: inherit; padding: 0; border: 0; background: none; curso
 .acct-act .danger { color: var(--dn); border-color: color-mix(in srgb, var(--dn) 45%, transparent); }
 .g-btn { min-height: 44px; display: flex; align-items: center; }
 .wg #acct-btn, .wg #acct-panel { display: none !important; }
+/* 💎 升级 Plus / 👑 管理员 */
+.acct-up { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--acc) 45%, transparent); background: color-mix(in srgb, var(--acc) 9%, transparent); }
+.acct-up .acct-act .ok { flex: 1; }
+.acct-admin { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.adm-form { display: grid; gap: 6px; }
+.adm-row { display: flex; gap: 6px; } .adm-row > * { flex: 1; min-width: 0; }
+.adm-form input, .adm-form select { font: inherit; font-size: 16px; color: var(--fg); background: color-mix(in srgb, var(--bg2) 85%, transparent); border: 1px solid var(--line); padding: 7px 10px; border-radius: 10px; min-width: 0; }
+.adm-form .ok { padding: 6px 14px; border: 0; color: var(--bg); background: var(--acc); font-weight: 700; min-height: 44px; border-radius: 12px; }
+.adm-form .ok[disabled] { opacity: .5; }
+.adm-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; max-height: 260px; overflow-y: auto; }
+.adm-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.adm-list li > div { display: grid; min-width: 0; font-size: 12px; } .adm-list b { word-break: break-all; font-size: 13px; }
+.adm-list .danger { flex: none; color: var(--dn); border: 1px solid color-mix(in srgb, var(--dn) 45%, transparent); border-radius: 10px; padding: 4px 10px; min-height: 36px; background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
 /* 🎨 自定义界面 */
 .th { display: grid; gap: 10px; overflow-y: auto; }
 .th p { margin: 0; }

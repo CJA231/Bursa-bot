@@ -22,6 +22,9 @@
 //   KV 绑定 SYNC              Workers → Settings → Bindings → KV namespace，变量名称 SYNC
 //   PLUS_EMAILS      (Text)   付费 (Plus) 用户的电邮，逗号分隔；也可以在 KV 加一笔 plus:<电邮> = 到期日 YYYY-MM-DD (或 forever)
 //   FREE_MAX_FOLDERS / FREE_MAX_STOCKS / PLUS_MAX_FOLDERS / PLUS_MAX_STOCKS (Text，可不设) 同步上限，默认 1 / 30 / 5 / 2000
+//   OWNER_EMAILS     (Text)   网站管理员的电邮：自己是 Plus，账号面板里可以手动开通 / 取消别人的 Plus
+//   STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET (Secret)、STRIPE_PRICE_MONTH / STRIPE_PRICE_YEAR (Text)：Stripe 自动收款 (可不设)
+// 6) POST /admin/plus/list|set|remove (管理员)、/pay/checkout|portal (登录的用户)、/pay/webhook (Stripe 呼叫，签名验证)
 const SYSTEM = `你是 Bursa Bot 终端版里的 AI 助手，帮用户看懂马来西亚股票的公开资料。
 用户的问题后面会附上「当前页面资料」(价格、技术指标、财报数字、公告、新闻、AI 整理的近况)，回答要以这些资料为根据，资料里没有的就说没有，不要编造数字或事件。
 用简体中文回答，条理清楚、简短；需要时分点。可以解释指标是什么意思、财报数字的变化、公告在说什么、有哪些需要留意的事项。
@@ -43,10 +46,12 @@ export default {
     const c = cors(env, req);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: c.h });
     if (req.method !== 'POST') return new Response('POST only', { status: 405, headers: c.h });
-    if (!c.ok) return new Response('origin not allowed', { status: 403, headers: c.h });
     const path = new URL(req.url).pathname.replace(/\/+$/, '');
+    // 💳 Stripe 付款通知：Stripe 的服务器直接呼叫 (没有 Origin)，靠签名验证，不走下面的网址 / 通行码检查
+    if (path === '/pay/webhook') return stripeWebhook(env, req);
+    if (!c.ok) return new Response('origin not allowed', { status: 403, headers: c.h });
     // 👤 登录 / 跨设备同步：用 Google 账号登录，不用通行码 (任何人都可以登录)
-    if (path.startsWith('/auth/') || path.startsWith('/sync/')) {
+    if (path.startsWith('/auth/') || path.startsWith('/sync/') || path.startsWith('/admin/') || path.startsWith('/pay/')) {
       let b = {};
       try { b = await req.json(); } catch (e) { b = {}; }
       try { return json(c, await account(env, req, path, b || {})); } catch (e) { return json(c, { error: String(e && e.message || e), ...(e && e.extra || {}) }, e && e.status || 500); }
@@ -150,12 +155,14 @@ async function sessionCheck(env, req) {
   return { sub: String(p.s), email: String(p.e || '') };
 }
 
+const emailList = v => String(v || '').toLowerCase().split(/[\s,;]+/).filter(Boolean);
+const isOwner = (env, email) => !!email && emailList(env.OWNER_EMAILS).includes(email);
 async function planOf(env, email) {
-  if (String(env.PLUS_EMAILS || '').toLowerCase().split(/[\s,;]+/).includes(email)) return { plan: 'plus', until: null };
-  const v = env.SYNC && email ? await env.SYNC.get('plus:' + email) : null;  // Cloudflare 后台 KV 加一笔就升级，不用重新部署
-  const s = String(v || '').trim();
-  if (/^(forever|true|1)$/i.test(s)) return { plan: 'plus', until: null };
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s) && s >= myNow().slice(0, 10)) return { plan: 'plus', until: s };
+  if (isOwner(env, email) || emailList(env.PLUS_EMAILS).includes(email)) return { plan: 'plus', until: null };
+  const r = env.SYNC && email ? await env.SYNC.getWithMetadata('plus:' + email) : null;  // Cloudflare 后台 KV 加一笔就升级，不用重新部署
+  const s = String((r && r.value) || '').trim(), stripe = !!(r && r.metadata && r.metadata.cus);  // stripe = 有 Stripe 订阅 (可以「管理订阅」)
+  if (/^(forever|true|1)$/i.test(s)) return { plan: 'plus', until: null, stripe };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s) && s >= myNow().slice(0, 10)) return { plan: 'plus', until: s, stripe };
   return { plan: 'free', until: null };
 }
 function limitsOf(env, plan) {
@@ -205,15 +212,17 @@ async function account(env, req, path, b) {
   if (path === '/auth/login') {
     const u = await verifyGoogle(env, b.credential);
     const pl = await planOf(env, u.email);
-    return { token: await sessionIssue(env, u), email: u.email, name: u.name, picture: u.picture, days: SESSION_DAYS, ...pl, limits: limitsOf(env, pl.plan) };
+    return { token: await sessionIssue(env, u), email: u.email, name: u.name, picture: u.picture, days: SESSION_DAYS, ...pl, limits: limitsOf(env, pl.plan), ...extras(env, u.email) };
   }
   const u = await sessionCheck(env, req);
   if (!env.SYNC) throw fail(501, 'KV binding SYNC not set');
+  if (path.startsWith('/admin/')) return admin(env, u, path, b);
+  if (path.startsWith('/pay/')) return pay(env, u, path, b, req);
   const key = 'd:' + u.sub;
   if (path === '/sync/delete') { await env.SYNC.delete(key); return { ok: true }; }
   const pl = await planOf(env, u.email), lim = limitsOf(env, pl.plan);
   const cur = await env.SYNC.get(key, 'json');
-  const rev = cur && cur.rev || 0, info = { email: u.email, ...pl, limits: lim };
+  const rev = cur && cur.rev || 0, info = { email: u.email, ...pl, limits: lim, ...extras(env, u.email) };
   if (path === '/sync/pull') return { rev, data: cur ? cur.data : null, updated: cur ? cur.updated : null, ...info };
   if (path === '/sync/push') {
     // 别的设备先存了新版本 → 409 + 最新版本，网页合并后再送一次 (KV 不是即时一致，这只防常见的情况；网页那边是三方合并，不会丢资料)
@@ -224,6 +233,131 @@ async function account(env, req, path, b) {
     return { rev: rec.rev, updated: rec.updated, data: rec.data, trimmed: r.trimmed, ...info };
   }
   throw fail(404, 'not found');
+}
+
+// ---------- 💎 Plus：网站管理员手动开通 + Stripe 自动收款 ----------
+// OWNER_EMAILS (Text)：网站管理员的电邮 (自己永远是 Plus，账号面板会多一个「管理 Plus 用户」)
+// Stripe (可不设，没设 = 只能手动开通)：STRIPE_SECRET_KEY (Secret)、STRIPE_WEBHOOK_SECRET (Secret)、STRIPE_PRICE_MONTH / STRIPE_PRICE_YEAR (Text，价格 ID price_…)
+// KV：plus:<电邮> = 到期日 YYYY-MM-DD 或 forever (跟以前一样，Cloudflare 后台也可以直接改)；metadata 记来源、Stripe 客户编号，给管理面板和「管理订阅」用
+const DAY = 864e5;
+const isoDay = ms => new Date(ms + 8 * 3600e3).toISOString().slice(0, 10);  // 马来西亚日期
+const laterOf = (a, b) => a === 'forever' || b === 'forever' ? 'forever' : (a || '') > (b || '') ? a : b;
+const emailOk = e => typeof e === 'string' && e.length <= 120 && /^[^\s@<>"']+@[^\s@<>"']+\.[a-z]{2,}$/i.test(e);
+function payReady(env) { return !!(env.STRIPE_SECRET_KEY && (env.STRIPE_PRICE_MONTH || env.STRIPE_PRICE_YEAR)); }
+function extras(env, email) {
+  const o = { pay: payReady(env) ? { month: !!env.STRIPE_PRICE_MONTH, year: !!env.STRIPE_PRICE_YEAR } : null };
+  if (isOwner(env, email)) o.owner = true;
+  return o;
+}
+async function plusGet(env, email) {
+  const r = await env.SYNC.getWithMetadata('plus:' + email);
+  return r && r.value != null ? { until: String(r.value).trim(), meta: r.metadata || {} } : null;
+}
+async function plusPut(env, email, until, meta) {
+  await env.SYNC.put('plus:' + email, until, { metadata: { ...meta, until, at: myNow() } });
+}
+
+async function admin(env, u, path, b) {
+  if (!isOwner(env, u.email)) throw fail(403, 'owner only');
+  if (path === '/admin/plus/list') {
+    const out = [];
+    let cursor;
+    do {  // 后台直接加的 (没有 metadata) 才要另外读值
+      const pg = await env.SYNC.list({ prefix: 'plus:', cursor });
+      for (const k of pg.keys) {
+        const m = k.metadata || {};
+        out.push({ email: k.name.slice(5), until: m.until || String(await env.SYNC.get(k.name) || '').trim(), src: m.src || 'manual', at: m.at || '', note: m.note || '' });
+      }
+      cursor = pg.list_complete ? null : pg.cursor;
+    } while (cursor && out.length < 2000);
+    out.sort((x, y) => (y.at || '').localeCompare(x.at || '') || x.email.localeCompare(y.email));
+    return { items: out, plusEmails: emailList(env.PLUS_EMAILS), owners: emailList(env.OWNER_EMAILS), today: myNow().slice(0, 10) };
+  }
+  const email = String(b.email || '').trim().toLowerCase();
+  if (!emailOk(email)) throw fail(400, 'bad email');
+  if (path === '/admin/plus/set') {
+    const until = b.until === 'forever' ? 'forever' : /^\d{4}-\d{2}-\d{2}$/.test(b.until || '') ? b.until : '';
+    if (!until) throw fail(400, 'bad date');
+    const old = await plusGet(env, email);
+    await plusPut(env, email, until, { ...(old ? old.meta : {}), src: 'manual', by: u.email, note: str(b.note, 80) || (old && old.meta.note) || '' });  // 没填备注就保留旧的
+    return { ok: true, email, until };
+  }
+  if (path === '/admin/plus/remove') { await env.SYNC.delete('plus:' + email); return { ok: true, email }; }
+  throw fail(404, 'not found');
+}
+
+// Stripe API (表单格式)
+function form(obj, pre, out) {
+  out = out || [];
+  for (const [k, v] of Object.entries(obj)) {
+    const key = pre ? `${pre}[${k}]` : k;
+    if (v == null) continue;
+    if (typeof v === 'object') form(v, key, out); else out.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(v)));
+  }
+  return out.join('&');
+}
+async function stripe(env, path, params) {
+  const r = await fetch('https://api.stripe.com/v1/' + path, { method: 'POST', body: form(params),
+    headers: { Authorization: 'Bearer ' + env.STRIPE_SECRET_KEY, 'Content-Type': 'application/x-www-form-urlencoded' } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw fail(502, 'Stripe: ' + ((j.error && j.error.message) || 'HTTP ' + r.status));
+  return j;
+}
+function backUrl(env, b) {  // 付款完 / 取消后回到哪里：只接受本网站的网址
+  const u = typeof b.back === 'string' ? b.back : '';
+  const site = env.ALLOW_ORIGIN || '';
+  return site && u.startsWith(site + '/') && u.length < 400 ? u.replace(/[?#].*$/, '') : (site || 'https://example.com') + '/';
+}
+async function pay(env, u, path, b) {
+  if (!payReady(env)) throw fail(501, 'payments not set up');
+  const old = await plusGet(env, u.email), cus = old && old.meta.cus;
+  if (path === '/pay/checkout') {
+    const price = b.plan === 'year' ? env.STRIPE_PRICE_YEAR : b.plan === 'month' ? env.STRIPE_PRICE_MONTH : null;
+    if (!price) throw fail(400, 'bad plan');
+    const back = backUrl(env, b);
+    const s = await stripe(env, 'checkout/sessions', {
+      mode: 'subscription', line_items: { 0: { price, quantity: 1 } }, client_reference_id: u.sub,
+      ...(cus ? { customer: cus } : { customer_email: u.email }),  // 用登录的 Gmail，付款后才对得上账号
+      subscription_data: { metadata: { email: u.email, sub: u.sub } }, metadata: { email: u.email },
+      allow_promotion_codes: 'true', success_url: back + '?plus=ok', cancel_url: back + '?plus=cancel' });
+    return { url: s.url };
+  }
+  if (path === '/pay/portal') {  // 取消 / 换卡 / 看收据：Stripe 的客户中心
+    if (!cus) throw fail(404, 'no Stripe subscription for this account');
+    const s = await stripe(env, 'billing_portal/sessions', { customer: cus, return_url: backUrl(env, b) });
+    return { url: s.url };
+  }
+  throw fail(404, 'not found');
+}
+
+// Stripe 付款通知 (webhook)：验证签名 → 每次付款成功 (invoice.paid) 把 Plus 延长到这一期结束 + 2 天
+async function stripeWebhook(env, req) {
+  const text = await req.text();
+  const reply = (status, msg) => new Response(msg, { status, headers: { 'Content-Type': 'text/plain' } });
+  if (!env.STRIPE_WEBHOOK_SECRET || !env.SYNC) return reply(501, 'not set up');
+  const sig = req.headers.get('Stripe-Signature') || '';
+  const t = (/(?:^|,)t=(\d+)/.exec(sig) || [])[1], v1s = [...sig.matchAll(/(?:^|,)v1=([0-9a-f]{64})/g)].map(m => m[1]);
+  if (!t || !v1s.length || Math.abs(Date.now() / 1000 - +t) > 300) return reply(400, 'bad signature');
+  const key = await crypto.subtle.importKey('raw', enc.encode(env.STRIPE_WEBHOOK_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+  let ok = false;
+  for (const v of v1s) {
+    const bytes = new Uint8Array(v.match(/../g).map(h => parseInt(h, 16)));
+    if (await crypto.subtle.verify('HMAC', key, bytes, enc.encode(t + '.' + text))) ok = true;
+  }
+  if (!ok) return reply(400, 'bad signature');
+  let ev;
+  try { ev = JSON.parse(text); } catch (e) { return reply(400, 'bad json'); }
+  if (ev.type !== 'invoice.paid' && ev.type !== 'invoice.payment_succeeded') return reply(200, 'ignored');
+  const inv = (ev.data && ev.data.object) || {};
+  const sd = (inv.parent && inv.parent.subscription_details) || inv.subscription_details || {};
+  const email = String((sd.metadata && sd.metadata.email) || inv.customer_email || '').trim().toLowerCase();
+  const ends = ((inv.lines && inv.lines.data) || []).map(l => l.period && +l.period.end).filter(x => x > 0);
+  if (!emailOk(email) || !ends.length) return reply(200, 'no email / period');
+  const until = isoDay(Math.max(...ends) * 1000 + 2 * DAY);
+  const old = await plusGet(env, email);
+  await plusPut(env, email, laterOf(old && old.until, until), { ...(old ? old.meta : {}), src: 'stripe', cus: inv.customer || (old && old.meta.cus) || '',
+    subId: sd.subscription || inv.subscription || '' });
+  return reply(200, 'ok');
 }
 
 // ---------- /theme：🎨 用一句话设计界面主题 (网页那边会再检查颜色格式和对比度) ----------

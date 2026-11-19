@@ -3,5 +3,5 @@
   "google_client_id": "805755231110-flbae2t8stt4i1r2ff3mjeoj97rl7mi8.apps.googleusercontent.com",
   "worker": "https://bursa-ai.jamestanchinaun12.workers.dev",
   "upgrade": "",
-  "plans": {"free": {"folders": 1, "stocks": 30}, "plus": {"folders": 5, "stocks": 2000}}
+  "plans": {"free": {"folders": 1, "stocks": 30}, "plus": {"folders": 5, "stocks": 2000, "price": {"month": "RM9.90", "year": "RM99"}}}
 }
