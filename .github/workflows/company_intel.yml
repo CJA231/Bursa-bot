@@ -65,7 +65,8 @@ jobs:
         run: |
           python scripts/company_intel.py $NEW --limit "$LIMIT" --codes "$CODES" $FORCE | tee intel_log.txt
           { echo '### 公司情报'; echo '```'; tail -n 40 intel_log.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      # 主要股东持股 (程序读公告，不用 AI)、原始财报文件索引 (只存 Bursa 原文网址)、业务板块动态 (DeepSeek)；任何一个失败都不影响发布
+      # 主要股东持股 (程序读公告，不用 AI)、原始财报文件索引 (只存 Bursa 原文网址)、业务板块动态 (DeepSeek)；任何一个失败都不影响发布。
+      # 每次最多 80 / 80 / 40 家，各有时间上限 (8 / 8 / 12 分钟)，做不完的下次接着做
       - name: Shareholders, filings, segments
         continue-on-error: true
         env:
@@ -77,9 +78,9 @@ jobs:
           set -o pipefail
           rc=0; : > extra_log.txt
           # 三个脚本各自独立：一个出错不影响另外两个，最后再把这一步标成失败
-          python scripts/holders.py --codes "$CODES" --limit 25 2>&1 | tee -a extra_log.txt || { rc=1; echo "::warning::holders.py failed"; }
-          python scripts/filings.py --codes "$CODES" --limit 25 2>&1 | tee -a extra_log.txt || { rc=1; echo "::warning::filings.py failed"; }
-          python scripts/segments.py --codes "$CODES" --limit 12 2>&1 | tee -a extra_log.txt || { rc=1; echo "::warning::segments.py failed"; }
+          python scripts/holders.py --codes "$CODES" --limit 80 --minutes 8 2>&1 | tee -a extra_log.txt || { rc=1; echo "::warning::holders.py failed"; }
+          python scripts/filings.py --codes "$CODES" --limit 80 --minutes 8 2>&1 | tee -a extra_log.txt || { rc=1; echo "::warning::filings.py failed"; }
+          python scripts/segments.py --codes "$CODES" --limit 40 --minutes 12 2>&1 | tee -a extra_log.txt || { rc=1; echo "::warning::segments.py failed"; }
           { echo '### 股东 / 财报文件 / 业务板块'; echo '```'; grep -v '^   ' extra_log.txt | tail -n 20; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit $rc
       # 保存到 site-data 分支 (只换 docs/intel、holders、filings、segments)；跑完后「Deploy site」自动部署

@@ -25,7 +25,7 @@ OUT_DIR = os.path.join("docs", "holders")
 HIST_DAYS = 400          # 回看大约 13 个月
 MAX_PAGES = 6            # 每家公司公告列表最多翻几页 (一页 30 条)
 MAX_BODIES = 60          # 每家公司这次最多读几篇公告正文
-RUN_BODIES = 400         # 这次运行最多读几篇 (每篇停 0.4 秒)
+RUN_BODIES = 900         # 这次运行最多读几篇 (每篇停 0.4 秒，约 6 分钟)
 KEEP_RECORDS = 120       # 文件里留最近几笔 (画变化用)
 SUB_RE = re.compile(r"S-hldr|Substantial|Section 13[789]\b", re.I)
 _MON = {mn: i for i, mn in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
@@ -206,6 +206,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--codes", default="")
     ap.add_argument("--limit", type=int, default=40)
+    ap.add_argument("--minutes", type=float, default=0, help="这次最多跑几分钟 (0 = 不限)；时间到就停，剩下的下次接着做")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     now = datetime.now(m.LOCAL_TZ)
@@ -213,7 +214,11 @@ def main():
     todo = [c.strip() for c in a.codes.split(",") if c.strip()] or pick(a.limit, now)
     print(f"👥 主要股东：这次处理 {len(todo)} 家")
     budget, done = RUN_BODIES, 0
-    for code in todo:
+    deadline = time.time() + a.minutes * 60 if a.minutes else None
+    for i, code in enumerate(todo):
+        if deadline and time.time() > deadline:
+            print(f"   时间到 ({a.minutes:g} 分钟)，这次做了 {i} 家，其余 {len(todo) - i} 家下次再做")
+            break
         if budget <= 0:
             print("   这次读公告的额度用完，其余下次再做")
             break

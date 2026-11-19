@@ -339,6 +339,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--codes", default="")
     ap.add_argument("--limit", type=int, default=15)
+    ap.add_argument("--minutes", type=float, default=0, help="这次最多跑几分钟 (0 = 不限)；时间到就停，剩下的下次接着做")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
@@ -347,7 +348,11 @@ def main():
     todo = [c.strip() for c in a.codes.split(",") if c.strip()] or pick(a.limit, now)
     print(f"🧩 业务板块动态：这次处理 {len(todo)} 家")
     done = 0
-    for code in todo:
+    deadline = time.time() + a.minutes * 60 if a.minutes else None
+    for i, code in enumerate(todo):
+        if deadline and time.time() > deadline:
+            print(f"   时间到 ({a.minutes:g} 分钟)，这次做了 {i} 家，其余 {len(todo) - i} 家下次再做")
+            break
         try:
             rec = process(code, now, a.force or bool(a.codes))
         except Exception as e:  # noqa: BLE001
