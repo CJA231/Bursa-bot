@@ -2440,6 +2440,22 @@
     try { if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect(); } catch (e) {}
     if (D && S.page === 'watch' && !S.code) render();
   }
+  // 登出 = 这个账号的观察列表离开这台设备 (云端还在，再登录就回来)。先把没送上去的修改送上去；
+  // 还有只在这台设备的股票 (超出免费版上限 / 同步失败) 就先问。登录过期 (401) 不算登出，列表留着等重新登录合并。
+  function signOut() {
+    if (!ACC || SY.busy) return;
+    var pending = function () { return !ACC || !ACC.synced || canon(syncLocal()) !== ACC.sent; };
+    var fin = function () {
+      if ((pending() || (ACC && ACC.trimmed)) && !window.confirm(Z('部分观察列表没有存到云端 (超出免费版上限或同步失败)，登出后会从这台设备删除。仍然登出？',
+        'Some watchlist items are not saved to the cloud (over the free limit or not synced) and will be removed from this device. Sign out anyway?'))) { acctRender(); return; }
+      accOut(); watchReset(); SY.err = ''; SY.note = Z('已登出', 'Signed out'); acctRender(); if (D) render();
+    };
+    if (pending()) syncRun().then(fin); else fin();
+  }
+  function watchReset() {
+    W = { folders: [{ id: 'f1', name: T('默认'), codes: [] }], cur: 'f1' }; WQ = '';
+    try { localStorage.setItem('bterm_watch', JSON.stringify(W)); } catch (e) {}
+  }
   function onCred(resp) {
     if (!resp || !resp.credential) return;
     SY.busy = true; SY.err = ''; SY.note = ''; acctRender();
@@ -2609,7 +2625,7 @@
     }
     else if (a === 'close') SY.open = false;
     else if (a === 'sync') { syncRun(); return; }
-    else if (a === 'out') { accOut(); SY.err = ''; SY.note = Z('已登出', 'Signed out'); }
+    else if (a === 'out') { signOut(); return; }
     else if (a === 'lang') { location.replace(location.pathname + location.search.replace(/([?&])lang=(en|zh)&?/, '$1').replace(/[?&]$/, '') + location.hash); return; }
     else if (a === 'del') {
       if (!window.confirm(Z('删除云端的同步资料并登出？这台设备上的列表和设定会保留。', 'Delete your synced data from the cloud and sign out? Lists and settings on this device are kept.'))) return;
