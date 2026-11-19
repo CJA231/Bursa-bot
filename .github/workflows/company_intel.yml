@@ -69,11 +69,16 @@ jobs:
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
           PYTHONUNBUFFERED: '1'
           CODES: ${{ github.event.inputs.codes || '' }}
+        # pipefail：脚本出错时这一步标成失败 (continue-on-error 照样发布)，在 Actions 上看得到，不会被 tee 吞掉
         run: |
-          python scripts/holders.py --codes "$CODES" --limit 25 | tee extra_log.txt
-          python scripts/filings.py --codes "$CODES" --limit 25 | tee -a extra_log.txt
-          python scripts/segments.py --codes "$CODES" --limit 12 | tee -a extra_log.txt
+          set -o pipefail
+          rc=0; : > extra_log.txt
+          # 三个脚本各自独立：一个出错不影响另外两个，最后再把这一步标成失败
+          python scripts/holders.py --codes "$CODES" --limit 25 2>&1 | tee -a extra_log.txt || { rc=1; echo "::warning::holders.py failed"; }
+          python scripts/filings.py --codes "$CODES" --limit 25 2>&1 | tee -a extra_log.txt || { rc=1; echo "::warning::filings.py failed"; }
+          python scripts/segments.py --codes "$CODES" --limit 12 2>&1 | tee -a extra_log.txt || { rc=1; echo "::warning::segments.py failed"; }
           { echo '### 股东 / 财报文件 / 业务板块'; echo '```'; grep -v '^   ' extra_log.txt | tail -n 20; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
       - name: Publish
         run: |
           git config user.name "github-actions[bot]"

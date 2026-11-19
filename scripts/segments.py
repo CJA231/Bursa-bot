@@ -321,7 +321,7 @@ def pick(limit, now):
     srcs = [c for c, v in (read_json(es.SOURCES, {}) or {}).items() if not c.startswith("_") and any((e or {}).get("type") == "annual" for e in v or [])]
     first, rest = [], []
     for code in list(dict.fromkeys(srcs + order)):
-        have = read_json(os.path.join(OUT_DIR, f"{code}.json"))
+        have = read_json(os.path.join(OUT_DIR, f"{code}.json"), None)
         intel = read_json(os.path.join("docs", "intel", f"{code}.json"), {}) or {}
         if not have:
             (first if code in srcs else rest).append(code)
