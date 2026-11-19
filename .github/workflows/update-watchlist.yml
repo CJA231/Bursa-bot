@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # 网站资料在 site-data 分支 (main 不放生成的文件)：先放回 docs/ 和 data/
+      - name: Restore site data
+        run: python3 scripts/site_state.py restore
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -23,11 +26,6 @@ jobs:
       - name: Fetch Malaysia watchlist from Yahoo Finance
         run: python scripts/fetch_watchlist.py
 
+      # 保存到 site-data 分支 (只换 data/watchlist*.json 和 docs/stock)
       - name: Commit watchlist
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A data docs/stock
-          git diff --staged --quiet || git commit -m "Update watchlist from Yahoo Finance screener"
-          git pull --rebase origin "${GITHUB_REF_NAME}"
-          git push
+        run: python3 scripts/site_state.py save --role watchlist -m "Update watchlist from Yahoo Finance screener"

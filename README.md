@@ -192,7 +192,7 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
 [`/terminal/`](https://cja231.github.io/Bursa-bot/terminal/) 用同一次运行的数据，做成 ASCII 终端风格的界面 (深灰底 + Nord 色系，[t] 切换浅色主题)。由 `terminal_site.py` 从 `terminal_assets/` 生成到 `docs/terminal/`，每次跑报告时一起更新。标准报告和终端版可以互相切换 (页脚「⚙ 标准风格」)。
 
 - **顶部跑马灯**：KLCI、涨 / 平 / 跌家数、USD/MYR、更新时间，接着是成交额前 10 和成交量前 10 (价格 < RM0.10 的仙股不算)，卡其色高亮
-- **7 个页面** (电脑：键盘 `1`–`7` 切页、`/` 搜索、`k` 空心 / 实心K线、`q` 返回；**手机：底部浮动的玻璃导航栏**，7 个小图标 + 短标签，选中的页面有一个会滑动的玻璃泡泡，放不下时可以左右滑)：
+- **7 个页面** (电脑：键盘 `1`–`7` 切页、`/` 搜索、`k` 空心 / 实心K线、`q` 返回；**手机：底部浮动的玻璃导航栏**，7 个小图标 + 短标签：按住导航栏左右拖，玻璃泡泡跟着手指走 (边走边拉长，经过的图标放大)，放开就切到那一页；也可以直接在页面上左右滑换到前 / 后一页，新页面从滑动的方向滑进来；个股页向右滑 = 返回)：
   1. **信号**：最上面有**搜索框**，代码或名称都能搜全部马股 (不只报告里的)，点结果或按 Enter 打开个股页；下面是命中后台策略的股票 + 最近信号的追踪 (信号之后走了多少)
   2. **市场**：大盘、涨跌家数、涨跌榜，以及 **ASCII 热力图** (可以选 24 / 50 / 80 / 全部，按成交额排；点下方的涨跌图例只看那一档，旁边写着每档几支)
   3. **观察列表**：自己建文件夹分类、加股票、搬到别的文件夹；可以导出 / 导入备份 (换手机时用)；全部存在自己的浏览器
@@ -202,11 +202,12 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
   7. **日历**：最上面是 **IPO 新股** (招股中 / 待上市的认购、抽签、上市日期和招股价；近 12 个月已上市的超额认购倍数、首日开盘 / 收盘、上市至今的涨跌和汇总统计)，下面是企业活动日历 (会议、派息、财报、企业活动、新上市，IPO 的日期也画在月历上)，月历格子 + 列表，可以按类别筛选 (见下方)
 - **字符 K 线**：默认是**空心K线** (跟 TradingView 一样：收盘 > 开盘画空心框、收盘 < 开盘实心，颜色看收盘比前一天涨还是跌)，图表右下角的按钮或 `k` 切换成全部实心；设置存在自己的浏览器
 - **个股页** (价格和 K 线在上面，下面分成「概况 / 财报 / 股东 / 公告 · 新闻」四个标签，一次只显示一组，标签条滚动时贴在顶部)：K 线图、关键数字、财报图表 (营收 / 净利润 / 净利率 / 现金流的阶梯图和柱状图 + 完整表格)、**公司简介** (官网链接、背景、业务线)、**AI 公司资讯** (近况、重要事件、留意事项、财报一两句)、**业务板块动态**、**原始财报文件**、**主要股东**、公告和新闻 (见下方[个股页的三个资料区块](#个股页的三个资料区块))
-- **✦ AI 问答**：每一页右下角的 ✦ 按钮，把当前页面的资料附上去问 DeepSeek (见下方[设置](#-ai-问答设置))
+- **✦ AI 问答**：每一页都有一个圆形玻璃按钮 (可以拖到任何位置，放开贴左 / 右边，会记住)，把当前页面的资料附上去问 DeepSeek (见下方[设置](#-ai-问答设置))。回答会自动可视化：标题、分点、表格 (数字栏画长条)、涨跌 % 上色、RM 金额突出、提到的股票简称点一下就打开个股页
+- **🎨 自定义界面**：AI 面板里的 🎨。4 个预设 (深海蓝金、护眼暖色、高对比、森林绿)，或用一句话描述想要的样子 (例如「深蓝配金色，字大一点，圆角多一点」)，AI 设计配色、字号、圆角、玻璃感，整个页面马上预览；满意按保存 (只存在这台设备)，随时还原默认。程序会检查颜色格式和对比度，看不清的颜色自动改掉。`t` 键会先关掉自定义主题
 - **中文 / English**：页脚的 EN 按钮切换整个界面，包括数据里的中文 (分类、理由、日历事件、AI 资讯都有英文版)；语言跟标准报告共用同一个设置
 - **离线也能看 (PWA)**：在 iPhone Safari 按「分享 → 添加到主屏幕」，像 app 一样打开。有网时永远先拿最新的；没网 (或 8 秒连不上) 时显示最后一次的页面、日线和新股资料，顶部标「离线 · 显示的是 xx 的数据」。只缓存终端版自己的文件 (约 1MB)，个股财报 / 公告 / 新闻和 AI 问答还是要上网
 - **桌面小工具** [`widget.html`](https://cja231.github.io/Bursa-bot/terminal/widget.html)：KLCI、涨跌家数、信号、观察列表和最新公告挤在一个小窗口；Chrome / Edge 打开后「安装」成一个独立的小窗口 app，放在笔记本屏幕角落。每 5 分钟重新读一次网站 (网站本身是每次报告跑完才更新)
-- **字体自托管**：JetBrains Mono 完整版 (含 K 线用的方块和框线字符) 放在网站里，不连 Google Fonts，手机上 K 线粗细一致
+- **字体自托管**：JetBrains Mono (含 K 线用的方块和框线字符) 放在网站里，不连 Google Fonts，手机上 K 线粗细一致。发布的是精简版 (只含网站用到的字符，三个字重合计 274KB → 99KB，外观逐像素相同)：原版在 `terminal_assets/fonts-src/`，页面用到新符号后跑 `python scripts/subset_fonts.py` 重新产生
 - **使用条款**：页脚链接到 [`legal.html`](https://cja231.github.io/Bursa-bot/terminal/legal.html)，以 Sdn. Bhd. 公司名义写的正式条款 (21 条，中英双语，以英文为准)：定义、接受条款、不构成投资建议、监管地位 (CMSA 2007)、风险披露、资料来源、AI 内容、IR / ESG 页面、许可与禁止行为、知识产权与保留一切权利 (Copyright Act 1987)、免责、责任限制、弥偿、个人资料 (PDPA 2010)、管辖法律 (马来西亚) 等
 - **公司资料** [`data/company.json`](./data/company.json)：公司名称、注册号、地址、电邮。使用条款、终端版 / IR 页面页脚、标准报告和 PDF 下载的「© 年份 公司名称 · All rights reserved」都从这里读，改这一个文件就全部更新 (现在是占位符 `[COMPANY NAME] SDN. BHD.`)
 
@@ -282,7 +283,7 @@ Excel 里涨跌% 按涨跌上色、表头可以筛选；CSV 带 BOM，用 Excel 
 - **Worker (推荐)**：部署 [`worker/ai-proxy.js`](./worker/ai-proxy.js) 到免费的 Cloudflare Workers，密钥放在 Cloudflare 的 Secret，网页只填 Worker 网址和自己定的通行码。步骤见 [`worker/README.md`](./worker/README.md)
 - **自己的 DeepSeek 密钥**：浏览器直接连 DeepSeek，不用 Cloudflare，但密钥存在手机上
 
-**模型**：后台全部用 `main.py` 的 `AI_MODEL` (默认 `deepseek-chat`；2026-11 实测由 DeepSeek V4.1 Flash 回答，非思考模式)。要换模型改这一行 (本地跑的时候也可以设环境变量 `DEEPSEEK_MODEL`)；写 `deepseek-flash` 会开思考模式，先用掉输出额度，JSON 可能被截断
+**模型**：后台全部经过 `main.py` 的 `ai_chat()`，模型是 `AI_MODEL` (默认 `deepseek-chat`；2026-11 实测由 DeepSeek V4.1 Flash 回答，非思考模式)。**旧名称失效时会自动换新名称**：DeepSeek 回「模型名称不对」时，依序试 `deepseek-flash`、`deepseek-v4-flash`，以及错误信息里 DeepSeek 列出的名称 (flash 优先)，新名称一律加 `thinking: disabled` 关掉思考模式 (不然 JSON 可能被截断)，Actions 日志会提示改用了哪个。终端版 (自己的密钥) 和 Worker 也有同样的自动切换。要固定用某个模型就改 `AI_MODEL` (本地也可以设环境变量 `DEEPSEEK_MODEL`)
 
 ## 功能特色
 
@@ -348,13 +349,30 @@ KLSE Screener 公告 + 新闻 + 季报 → DeepSeek 整理 → docs/intel/ (公�
 
 | 文件 | 做什么 | 怎么触发 |
 |---|---|---|
-| `daily.yml` | 跑报告 (马股 / 美股)、生成终端版、提交、推送通知 | cron-job.org 按当地时间调用 (workflow_dispatch，参数 `market`) |
-| `company_intel.yml` | DeepSeek 公司资讯 + 企业活动日历；接着更新主要股东、原始财报文件、业务板块动态 | 每次报告跑完 (新公告模式，最多 20 家)；平日 19:17 完整轮换；或手动 |
+| `daily.yml` | 跑报告 (马股 / 美股)、生成终端版、保存到 site-data、推送通知 | cron-job.org 按当地时间调用 (workflow_dispatch，参数 `market`) |
+| `company_intel.yml` | DeepSeek 公司资讯 + 企业活动日历；接着更新主要股东、原始财报文件、业务板块动态 (每次最多 80 / 80 / 40 家，各有时间上限，做不完下次接着做) | 每次报告跑完 (新公告模式，最多 20 家)；平日 19:17 完整轮换；或手动 |
+| `deploy.yml` | 部署网站到 GitHub Pages (main 的手写文件 + site-data 最新资料) | 报告 / 公司资讯 / ESG / 股票名单任何一个跑完；手写的 `docs/` 文件 (含管理员编辑) 推到 main；或手动 |
+| `migrate-site-data.yml` | 一次性迁移：网站资料从 main 移到 site-data 分支 | 手动 (只要跑一次，见下方) |
 | `esg.yml` | 下载可持续发展报告 PDF、抽取 ESG 指标到 `docs/esg/` | `data/esg/sources.json` 提交到 main 时；或手动 (参数 `codes` / `force`) |
 | `update-watchlist.yml` | 更新全市场股票清单 | 手动 (平时 daily.yml 每天第一次运行会自动更新) |
 | `debug_stock.yml` | 调试某支股票过去几天的条件；另有 `IPO` (更新并印出新股资料)、`LATENCY` (记录各公告来源的延迟)、`ESG` (试抽 ESG、不提交)、`HOLDERS` / `FILINGS` / `SEGMENTS` (试跑、不提交)、`PROBE*` (测试资料来源) | 手动 |
 
-会 `git push` 的流程各自一个 concurrency 组：`daily.yml` (马股 / 美股报告轮流跑)、`company_intel.yml`、`esg.yml`。它们写的目录不重叠，所以推送前先 `pull --rebase`，被拒就等一下重试 (最多 5 次)。公司资讯不跟报告排同一组，因为 GitHub 一组只能 1 个在跑、1 个在等，再来一个就会把等着的取消；公司资讯跑久了，报告会被挤掉。Actions 用 `actions/checkout@v7`、`actions/setup-python@v7`、`actions/cache@v6` (Node.js 24)。
+会写资料的流程各自一个 concurrency 组：`daily.yml` (马股 / 美股报告轮流跑)、`company_intel.yml`、`esg.yml`。公司资讯不跟报告排同一组，因为 GitHub 一组只能 1 个在跑、1 个在等，再来一个就会把等着的取消；公司资讯跑久了，报告会被挤掉。
+
+#### 网站资料放在 site-data 分支，GitHub Actions 部署 Pages
+
+报告、个股资料、AI 资讯这些**生成的文件不再提交到 main** (以前每周约 150 次提交，仓库一年会超过 1GB)：
+- 存在 **`site-data` 分支**，这个分支永远只有一个提交：每次保存都做一个新的、没有父提交的提交再强制推送，旧的丢掉，所以不会越来越大 ([`scripts/site_state.py`](./scripts/site_state.py))
+- 每个流程开始时 `restore` (把 site-data 的资料放回 `docs/`、`data/`)，结束时 `save --role …` 只换掉自己负责的路径 (报告 / 美股 / 公司资讯 / ESG / 股票名单)；两个流程同时保存时，后推的会被拒，重新抓最新的再做，彼此不会覆盖
+- `deploy.yml` 把 main 的手写文件 (`docs/report.js`、`i18n*.js`、`fold.js`、`vendor/`、`icons/`、管理员编辑的 `docs/terminal/overrides.json`) 加上 site-data 最新的资料，用 `actions/upload-pages-artifact` + `actions/deploy-pages` 部署
+- 以后在 `docs/` 加新的手写文件，要加进 `.gitignore` 的放行名单和 `site_state.py` 的 `SOURCE`
+- 本地要跑报告：先 `python3 scripts/site_state.py restore` 拿到最新资料
+
+**一次性迁移步骤** (合并这个改动之后)：
+1. GitHub 仓库 **Settings → Pages → Build and deployment → Source** 改成 **GitHub Actions** (建议合并之前先改；改了以后现在的网站照常显示，直到下一次部署)
+2. 合并 PR
+3. **Actions → Migrate site data (one-time) → Run workflow**：建立 site-data (合并后已经有流程跑过就沿用)、main 不再追踪生成的文件、部署一次网站
+4. 之后什么都不用做：每次报告 / 公司资讯跑完都会自动部署。旧的 git 历史还在 (约 200MB)，但不会再变大Actions 用 `actions/checkout@v7`、`actions/setup-python@v7`、`actions/cache@v6` (Node.js 24)。
 
 ## 技术栈
 
@@ -389,7 +407,7 @@ Bursa-bot/
 ├── docs/index.html              # 生成的报告，GitHub Pages 从这里发布
 ├── docs/report.js               # 报告页的图表、指标、模板和表格脚本
 ├── docs/i18n.js                 # 标准报告的英文切换
-├── docs/terminal/               # 生成的终端版 (每次运行更新)；overrides.json = 管理员在网页上的编辑 (Worker 提交)
+├── docs/terminal/               # 生成的终端版 (每次运行更新，在 site-data 分支)；overrides.json = 管理员在网页上的编辑 (Worker 提交到 main)
 ├── docs/intel/                  # AI 公司资讯 <代码>.json、index.json、企业活动日历 calendar.json (company_intel.yml 生成)
 ├── docs/esg/                    # ESG 抽取结果 <代码>.json + index.json (同行对比用，esg.yml 生成)
 ├── docs/segments/               # 业务板块动态 (segments.py)

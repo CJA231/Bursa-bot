@@ -153,7 +153,7 @@ def annual_numbers(code, entry, old, log=print):
     if not sel:
         return dict(base, status="none", segments=[])
     lines = [f"公司代码 {code}，年报 {entry.get('year', '')}", "页面:"] + [f"【第 {p} 页】 {pages[p - 1][:AR_CHARS]}" for p in sel]
-    r = m.client.chat.completions.create(model=m.AI_MODEL, temperature=0.1, max_tokens=2500, response_format={"type": "json_object"},
+    r = m.ai_chat(temperature=0.1, max_tokens=2500, response_format={"type": "json_object"},
                                          messages=[{"role": "system", "content": AR_PROMPT}, {"role": "user", "content": "\n".join(lines)}])
     out = json.loads(r.choices[0].message.content or "{}")
     segs, dropped = [], 0
@@ -224,7 +224,7 @@ def ask(code, name, detail, anns, bodies, ar_segs, year):
     if bodies:
         lines.append("公告内文:")
         lines += [f"[{i}] {t}" for i, t in bodies.items()]
-    r = m.client.chat.completions.create(model=m.AI_MODEL, temperature=0.1, max_tokens=3000, response_format={"type": "json_object"},
+    r = m.ai_chat(temperature=0.1, max_tokens=3000, response_format={"type": "json_object"},
                                          messages=[{"role": "system", "content": PROMPT}, {"role": "user", "content": "\n".join(lines)}])
     return json.loads(r.choices[0].message.content or "{}")
 
@@ -321,7 +321,7 @@ def pick(limit, now):
     srcs = [c for c, v in (read_json(es.SOURCES, {}) or {}).items() if not c.startswith("_") and any((e or {}).get("type") == "annual" for e in v or [])]
     first, rest = [], []
     for code in list(dict.fromkeys(srcs + order)):
-        have = read_json(os.path.join(OUT_DIR, f"{code}.json"))
+        have = read_json(os.path.join(OUT_DIR, f"{code}.json"), None)
         intel = read_json(os.path.join("docs", "intel", f"{code}.json"), {}) or {}
         if not have:
             (first if code in srcs else rest).append(code)
@@ -339,6 +339,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--codes", default="")
     ap.add_argument("--limit", type=int, default=15)
+    ap.add_argument("--minutes", type=float, default=0, help="这次最多跑几分钟 (0 = 不限)；时间到就停，剩下的下次接着做")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
@@ -347,7 +348,11 @@ def main():
     todo = [c.strip() for c in a.codes.split(",") if c.strip()] or pick(a.limit, now)
     print(f"🧩 业务板块动态：这次处理 {len(todo)} 家")
     done = 0
-    for code in todo:
+    deadline = time.time() + a.minutes * 60 if a.minutes else None
+    for i, code in enumerate(todo):
+        if deadline and time.time() > deadline:
+            print(f"   时间到 ({a.minutes:g} 分钟)，这次做了 {i} 家，其余 {len(todo) - i} 家下次再做")
+            break
         try:
             rec = process(code, now, a.force or bool(a.codes))
         except Exception as e:  # noqa: BLE001

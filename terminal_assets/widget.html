@@ -17,6 +17,11 @@
 <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
 <link rel="preload" href="fonts/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="terminal.css?v=__V__">
+<script>
+  // 🎨 自定义主题 (终端版 AI 面板里设定，存在这台设备)：在画面出来之前先套上，不会闪一下默认颜色
+  try { var bt = JSON.parse(localStorage.getItem('bterm_custom_theme') || 'null'); if (bt && bt.on && bt.vars) { var rs = document.documentElement.style;
+    for (var k in bt.vars) rs.setProperty('--' + k, bt.vars[k]); if (bt.t && bt.t.scheme) rs.colorScheme = bt.t.scheme; document.documentElement.dataset.custom = '1'; } } catch (e) {}
+</script>
 <script>window.BTERM_WIDGET = 1;</script>
 </head>
 <body>

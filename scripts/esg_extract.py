@@ -180,8 +180,8 @@ def ask(code, name, entry, pages, sel):
     lines += [f"- {k}: {v[2]}" for k, v in READINESS.items()]
     lines.append("页面:")
     lines += [f"【第 {p} 页】 {pages[p - 1][:PAGE_CHARS]}" for p in sel]
-    r = m.client.chat.completions.create(
-        model=m.AI_MODEL, temperature=0.1, max_tokens=3000, response_format={"type": "json_object"},
+    r = m.ai_chat(
+        temperature=0.1, max_tokens=3000, response_format={"type": "json_object"},
         messages=[{"role": "system", "content": PROMPT}, {"role": "user", "content": "\n".join(lines)}])
     return json.loads(r.choices[0].message.content or "{}")
 

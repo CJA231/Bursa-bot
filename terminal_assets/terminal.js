@@ -959,13 +959,147 @@
     if (S.page === 'watch') return [T('整理我观察列表里股票今天的表现')];
     return [T('今天大盘的情况怎么样'), T('成交额最大的几支股票在发生什么'), T('解释一下今天信号股符合的条件')];
   }
-  function aiFmt(t) { return esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^#{1,4}\s*(.+)$/gm, '<b>$1</b>').replace(/\n/g, '<br>'); }
+  // AI 回答的可视化：标题、分点、表格 (数字栏位画长条)、涨跌 % 上色、RM 金额突出、提到的股票简称可以点开个股页
+  var REVN = null;
+  function revNames() { if (!REVN) { REVN = {}; Object.keys(NAMES).forEach(function (c) { var n = String(NAMES[c] || '').toUpperCase(); if (n.length >= 3 && !REVN[n]) REVN[n] = c; }); } return REVN; }
+  function aiInline(x) {
+    x = esc(x).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+    x = x.replace(/RM\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:百万|亿|万|千|million|billion|mil|bil|[mbkMBK](?![a-z])))?/g, '<span class="ai-num">$&</span>');
+    x = x.replace(/([+\-−]?\d[\d,]*(?:\.\d+)?)\s?%/g, function (m0, n) {
+      var v = parseFloat(n.replace(/,/g, '').replace('−', '-')); return '<span class="ai-pct' + (/^[+\-−]/.test(n) ? (v > 0 ? ' up' : v < 0 ? ' dn' : '') : '') + '">' + m0 + '</span>'; });
+    var rv = revNames();
+    return x.replace(/(^|[^\w&\-])([A-Z][A-Z0-9&\-]{2,11})(?![\w&\-])/g, function (m0, pre, w) { var c = rv[w]; return c ? pre + '<button type="button" class="ai-stk" data-q="' + esc(c) + '" title="' + esc(c) + '">' + w + '</button>' : m0; });
+  }
+  function aiCellNum(v) { var m = /^[^\d+\-−]*([+\-−]?\d[\d,]*(?:\.\d+)?)/.exec(String(v).replace(/<[^>]+>/g, '')); return m ? parseFloat(m[1].replace(/,/g, '').replace('−', '-')) : null; }
+  function aiTable(rows) {
+    var head = rows[0], body = rows.slice(1); if (!body.length) { body = rows; head = null; }
+    var w = Math.max.apply(null, rows.map(function (r) { return r.length; })), num = [];
+    for (var j = 0; j < w; j++) { var vals = body.map(function (r) { return aiCellNum(r[j] || ''); }); num[j] = vals.every(function (v) { return v !== null; }) && body.length > 1 ? Math.max.apply(null, vals.map(Math.abs)) || 1 : 0; }
+    return '<div class="ai-tw"><table class="ai-t">' + (head ? '<tr>' + head.map(function (c) { return '<th>' + aiInline(c) + '</th>'; }).join('') + '</tr>' : '') + body.map(function (r) {
+      return '<tr>' + r.map(function (c, j) { if (!num[j]) return '<td>' + aiInline(c) + '</td>'; var v = aiCellNum(c);
+        return '<td class="n"><span class="ai-bar' + (v < 0 ? ' neg' : '') + '" style="width:' + Math.round(Math.abs(v) / num[j] * 100) + '%"></span><span class="ai-bv">' + aiInline(c) + '</span></td>'; }).join('') + '</tr>'; }).join('') + '</table></div>';
+  }
+  function aiFmt(t) {
+    var out = [], list = null, tbl = null;
+    function flushL() { if (list) { out.push('<' + list.t + ' class="ai-ul">' + list.items.join('') + '</' + list.t + '>'); list = null; } }
+    function flushT() { if (tbl) { out.push(aiTable(tbl)); tbl = null; } }
+    String(t || '').split('\n').forEach(function (raw) {
+      var l = raw.replace(/\s+$/, ''), m;
+      if (/^\s*\|.*\|\s*$/.test(l)) { flushL(); if (/^\s*\|[\s:\-|]+\|\s*$/.test(l)) return; (tbl = tbl || []).push(l.trim().replace(/^\||\|$/g, '').split('|').map(function (c) { return c.trim(); })); return; }
+      flushT();
+      if ((m = /^\s*(?:[-*•·]|(\d+)[.)、])\s+(.*)$/.exec(l))) { var tg = m[1] ? 'ol' : 'ul'; if (!list || list.t !== tg) { flushL(); list = { t: tg, items: [] }; } list.items.push('<li>' + aiInline(m[2]) + '</li>'); return; }
+      flushL();
+      if ((m = /^\s*#{1,4}\s*(.+)$/.exec(l))) { out.push('<h4 class="ai-h">' + aiInline(m[1].replace(/\*\*/g, '')) + '</h4>'); return; }
+      if (l.trim()) out.push('<p>' + aiInline(l) + '</p>');
+    });
+    flushL(); flushT();
+    return out.join('');
+  }
+
+  var AI_ICON = '<svg viewBox="0 0 24 24"><path d="M12 2.5c.6 4.6 2.9 6.9 7.5 7.5-4.6.6-6.9 2.9-7.5 7.5-.6-4.6-2.9-6.9-7.5-7.5 4.6-.6 6.9-2.9 7.5-7.5z"/><path d="M19 15.5c.25 1.9 1.1 2.75 3 3-1.9.25-2.75 1.1-3 3-.25-1.9-1.1-2.75-3-3 1.9-.25 2.75-1.1 3-3z"/></svg>';
+  // ---------- 🎨 自定义界面：预设主题 / 用一句话叫 AI 设计 (配色、字号、圆角、玻璃感)，即时预览，存在这台设备 ----------
+  var THEME_KEYS = ['bg', 'bg2', 'fg', 'mut', 'line', 'acc', 'acc2', 'up', 'dn', 'warn', 'sel'];
+  var THEME_PRESETS = [
+    { id: 'navy', name: ['深海蓝金', 'Navy & gold'], scheme: 'dark', bg: '#0F1B2D', bg2: '#16263D', fg: '#F4EFE3', mut: '#A9B4C6', line: '#2C4060', acc: '#E3B964', acc2: '#F0CF8A', up: '#6FD39B', dn: '#FF8A8A', warn: '#F2C14E', sel: '#1E3352', font: 13, radius: 10, glass: 0.55 },
+    { id: 'paper', name: ['护眼暖色', 'Warm paper'], scheme: 'light', bg: '#F6F0E1', bg2: '#ECE3CF', fg: '#2B2418', mut: '#5F533F', line: '#D6C9AC', acc: '#7A4E14', acc2: '#8F5F22', up: '#2E7D46', dn: '#B23A3A', warn: '#7F5900', sel: '#E6DAC0', font: 14, radius: 8, glass: 0.6 },
+    { id: 'contrast', name: ['高对比', 'High contrast'], scheme: 'dark', bg: '#000000', bg2: '#141414', fg: '#FFFFFF', mut: '#D0D0D0', line: '#5A5A5A', acc: '#FFD400', acc2: '#FFE766', up: '#3DFF8B', dn: '#FF6B6B', warn: '#FFD400', sel: '#2A2A2A', font: 15, radius: 0, glass: 0.8 },
+    { id: 'forest', name: ['森林绿', 'Forest'], scheme: 'dark', bg: '#13201A', bg2: '#1B2C24', fg: '#ECF3EC', mut: '#A7BBAE', line: '#2F4A3C', acc: '#A8D8A0', acc2: '#C6E8BE', up: '#7EE0A0', dn: '#FF9C8C', warn: '#E8D27D', sel: '#22382D', font: 13, radius: 12, glass: 0.5 }
+  ];
+  var THEME_SYS = '你是网页界面配色设计师。根据用户的描述，为一个股票资讯终端 (等宽字体、很多数字和表格) 设计一套界面主题。只输出 JSON：' +
+    '{"name": 2~6 个字的主题名, "scheme": "dark" 或 "light", "bg": 页面背景, "bg2": 卡片 / 输入框背景, "fg": 主要文字, "mut": 次要文字, "line": 线条和边框, "acc": 标题和强调色, "acc2": 第二强调色 (按钮、链接), ' +
+    '"up": 上涨的颜色 (绿色系), "dn": 下跌的颜色 (红色系), "warn": 提醒 (黄 / 橙色系), "sel": 选中项目的背景, "font": 字号 12~17 的整数 (默认 13), "radius": 圆角 0~18 的整数 px (默认 0), "glass": 玻璃感 0~1 (默认 0.6，越小越透明), "note": 一句话说明这套设计}。' +
+    '颜色一律用 #RRGGBB。fg 跟 bg 的对比度至少 7:1，mut 至少 4.5:1，up / dn / acc 在 bg 上都要看得清楚。只输出 JSON。';
+  var TH = { view: false, prompt: '', busy: false, preview: null, note: '', err: '' };
+  function hexOk(v) { return /^#[0-9a-f]{6}$/i.test(v || ''); }
+  function lum(h) { return [1, 3, 5].map(function (i) { var v = parseInt(h.substr(i, 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }).reduce(function (a, v, i) { return a + v * [0.2126, 0.7152, 0.0722][i]; }, 0); }
+  function contrast(a, b) { var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+  // AI 给的主题先检查：颜色格式、数字范围、对比度 (看不清就改成黑 / 白或默认的涨跌色)
+  function themeClean(o) {
+    if (!o || typeof o !== 'object') return null;
+    var t = { name: String(o.name || '').slice(0, 16), note: String(o.note || '').slice(0, 160) };
+    if (!hexOk(o.bg) || !hexOk(o.fg)) return null;
+    var dark = lum(o.bg) < 0.25, def = dark ? THEME_PRESETS[0] : THEME_PRESETS[1];
+    t.scheme = dark ? 'dark' : 'light';
+    THEME_KEYS.forEach(function (k) { t[k] = hexOk(o[k]) ? o[k].toUpperCase() : def[k]; });
+    var bw = function (bg) { return contrast('#FFFFFF', bg) >= contrast('#000000', bg) ? '#FFFFFF' : '#000000'; };
+    if (contrast(t.fg, t.bg) < 7) t.fg = bw(t.bg);
+    if (contrast(t.mut, t.bg) < 4.5) t.mut = t.fg;
+    ['acc', 'acc2'].forEach(function (k) { if (contrast(t[k], t.bg) < 3) t[k] = t.fg; });
+    ['up', 'dn', 'warn'].forEach(function (k) { if (contrast(t[k], t.bg) < 3) t[k] = def[k]; });
+    var clamp = function (v, lo, hi, d) { v = Number(v); return isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
+    t.font = Math.round(clamp(o.font, 12, 17, 13)); t.radius = Math.round(clamp(o.radius, 0, 18, 0)); t.glass = Math.round(clamp(o.glass, 0.25, 0.95, 0.6) * 100) / 100;
+    return t;
+  }
+  function themeVars(t) {
+    var v = {}; THEME_KEYS.forEach(function (k) { v[k] = t[k]; });
+    v.fc5 = t.acc; v['fin-line'] = t.acc; v.fs = t.font + 'px'; v.r = t.radius + 'px'; v.glass = Math.round(t.glass * 100) + '%';
+    return v;
+  }
+  var THEME_ALL = THEME_KEYS.concat(['fc5', 'fin-line', 'fs', 'r', 'glass']);
+  function themeApply(t) {
+    var root = document.documentElement, st = root.style;
+    THEME_ALL.forEach(function (k) { st.removeProperty('--' + k); }); st.removeProperty('color-scheme'); delete root.dataset.custom;
+    if (!t) return;
+    var v = themeVars(t); Object.keys(v).forEach(function (k) { st.setProperty('--' + k, v[k]); });
+    st.colorScheme = t.scheme; root.dataset.custom = '1';
+  }
+  function themeSaved() { try { return JSON.parse(localStorage.getItem('bterm_custom_theme') || 'null'); } catch (e) { return null; } }
+  function themeStore(t, on) {  // 页面开头的小脚本 (index.html) 也读这一份，所以 vars 先算好存着
+    try { if (!t) localStorage.removeItem('bterm_custom_theme'); else localStorage.setItem('bterm_custom_theme', JSON.stringify({ on: on !== false, t: t, vars: themeVars(t) })); } catch (e) {}
+  }
+  function themeCurrent() { var sv = themeSaved(); return sv && sv.on && sv.t ? sv.t : null; }
+  (function () { var c = themeCurrent(); if (c) themeApply(c); })();
+  function themeAsk() {
+    var q = (TH.prompt || '').trim(); if (!q || TH.busy) return;
+    if (!aiReady()) { TH.err = Z('要先在 ⚙ 设置里设好 AI，才能用一句话生成；也可以直接用上面的预设。', 'Set up AI in ⚙ first to generate from a sentence; or use a preset above.'); aiRender(); return; }
+    TH.busy = true; TH.err = ''; aiRender();
+    var cur = TH.preview || themeCurrent(), user = q + (cur ? Z('\n\n(现在的主题，可以在这个基础上改：', '\n\n(current theme, you may adjust it: ') + JSON.stringify(cur) + ')' : '');
+    var req = AI.cfg.mode === 'worker'
+      ? fetch(AI.cfg.url.replace(/\/$/, '') + '/theme', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pass': AI.cfg.pass }, body: JSON.stringify({ prompt: user, lang: LANG }) })
+        .then(function (r) { if (r.status === 404 || r.status === 405) throw new Error(Z('Worker 要更新 (重新部署 worker/ai-proxy.js) 才能生成主题', 'Redeploy worker/ai-proxy.js to enable theme generation')); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      : dsFetch(AI.cfg.key, { temperature: 0.7, max_tokens: 600, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: THEME_SYS }, { role: 'user', content: user }] })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (j) { return JSON.parse((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '{}'); });
+    req.then(function (o) {
+      var t = themeClean(o && o.theme ? o.theme : o);
+      if (!t) throw new Error(Z('AI 回传的主题格式不对，再试一次', 'The AI returned an invalid theme; try again'));
+      TH.preview = t; TH.note = t.note; themeApply(t);
+    }).catch(function (e) { TH.err = e.message; }).then(function () { TH.busy = false; aiRender(); });
+  }
+  function themeView() {
+    var cur = TH.preview || themeCurrent(), sw = function (t) { return ['bg', 'fg', 'acc', 'up', 'dn'].map(function (k) { return '<i style="background:' + t[k] + '"></i>'; }).join(''); };
+    var h = '<div class="th">' + '<p class="dim">' + Z('点一个预设，或用一句话描述想要的样子，整个页面会马上变给你看；满意再按保存 (只存在这台设备)。', 'Pick a preset or describe the look in one sentence; the whole page changes right away. Save when you like it (this device only).') + '</p>' +
+      '<div class="th-pre">' + '<button type="button" class="th-p" data-th="default"><span class="th-sw"><i style="background:#303030"></i><i style="background:#F8F6F2"></i><i style="background:#D8D0C1"></i><i style="background:#8FD19E"></i><i style="background:#F2949A"></i></span>' + Z('默认', 'Default') + '</button>' +
+      THEME_PRESETS.map(function (t) { return '<button type="button" class="th-p" data-th="' + t.id + '"' + (cur && cur.name === t.name[0] ? ' aria-pressed="true"' : '') + '><span class="th-sw">' + sw(t) + '</span>' + t.name[LANG === 'en' ? 1 : 0] + '</button>'; }).join('') + '</div>' +
+      '<div class="ai-in"><textarea id="th-q" rows="2" placeholder="' + Z('例如：深蓝配金色，字大一点，圆角多一点', 'e.g. deep blue with gold, larger text, rounder corners') + '">' + esc(TH.prompt) + '</textarea>' +
+      '<button type="button" class="ok" data-th="ask"' + (TH.busy ? ' disabled' : '') + '>' + (TH.busy ? '<span class="ai-dots"><i></i><i></i><i></i></span>' : Z('✦ 生成', '✦ Create')) + '</button></div>' +
+      '<div class="opts ai-chips">' + [Z('护眼的暖色，字大一点', 'Warm and easy on the eyes, larger text'), Z('像彭博终端：黑底橙字', 'Like a Bloomberg terminal: black and orange'), Z('清爽的浅色，圆角，玻璃感强', 'Light and clean, rounded, strong glass'), Z('深紫配霓虹青', 'Deep purple with neon cyan')].map(function (q) { return '<button type="button" data-th="ex" data-v="' + esc(q) + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
+      (TH.err ? '<p class="dn">⚠ ' + esc(TH.err) + '</p>' : '') +
+      (cur ? '<div class="th-cur"><span class="th-sw big">' + sw(cur) + '</span><div><b>' + esc(cur.name || Z('自定义', 'Custom')) + '</b> <span class="dim">' + cur.font + 'px · ' + Z('圆角 ', 'radius ') + cur.radius + ' · ' + Z('玻璃 ', 'glass ') + Math.round(cur.glass * 100) + '%</span>' + (TH.note || cur.note ? '<p class="dim">' + esc(TH.note || cur.note) + '</p>' : '') + '</div></div>' : '') +
+      '<div class="opts">' + (TH.preview ? '<button type="button" class="ok" data-th="save">' + Z('保存', 'Save') + '</button><button type="button" data-th="cancel">' + Z('取消预览', 'Cancel preview') + '</button>' : '') +
+      (themeCurrent() || TH.preview ? '<button type="button" data-th="reset">' + Z('还原默认', 'Back to default') + '</button>' : '') + '</div></div>';
+    return h;
+  }
+  function themeClick(t) {
+    var a = t.dataset.th;
+    if (a === 'default') { TH.preview = null; TH.note = ''; themeApply(null); themeStore(null); }
+    else if (a === 'ask') { var q = document.getElementById('th-q'); TH.prompt = q ? q.value : TH.prompt; themeAsk(); return; }
+    else if (a === 'ex') { TH.prompt = t.dataset.v; themeAsk(); return; }
+    else if (a === 'save') { if (TH.preview) { themeStore(TH.preview, true); TH.preview = null; } }
+    else if (a === 'cancel') { TH.preview = null; TH.note = ''; themeApply(themeCurrent()); }
+    else if (a === 'reset') { TH.preview = null; TH.note = ''; themeStore(null); themeApply(null); }
+    else { var p = THEME_PRESETS.filter(function (x) { return x.id === a; })[0]; if (p) { TH.preview = Object.assign({}, p, { name: p.name[0], note: '' }); TH.note = ''; themeApply(TH.preview); } }
+    aiRender();
+  }
   function aiRender() {
     var box = document.getElementById('ai-panel'); if (!box) return;
-    box.hidden = !AI.open; document.getElementById('ai-fab').setAttribute('aria-expanded', String(AI.open));
+    var fab0 = document.getElementById('ai-fab'); box.hidden = !AI.open; fab0.setAttribute('aria-expanded', String(AI.open)); fab0.classList.toggle('busy', !!(AI.busy || TH.busy));
     if (!AI.open) return;
     var label = S.code ? nameOf(S.code) + ' ' + S.code : ((PAGES.filter(function (p) { return p[0] === S.page; })[0] || [])[1] || '') + T(' · 今日市场');
-    var h = T('<div class="ai-top"><b>✦ AI 问答</b><span class="dim">根据：') + esc(label) + T('</span><button type="button" data-ai="setup">⚙ 设置</button><button type="button" data-ai="close" aria-label="关闭">×</button></div>');
+    var h = '<div class="ai-top"><span class="ai-logo" aria-hidden="true">' + AI_ICON + '</span><b>' + (TH.view ? Z('自定义界面', 'Customize') : Z('AI 问答', 'Ask AI')) + '</b>' +
+      (TH.view ? '<span class="ai-ctx"></span>' : '<span class="ai-ctx" title="' + esc(label) + '">' + esc(label) + '</span>') +
+      '<button type="button" data-ai="theme" aria-pressed="' + TH.view + '" title="' + Z('自定义界面', 'Customize the look') + '">🎨</button><button type="button" data-ai="setup" title="' + Z('设置', 'Settings') + '">⚙</button><button type="button" data-ai="close" aria-label="' + Z('关闭', 'Close') + '">×</button></div>';
+    if (TH.view && !AI.setup) { h += themeView(); box.innerHTML = h; return; }
     if (AI.setup || !aiReady()) {
       var md0 = AI.cfg.mode || 'worker';
       h += T('<div class="ai-set"><p class="dim">选择连线方式 (只存在这台设备的浏览器)：</p>') +
@@ -976,7 +1110,7 @@
           : T('<label>DeepSeek API 密钥<input id="ai-key" type="password" autocomplete="off" placeholder="sk-…" value="') + esc(AI.cfg.key || '') + T('"></label><p class="dim">密钥只存在这台手机，问问题时浏览器直接连 DeepSeek。建议用另外开的、设了用量上限的密钥。</p>')) +
         T('<div class="opts"><button type="button" class="ok" data-ai="save">保存</button>') + (aiReady() ? T('<button type="button" data-ai="setup">取消</button>') : '') + '</div></div>';
     } else {
-      h += '<div class="ai-log" id="ai-log">' + (AI.msgs.length ? AI.msgs.map(function (m) { return '<div class="ai-m ai-' + m.role + '">' + (m.role === 'user' ? esc(m.show || m.content) : aiFmt(m.content) || T('<span class="dim">思考中…</span>')) + '</div>'; }).join('') :
+      h += '<div class="ai-log" id="ai-log">' + (AI.msgs.length ? AI.msgs.map(function (m) { return '<div class="ai-m ai-' + m.role + '">' + (m.role === 'user' ? esc(m.show || m.content) : aiFmt(m.content) || '<span class="ai-dots"><i></i><i></i><i></i></span>') + '</div>'; }).join('') :
         T('<p class="dim">会把这一页的资料 (价格、指标、财报、公告、AI 整理) 一起交给 AI。可以点下面的问题，或自己输入。</p>')) + '</div>' +
         '<div class="opts ai-chips">' + aiChips().map(function (q) { return '<button type="button" data-ai="ask" data-v="' + esc(q) + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
         T('<div class="ai-in"><textarea id="ai-q" rows="2" placeholder="问 AI… (例如：这家公司的负债高吗？)"></textarea><button type="button" class="ok" data-ai="send"') + (AI.busy ? ' disabled' : '') + '>' + (AI.busy ? '…' : T('发送')) + '</button></div>' +
@@ -984,6 +1118,33 @@
     }
     box.innerHTML = h;
     var lg = document.getElementById('ai-log'); if (lg) lg.scrollTop = lg.scrollHeight;
+  }
+  // DeepSeek (浏览器直接连，用自己的密钥)：模型名称失效时自动换新名称 (从错误信息读出 DeepSeek 现在支持的名称)，记在这台设备
+  var DS_URL = 'https://api.deepseek.com/chat/completions', DS_FB = ['deepseek-flash', 'deepseek-v4-flash'];
+  function dsModel() { try { return localStorage.getItem('bterm_ds_model') || 'deepseek-chat'; } catch (e) { return 'deepseek-chat'; } }
+  function dsFetch(key, payload) {
+    var tried = [], todo = [dsModel()].concat(DS_FB);
+    function attempt() {
+      var model = todo.filter(function (x) { return tried.indexOf(x) < 0; })[0];
+      if (!model) return Promise.reject(new Error(T('DeepSeek 模型都不能用 (试过 ') + tried.join(', ') + ')'));
+      var body = Object.assign({}, payload, { model: model });
+      if (model !== 'deepseek-chat') body.thinking = { type: 'disabled' };  // 新名称默认开思考模式：关掉，直接回答
+      return fetch(DS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify(body) }).then(function (r) {
+        if (r.status !== 400 && r.status !== 404) {
+          if (r.ok && model !== dsModel()) { try { localStorage.setItem('bterm_ds_model', model); } catch (e) {} }
+          return r;
+        }
+        return r.clone().text().then(function (t) {
+          if (!(/model/i.test(t) && /support|not exist|invalid|deprecat|not found/i.test(t))) return r;
+          tried.push(model);
+          var m = /model names are\s+(.+?)(?:,?\s+but\b|\.|$)/i.exec(t);
+          if (m) m[1].split(/,|\band\b/).map(function (x) { return x.replace(/['"\s]/g, ''); }).filter(function (x) { return /^[\w.\-]+$/.test(x); })
+            .sort(function (a, b) { return (/flash/.test(a) ? 0 : 1) - (/flash/.test(b) ? 0 : 1); }).forEach(function (x) { if (todo.indexOf(x) < 0) todo.push(x); });
+          return attempt();
+        });
+      });
+    }
+    return attempt();
   }
   function aiAsk(q) {
     q = (q || '').trim(); if (!q || AI.busy) return;
@@ -993,8 +1154,7 @@
     AI.busy = true; aiRender();
     var cur = AI.msgs[AI.msgs.length - 1], hist = AI.msgs.slice(0, -1).map(function (m) { return { role: m.role, content: m.content }; });
     var req = AI.cfg.mode === 'worker' ? fetch(AI.cfg.url.replace(/\/$/, ''), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pass': AI.cfg.pass }, body: JSON.stringify({ messages: hist, lang: LANG }) })
-      : fetch('https://api.deepseek.com/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + AI.cfg.key },
-        body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: AI_SYS }].concat(hist) }) });
+      : dsFetch(AI.cfg.key, { temperature: 0.3, max_tokens: 1200, stream: true, messages: [{ role: 'system', content: AI_SYS }].concat(hist) });
     req.then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(r.status + (r.status === 401 ? T(' 通行码 / 密钥不对') : r.status === 403 ? T(' 网址不被允许 (检查 ALLOW_ORIGIN)') : r.status === 402 ? T(' DeepSeek 额度不足') : '') + ' ' + t.slice(0, 120)); });
       var rd = r.body.getReader(), dec = new TextDecoder(), buf = '';
@@ -1021,6 +1181,7 @@
     if (a === 'toggle') { AI.open = !AI.open; }
     else if (a === 'close') AI.open = false;
     else if (a === 'setup') AI.setup = !AI.setup;
+    else if (a === 'theme') { TH.view = !TH.view; AI.setup = false; }
     else if (a === 'mode') { AI.cfg.mode = t.dataset.v; AI.setup = true; }
     else if (a === 'save') {
       if (AI.cfg.mode !== 'key') { AI.cfg.mode = 'worker'; AI.cfg.url = (document.getElementById('ai-url') || {}).value || ''; AI.cfg.pass = (document.getElementById('ai-pass') || {}).value || ''; AI.cfg.edit = (document.getElementById('ai-edit') || {}).value || ''; OV = null; ovLoading = false; loadOv(); }
@@ -1032,10 +1193,53 @@
     aiRender();
   }
   (function () {
-    var fab = document.createElement('button'); fab.type = 'button'; fab.id = 'ai-fab'; fab.dataset.ai = 'toggle'; fab.setAttribute('aria-controls', 'ai-panel'); fab.setAttribute('aria-expanded', 'false'); fab.innerHTML = '✦ AI';
+    var fab = document.createElement('button'); fab.type = 'button'; fab.id = 'ai-fab'; fab.dataset.ai = 'toggle'; fab.setAttribute('aria-controls', 'ai-panel'); fab.setAttribute('aria-expanded', 'false');
+    fab.setAttribute('aria-label', Z('AI 问答', 'Ask AI')); fab.title = Z('AI 问答 (可以拖到别的位置)', 'Ask AI (drag to move)');
+    fab.innerHTML = '<span class="fab-ring" aria-hidden="true"></span><span class="fab-ic" aria-hidden="true">' + AI_ICON + '</span><span class="fab-x" aria-hidden="true">×</span>';
     var box = document.createElement('section'); box.id = 'ai-panel'; box.hidden = true; box.setAttribute('aria-label', T('AI 问答'));
     document.body.appendChild(box); document.body.appendChild(fab);
+    fabPlace(fabPos(), false); fabDrag(fab);
+    window.addEventListener('resize', function () { fabPlace(fabPos(), false); });
   })();
+  // 按钮位置：贴左边或右边 + 离底部的高度 (占可用高度的比例)，存在这台设备
+  function fabPos() { try { var p = JSON.parse(localStorage.getItem('bterm_fab') || 'null'); if (p && (p.side === 'l' || p.side === 'r') && p.y >= 0 && p.y <= 1) return p; } catch (e) {} return { side: 'r', y: 0 }; }
+  function fabBounds() { var bar = window.innerWidth < 780 && !WIDGET ? 84 : 16; return { lo: bar, hi: Math.max(bar, window.innerHeight - 140) }; }
+  function fabPlace(p, anim) {
+    var fab = document.getElementById('ai-fab'); if (!fab) return;
+    var b = fabBounds(), y = b.lo + (b.hi - b.lo) * p.y;
+    fab.classList.toggle('fab-anim', !!anim);
+    var w = fab.offsetWidth || 52;  // 一律用 left + bottom 的像素值，贴边时才能平滑滑过去
+    fab.style.right = 'auto'; fab.style.top = 'auto';
+    fab.style.left = (p.side === 'l' ? 12 : window.innerWidth - w - 12) + 'px'; fab.style.bottom = 'calc(' + Math.round(y) + 'px + env(safe-area-inset-bottom, 0px))';
+  }
+  function fabDrag(fab) {
+    var st = null;
+    // 按下之后在整个视窗听移动 / 放开：手指一下子就移出按钮范围也跟得上
+    fab.addEventListener('pointerdown', function (e) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      var r = fab.getBoundingClientRect(); st = { x: e.clientX, y: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false, id: e.pointerId };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
+    });
+    var move = function (e) {
+      if (!st || e.pointerId !== st.id) return;
+      if (!st.moved && Math.hypot(e.clientX - st.x, e.clientY - st.y) < 8) return;
+      if (!st.moved) { st.moved = true; try { fab.setPointerCapture(st.id); } catch (err) {} fab.classList.add('fab-drag'); fab.classList.remove('fab-anim'); }
+      var w = fab.offsetWidth, x = Math.max(4, Math.min(window.innerWidth - w - 4, e.clientX - st.dx)), y = Math.max(4, Math.min(window.innerHeight - w - 4, e.clientY - st.dy));
+      fab.style.left = x + 'px'; fab.style.bottom = (window.innerHeight - y - w) + 'px';
+    };
+    var end = function (e) {
+      if (!st || e.pointerId !== st.id) return; var s0 = st; st = null;
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end);
+      if (!s0.moved) return;
+      fab.classList.remove('fab-drag');
+      var r = fab.getBoundingClientRect(), b = fabBounds(), fromBottom = window.innerHeight - r.bottom;
+      var p = { side: r.left + r.width / 2 < window.innerWidth / 2 ? 'l' : 'r', y: Math.max(0, Math.min(1, (fromBottom - b.lo) / Math.max(1, b.hi - b.lo))) };
+      try { localStorage.setItem('bterm_fab', JSON.stringify(p)); } catch (err) {}
+      fabPlace(p, true);
+      fab.dataset.dragged = '1'; setTimeout(function () { delete fab.dataset.dragged; }, 50);  // 拖完放开不要当成点一下
+    };
+    fab.addEventListener('click', function (e) { if (fab.dataset.dragged) { e.stopPropagation(); e.preventDefault(); } }, true);
+  }
   // ---------- owner 编辑：网站管理员在网页上 (可以用 AI) 修改 AI 资讯 / 公司简介 / 日历 / IPO，经 worker 提交到 docs/terminal/overrides.json ----------
   // 只有在 ✦ AI ⚙ 设置里填了「编辑通行码」才出现 ✎ 按钮；真正的权限检查在 worker (编辑通行码 + GitHub 令牌都在 Cloudflare)。
   // 保存后 GitHub Pages 约 1–2 分钟才更新，这段时间先用这台设备存着的版本 (OVP) 显示，服务器版本追上了就删掉。
@@ -1556,32 +1760,145 @@
     cal: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'
   };
   var TBL = { sig: ['信号', 'Signals'], mkt: ['市场', 'Market'], watch: ['观察', 'Watch'], bt: ['回测', 'Backtest'], pool: ['股票池', 'Pool'], ann: ['公告', 'Filings'], cal: ['日历', 'Calendar'] };
-  var tbBuilt = false;
-  function tabbar() {
+  var tbBuilt = false, TB = { drag: false, x0: 0, moved: false, hot: null, lastX: 0, lastT: 0, eat: false };
+  var narrowUI = function () { return window.innerWidth < 780 && !WIDGET; };
+  var calmUI = function () { return window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches; };
+  function tbButtons() { return [].slice.call(document.querySelectorAll('#tabbar button[data-page]')); }
+  // 玻璃泡泡：外层负责位置 (translateX)，里面的 blob 负责「液体」拉伸变形
+  function tbPlace(x, w, opt) {
+    var ind = document.querySelector('#tabbar .tb-ind');
+    if (!ind) return;
+    opt = opt || {};
+    ind.classList.toggle('tb-free', !!opt.free);
+    ind.style.width = w + 'px'; ind.style.transform = 'translateX(' + x + 'px)';
+    var blob = ind.firstChild;
+    if (blob && opt.stretch != null) blob.style.transform = 'scale(' + (1 + opt.stretch).toFixed(3) + ',' + (1 - opt.stretch * 0.45).toFixed(3) + ')';
+    else if (blob && opt.squish && !calmUI()) { blob.style.transform = ''; blob.classList.remove('tb-squish'); void blob.offsetWidth; blob.classList.add('tb-squish'); }
+  }
+  function tbNearest(x) {
+    var bs = tbButtons(), best = null, bd = 1e9;
+    bs.forEach(function (b) { var d = Math.abs(b.offsetLeft + b.offsetWidth / 2 - x); if (d < bd) { bd = d; best = b; } });
+    return best;
+  }
+  function tbHot(b) {
+    if (TB.hot === b) return;
+    if (TB.hot) TB.hot.classList.remove('tb-hot');
+    TB.hot = b;
+    if (b) { b.classList.add('tb-hot'); try { if (navigator.vibrate) navigator.vibrate(4); } catch (e) {} }
+  }
+  function tabbar(squish) {
     var tb = document.getElementById('tabbar');
     if (!tb || WIDGET) return;
     if (!tbBuilt) {
       tb.setAttribute('aria-label', LANG === 'en' ? 'Pages' : '页面');
-      tb.innerHTML = '<div class="tb-in"><span class="tb-ind" aria-hidden="true"></span>' + PAGES.map(function (p) {
+      tb.innerHTML = '<div class="tb-in"><span class="tb-ind" aria-hidden="true"><span class="tb-blob"></span></span>' + PAGES.map(function (p) {
         return '<button type="button" data-page="' + p[0] + '"><svg viewBox="0 0 24 24" aria-hidden="true">' + TBI[p[0]] + '</svg><span>' + TBL[p[0]][LANG === 'en' ? 1 : 0] + '</span></button>'; }).join('') + '</div>';
       tbBuilt = true;
+      tbBind(tb);
     }
     var on = null;
-    [].forEach.call(tb.querySelectorAll('button[data-page]'), function (b) {
+    tbButtons().forEach(function (b) {
       var cur = b.dataset.page === S.page;
       if (cur) { b.setAttribute('aria-current', S.code ? 'true' : 'page'); on = b; } else b.removeAttribute('aria-current');
     });
-    var ind = tb.querySelector('.tb-ind');
-    if (on && ind && on.offsetWidth) {
-      ind.style.width = on.offsetWidth + 'px'; ind.style.transform = 'translateX(' + on.offsetLeft + 'px)';
-      var left = on.offsetLeft - (tb.clientWidth - on.offsetWidth) / 2;
-      if (tb.scrollWidth > tb.clientWidth) { try { tb.scrollTo({ left: Math.max(0, left), behavior: 'smooth' }); } catch (e) { tb.scrollLeft = left; } }
+    if (on && on.offsetWidth && !TB.drag) tbPlace(on.offsetLeft, on.offsetWidth, { squish: squish });
+  }
+  // 按住导航栏左右滑：泡泡跟着手指走 (边走边拉长)，经过的图标放大；放开就弹到最近那一页并切过去
+  function tbBind(tb) {
+    var inner = function () { return tb.querySelector('.tb-in'); };
+    tb.addEventListener('pointerdown', function (e) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      TB.drag = true; TB.moved = false; TB.x0 = e.clientX; TB.lastX = e.clientX; TB.lastT = e.timeStamp;
+      tb.classList.add('tb-press');
+    });
+    tb.addEventListener('pointermove', function (e) {
+      if (!TB.drag) return;
+      if (!TB.moved && Math.abs(e.clientX - TB.x0) < 6) return;
+      if (!TB.moved) { try { tb.setPointerCapture(e.pointerId); } catch (err) {} }  // 真的开始拖才锁定指针 (只点一下照常是按钮的 click)
+      TB.moved = true;
+      var r = inner().getBoundingClientRect(), bs = tbButtons(), w = bs[0] ? bs[0].offsetWidth : 50;
+      var x = Math.max(0, Math.min(r.width - w, e.clientX - r.left - w / 2));
+      var dt = Math.max(8, e.timeStamp - TB.lastT), v = Math.abs(e.clientX - TB.lastX) / dt;  // px / ms
+      TB.lastX = e.clientX; TB.lastT = e.timeStamp;
+      tbPlace(x, w, { free: true, stretch: Math.min(0.32, v * 0.22) });
+      tbHot(tbNearest(x + w / 2));
+    });
+    var end = function (e, cancel) {
+      if (!TB.drag) return;
+      TB.drag = false; tb.classList.remove('tb-press');
+      var hot = TB.hot; tbHot(null);
+      if (TB.moved) {
+        TB.eat = true;  // 拖完放开不要再当成点一下
+        if (!cancel && hot && (hot.dataset.page !== S.page || S.code)) go(hot.dataset.page, null, { swipe: true });
+        else tabbar(true);
+      }
+    };
+    tb.addEventListener('pointerup', function (e) { end(e, false); });
+    tb.addEventListener('pointercancel', function (e) { end(e, true); });
+    tb.addEventListener('click', function (e) { if (TB.eat) { TB.eat = false; e.stopPropagation(); e.preventDefault(); } }, true);
+  }
+  // 在页面上左右滑：换到前 / 后一页 (第 1 → 7 页)；页面和导航栏的泡泡都跟着手指动。个股页向右滑 = 返回
+  var SW = null;
+  function swScrollable(el) {
+    for (; el && el !== document.body; el = el.parentElement) {
+      if (/^(INPUT|TEXTAREA|SELECT|CANVAS)$/.test(el.tagName) || el.id === 'ai-panel' || el.id === 'ed-panel' || el.id === 'tabbar') return true;
+      if (el.scrollWidth > el.clientWidth + 2) { var ox = getComputedStyle(el).overflowX; if (ox === 'auto' || ox === 'scroll') return true; }
     }
+    return false;
+  }
+  function swIndex() { for (var i = 0; i < PAGES.length; i++) if (PAGES[i][0] === S.page) return i; return 0; }
+  function swTarget(dx) {
+    if (S.code) return dx > 0 ? { back: true } : null;
+    var i = swIndex() + (dx < 0 ? 1 : -1);
+    return i >= 0 && i < PAGES.length ? { page: PAGES[i][0] } : null;
+  }
+  document.addEventListener('touchstart', function (e) {
+    if (!narrowUI() || e.touches.length !== 1 || !main.contains(e.target) || swScrollable(e.target) || (AI && AI.open)) { SW = null; return; }
+    var t = e.touches[0];
+    SW = { x: t.clientX, y: t.clientY, dx: 0, lock: null, t: e.timeStamp };
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    if (!SW) return;
+    var t = e.touches[0], dx = t.clientX - SW.x, dy = t.clientY - SW.y;
+    if (!SW.lock) { if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; SW.lock = Math.abs(dx) > Math.abs(dy) * 1.3 ? 'x' : 'y'; }
+    if (SW.lock !== 'x') return;
+    e.preventDefault();
+    SW.dx = dx;
+    var tg = swTarget(dx), damp = tg ? 0.55 : 0.18;  // 头尾没有下一页：拉得动但有阻力
+    main.classList.add('sw-drag');
+    main.style.transform = 'translateX(' + (dx * damp).toFixed(1) + 'px)';
+    main.style.opacity = String(Math.max(0.55, 1 - Math.abs(dx) / 700));
+    if (tg && tg.page) {  // 泡泡也往目标那一页挪 (按滑动的比例)
+      var bs = tbButtons(), a = bs[swIndex()], b = bs.filter(function (x) { return x.dataset.page === tg.page; })[0];
+      if (a && b) { var f = Math.min(1, Math.abs(dx) / (window.innerWidth * 0.5)); tbPlace(a.offsetLeft + (b.offsetLeft - a.offsetLeft) * f, a.offsetWidth, { free: true, stretch: f * 0.28 * (1 - f) * 2 }); }
+    }
+  }, { passive: false });
+  document.addEventListener('touchend', function (e) {
+    if (!SW) return;
+    var s0 = SW; SW = null;
+    if (s0.lock !== 'x') return;
+    var dx = s0.dx, fast = Math.abs(dx) / Math.max(1, e.timeStamp - s0.t) > 0.5, tg = swTarget(dx);
+    main.classList.remove('sw-drag');
+    if (tg && (Math.abs(dx) > window.innerWidth * 0.28 || (fast && Math.abs(dx) > 40))) {
+      main.style.transform = ''; main.style.opacity = '';
+      if (tg.back) go(S.page, null, { swipe: true, dir: -1 }); else go(tg.page, null, { swipe: true });
+    } else {
+      main.classList.add('sw-back'); main.style.transform = ''; main.style.opacity = '';
+      setTimeout(function () { main.classList.remove('sw-back'); }, 320);
+      tabbar(true);
+    }
+  });
+  document.addEventListener('touchcancel', function () { if (SW) { SW = null; main.classList.remove('sw-drag'); main.style.transform = ''; main.style.opacity = ''; tabbar(); } });
+  // 换页动画：新的一页从滑动的方向滑进来
+  function pageIn(dir) {
+    if (!narrowUI() || calmUI() || !dir) return;
+    main.classList.remove('pg-l', 'pg-r'); void main.offsetWidth;
+    main.classList.add(dir > 0 ? 'pg-l' : 'pg-r');
   }
   function stdUrl() { return (D.report || '../') + '?ui=std'; }
   function render() {
     if (!D) return;
-    keys(); tabbar(); EVREG = [];
+    keys(); tabbar(TB.sq); EVREG = [];
     document.getElementById('prompt-arg').textContent = S.code ? 'quote ' + S.code : '--' + S.page;
     var fn = { cal: pageCal, sig: pageSig, watch: pageWatch, bt: pageBt, pool: pagePool, mkt: pageMkt, ann: pageAnn }[S.page] || pageSig;
     var focusId = document.activeElement && /^(grep|cb-q|sq)$/.test(document.activeElement.id) ? document.activeElement.id : null, focusGrep = !!focusId, pos = focusGrep ? document.activeElement.selectionStart : null;
@@ -1590,13 +1907,17 @@
     if (!BARS) loadBars();
     if (AI.open && !AI.busy && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#ai-panel'))) aiRender();
   }
-  function go(page, code) {
+  function go(page, code, opt) {
+    var from = PAGES.map(function (p) { return p[0]; }).indexOf(S.page), to = PAGES.map(function (p) { return p[0]; }).indexOf(page || S.page);
+    var dir = opt && opt.dir ? opt.dir : (code ? 1 : !code && S.code ? -1 : to > from ? 1 : to < from ? -1 : 0);  // 1 = 从右边进来，-1 = 从左边进来
+    var pageChanged = (page || S.page) !== S.page || (code || null) !== S.code;
     if ((code || null) !== S.code) S.qtab = 'ov';
     if (page && page !== S.page) S.alim = 40;
     S.page = page || S.page; S.code = code || null;
     var h = S.code ? '#q-' + S.code : '#' + S.page;
     if (location.hash !== h) history.replaceState(null, '', h);
-    render(); window.scrollTo(0, 0);
+    TB.sq = pageChanged; render(); TB.sq = false; window.scrollTo(0, 0);
+    if (pageChanged) pageIn(dir);
   }
   function fromHash() {
     var h = location.hash.slice(1);
@@ -1618,7 +1939,9 @@
       var sl2 = document.querySelector('.fscroll'); if (sl2) { sl2.scrollLeft = x; var on = sl2.querySelector('[aria-pressed="true"]'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
       return; }
     var cbt = e.target.closest('[data-cb]'); if (cbt) { cbClick(cbt); return; }
+    var thb = e.target.closest('[data-th]'); if (thb) { themeClick(thb); return; }
     var ai = e.target.closest('[data-ai]'); if (ai) { aiClick(ai); return; }
+    if (e.target.closest('.ai-stk') && window.innerWidth < 780) AI.open = false;  // 手机上点 AI 回答里的股票：关掉面板去看个股页
     var ct = e.target.closest('[data-calg],[data-calw],[data-calm],[data-cald]'); if (ct) { calClick(ct); return; }
     if (e.target.closest('[data-candle]')) { toggleCandle(); return; }
     var edb = e.target.closest('[data-ed]'); if (edb) { edOpen(edb.dataset.ed, edb.dataset.code, edb.dataset.ev != null ? EVREG[+edb.dataset.ev] : null); return; }
@@ -1651,6 +1974,7 @@
     var id = e.target.id, box;
     if (id === 'cb-q') { CB.q = e.target.value; if ((box = document.getElementById('cb-sug'))) box.innerHTML = cbSug(); }
     else if (id === 'w-q') { WQ = e.target.value; if ((box = document.getElementById('w-sug'))) box.innerHTML = wSug(); }
+    else if (id === 'th-q') TH.prompt = e.target.value;
     else if (id === 'sq') { S.sq = e.target.value; if ((box = document.getElementById('sq-res'))) box.innerHTML = sqRes(); }
     else if (id === 'grep') {
       S.q = e.target.value; S.limit = 50;
@@ -1683,6 +2007,7 @@
   var lastW = window.innerWidth;  // 只在宽度变了才重画 (iPhone 滚动时地址栏收起只改高度，不该重画)
   window.addEventListener('resize', function () { if (window.innerWidth === lastW) return; lastW = window.innerWidth; clearTimeout(resizeT); resizeT = setTimeout(function () { CW = null; render(); }, 150); });
   function toggleTheme() {
+    if (document.documentElement.dataset.custom) { var sv = themeSaved(); if (sv && sv.t) themeStore(sv.t, false); TH.preview = null; themeApply(null); aiRender(); return; }
     var root = document.documentElement, dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
     root.dataset.theme = dark ? 'light' : 'dark';
     try { localStorage.setItem('bterm_theme', root.dataset.theme); } catch (e) {}

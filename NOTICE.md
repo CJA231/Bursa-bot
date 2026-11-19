@@ -7,7 +7,7 @@ Bursa Bot itself is proprietary (see [LICENSE](./LICENSE)). It uses the third-pa
 | Component | Where | License |
 |---|---|---|
 | TradingView Lightweight Charts™ v5.2.1, © 2025 TradingView, Inc. | `docs/vendor/lightweight-charts.js` | Apache License 2.0 ([copy](./docs/vendor/LICENSE-lightweight-charts), [NOTICE](./docs/vendor/NOTICE)). The attribution and link must stay visible on pages that show the charts (the report footer does this). |
-| JetBrains Mono 2.305 (Regular, Medium, Bold), © 2020 The JetBrains Mono Project Authors | `terminal_assets/fonts/` → `docs/terminal/fonts/` | SIL Open Font License 1.1 ([copy](./terminal_assets/fonts/OFL.txt)). Unmodified official web fonts; the licence file is published next to them. |
+| JetBrains Mono 2.305 (Regular, Medium, Bold), © 2020 The JetBrains Mono Project Authors | originals in `terminal_assets/fonts-src/`; subsets in `terminal_assets/fonts/` → `docs/terminal/fonts/` | SIL Open Font License 1.1 ([copy](./terminal_assets/fonts/OFL.txt)). The published files are subsets (only the characters the site uses, made with fontTools by `scripts/subset_fonts.py`), distributed under the same licence; the font declares no Reserved Font Name. The licence file is published next to them. |
 
 ## Python libraries (installed in GitHub Actions, not redistributed)
 

@@ -228,9 +228,52 @@ client = OpenAI(
     api_key=DEEPSEEK_KEY,               # 从 GitHub Secrets 读取密码
     base_url="https://api.deepseek.com" # 👈 这里指定连接 DeepSeek
 )
-# 模型名称统一在这里改 (环境变量 DEEPSEEK_MODEL 可以覆盖)。2026-11 实测：deepseek-chat 由 DeepSeek V4.1 Flash 回答 (非思考模式，
-# 直接输出 JSON)；写成 deepseek-flash 会开「思考」模式，先用掉输出额度，JSON 可能被截断，所以默认维持 deepseek-chat
+# 模型名称统一在这里改 (环境变量 DEEPSEEK_MODEL 可以覆盖)。2026-11 实测：deepseek-chat (旧名称) 由 DeepSeek V4.1 Flash 回答 (非思考模式，
+# 直接输出 JSON)；新名称 deepseek-flash 默认开「思考」模式，要加 thinking: disabled 才会直接输出，不然 JSON 可能被截断
 AI_MODEL = os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat"
+AI_FALLBACKS = ("deepseek-flash", "deepseek-v4-flash")   # 旧名称失效时依序改用 (另外会从 DeepSeek 的错误信息读出它现在支持的名称)
+AI_LEGACY = ("deepseek-chat",)                            # 旧名称本身就是非思考模式，不用加参数
+AI_NO_THINK = {"thinking": {"type": "disabled"}}
+_AI = {"model": AI_MODEL}
+
+
+def _ai_model_error(e):
+    """DeepSeek 回「模型名称不对 / 已停用」(400 / 404 且讯息提到 model)"""
+    msg = str(e).lower()
+    return getattr(e, "status_code", None) in (400, 404) and "model" in msg and ("support" in msg or "not exist" in msg or "invalid" in msg or "deprecat" in msg or "not found" in msg)
+
+
+def _ai_supported(e):
+    """错误信息里 DeepSeek 列出的可用名称 (例如 'The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed …')，flash 排前面 (便宜、快)"""
+    hit = re.search(r"model names are\s+(.+?)(?:,?\s+but\b|\.|$)", str(e), re.I)
+    names = [x.strip(" '\"") for x in re.split(r",|\band\b", hit.group(1))] if hit else []
+    names = [x for x in names if re.fullmatch(r"[\w.\-]+", x)]
+    return sorted(names, key=lambda x: (0 if "flash" in x else 1))
+
+
+def ai_chat(**kw):
+    """所有 DeepSeek 调用都走这里。模型名称失效时自动换成新名称 (同一次运行之后都用新的)，新名称一律关掉思考模式"""
+    kw.pop("model", None)
+    extra = dict(kw.pop("extra_body", None) or {})
+    tried, todo = [], [_AI["model"], *AI_FALLBACKS]
+    while True:
+        model = next((x for x in todo if x not in tried), None)
+        if model is None:
+            raise RuntimeError(f"DeepSeek 模型都不能用 (试过 {', '.join(tried)})")
+        body = extra if model in AI_LEGACY else {**AI_NO_THINK, **extra}
+        try:
+            r = client.chat.completions.create(model=model, extra_body=body or None, **kw)
+        except Exception as e:  # noqa: BLE001
+            if not _ai_model_error(e):
+                raise
+            tried.append(model)
+            todo += [x for x in _ai_supported(e) if x not in todo]
+            print(f"⚠️ DeepSeek 模型 {model} 不能用 ({str(e)[:120]})，改试下一个")
+            continue
+        if model != _AI["model"]:
+            print(f"⚠️ DeepSeek 模型自动改用 {model} (原本 {_AI['model']})；之后请把 main.py 的 AI_MODEL 改成新名称")
+            _AI["model"] = model
+        return r
 
 # === T3 形态 ===
 # 过去 2~5 天前某天放量(成交量 > 前20日均量)创出当天最高价 High1，
@@ -1686,8 +1729,7 @@ def add_profile_zh(stocks):
         if not prof.get("summary") or (prof.get("zh") and "lines_en" in prof):
             continue  # 中文介绍和英文业务线都有了
         try:
-            r = client.chat.completions.create(
-                model=AI_MODEL,
+            r = ai_chat(
                 messages=[{"role": "system", "content": PROFILE_SYSTEM_PROMPT},
                           {"role": "user", "content": f"公司: {d.get('long_name') or s['name']}\n行业: {prof.get('sector')} / {prof.get('industry')}\n介绍:\n{prof['summary'][:3000]}"}],
                 temperature=0.1, max_tokens=800, response_format={"type": "json_object"})
@@ -2384,8 +2426,7 @@ def ask_deepseek(code, name, headlines):
     """消息面摘要 → (中文, English)；出错返回 (None, None)"""
     lines = "\n".join(f"- {d} [{src}] {t}" for d, src, t in headlines)
     try:
-        response = client.chat.completions.create(
-            model=AI_MODEL,
+        response = ai_chat(
             messages=[{"role": "system", "content": DEEPSEEK_SYSTEM_PROMPT},
                       {"role": "user", "content": f"股票: {name} ({code})\n最近 {DIGEST_DAYS} 天的标题:\n{lines}"}],
             temperature=0.1, max_tokens=300, response_format={"type": "json_object"})

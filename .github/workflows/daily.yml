@@ -33,6 +33,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # 网站资料在 site-data 分支 (main 不放生成的文件)：先放回 docs/ 和 data/
+      - name: Restore site data
+        run: python3 scripts/site_state.py restore
+
       - name: Set up Python
         id: setup-python
         uses: actions/setup-python@v7
@@ -84,25 +88,17 @@ jobs:
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
         run: python scripts/ann_latency.py
 
+      # 保存到 site-data 分支 (不提交到 main，仓库不会越来越大)；跑完后「Deploy site」会自动部署到 GitHub Pages。
+      # 马股只换掉自己负责的路径 (docs/ 里 us、intel、holders、filings、segments、esg 以外的全部 + data/ 的状态文件)，美股只换 docs/us/
       - name: Publish report
         env:
           MARKET: ${{ github.event.inputs.market || 'MY' }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # 整个 docs 目录一起提交 (-A 连删掉的文件也算)：报告、下载文件 (超过 7 天的旧文件夹会被删掉)、
-          # charts = 表格股票的K线、stock = 个股财报 + 长期K线、news = 个股新闻；美股的同名目录都在 docs/us/ 下面
-          git add -A docs data
-          if [ "$MARKET" = "US" ]; then msg="Update daily report (US)"; else msg="Update daily report"; fi
-          git diff --staged --quiet || git commit -m "$msg"
-          # 排队等上一个 run (例如另一个市场) 的时候，main 可能已经多了它推上去的报告 → 先接上再推。
-          # 两个市场写的是不同目录 (docs/ 和 docs/us/)，不会冲突
-          # 公司资讯 / ESG 也可能同时推送 (不同目录，不会冲突)：被拒就等一下再接上重推
-          for i in 1 2 3 4 5; do
-            { git pull --rebase origin "${GITHUB_REF_NAME}" || { git rebase --abort 2>/dev/null; false; }; } && git push && break
-            [ "$i" = 5 ] && exit 1
-            sleep $((i * 10))
-          done
+          if [ "$MARKET" = "US" ]; then
+            python3 scripts/site_state.py save --role report-us -m "Update daily report (US)"
+          else
+            python3 scripts/site_state.py save --role report -m "Update daily report"
+          fi
 
       # 公开展示站 (精简版，没有指标 / 规则 / 回测)：推到另一个公开仓库的根目录。
       # 需要在这个 (私有) 仓库设置：Secret PUBLIC_REPO_TOKEN (对公开仓库有 Contents 写权限的 fine-grained token)、Variable PUBLIC_REPO (例如 CJA231/Bursa-bot-public)。没设置就跳过

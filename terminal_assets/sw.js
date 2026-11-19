@@ -1,10 +1,10 @@
 // 终端版离线 (PWA)：只管 /terminal/ 里面的文件，标准报告、个股资料 (../stock、../ann、../intel)、AI 问答一律不碰。
 // - 页面、data.json、bars.json、ipo.json (新股)：先上网拿最新的 (成功就存一份)；连不上或 8 秒没回应才用存着的那份，回应头加 x-bterm-offline 让页面显示「离线」
 // - terminal.css / terminal.js 这些带 ?v= 版本号的：版本号没变就直接用存着的
-// - 字体：存一次一直用 (文件名不变，另外一个缓存，不会每次更新都重下载)
+// - 字体：存一次一直用 (文件名不变，另外一个缓存，不会每次更新都重下载)；字体换版本时改 FONT 的名称，旧的字体缓存会被删掉
 // 每次生成报告 __V__ 都会变，浏览器就会装新版本的 sw.js，并删掉旧版本的页面缓存。
 var V = '__V__';
-var SHELL = 'bterm-shell-' + V, DATA = 'bterm-data', FONT = 'bterm-font-1';
+var SHELL = 'bterm-shell-' + V, DATA = 'bterm-data', FONT = 'bterm-font-2';  // font-2 = 精简版字体 (scripts/subset_fonts.py)；重新精简后要再加 1
 var SCOPE = new URL(self.registration.scope);
 var PRE = ['./', 'widget.html', 'terminal.css?v=' + V, 'terminal_en.js?v=' + V, 'terminal.js?v=' + V, 'legal.html', 'manifest.webmanifest', 'manifest-widget.webmanifest'];
 var DATA_FILES = ['data.json', 'bars.json', 'ipo.json', 'overrides.json'];
@@ -33,7 +33,7 @@ self.addEventListener('install', function (e) {
 
 self.addEventListener('activate', function (e) {
   e.waitUntil(caches.keys().then(function (ks) {
-    return Promise.all(ks.filter(function (k) { return k.indexOf('bterm-shell-') === 0 && k !== SHELL; }).map(function (k) { return caches.delete(k); }));
+    return Promise.all(ks.filter(function (k) { return (k.indexOf('bterm-shell-') === 0 && k !== SHELL) || (k.indexOf('bterm-font-') === 0 && k !== FONT); }).map(function (k) { return caches.delete(k); }));
   }).then(function () { return self.clients.claim(); }));
 });
 

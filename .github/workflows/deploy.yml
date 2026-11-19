@@ -1,0 +1,49 @@
+# 部署网站到 GitHub Pages：main 的手写文件 (report.js、vendor/、overrides.json…) + site-data 分支最新的网站资料。
+# 报告、公司资讯、ESG、股票名单任何一个跑完就自动部署；手写的 docs/ 文件推到 main (包括管理员在网页上的编辑) 也会部署。
+# 需要先在 Settings → Pages → Build and deployment → Source 选「GitHub Actions」。
+name: Deploy site
+
+on:
+  workflow_run:
+    workflows: ["DeepSeek Stock Bot", "Company intel (DeepSeek)", "ESG extract (DeepSeek)", "Update Watchlist"]
+    types: [completed]
+  push:
+    branches: [main]
+    paths: ['docs/**', 'scripts/site_state.py']
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 一次只部署一个；排队中的被更新的取代 (反正每次都部署 site-data 最新的版本，跳过中间那次没关系)
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Restore site data
+        run: python3 scripts/site_state.py restore
+      - name: Check site
+        run: |
+          test -s docs/index.html && test -s docs/terminal/index.html || { echo "::error::网站资料不完整 (docs/index.html 或 docs/terminal/index.html 不见了)，不部署"; exit 1; }
+          echo "部署 $(find docs -type f | wc -l) 个文件，$(du -sh docs | cut -f1)"
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

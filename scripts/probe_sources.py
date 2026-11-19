@@ -479,7 +479,33 @@ def dump_qr():
             print(f"[{code}] ERR {type(e).__name__}: {e}")
 
 
+def dump_models():
+    """PROBE13：DeepSeek 现在有哪些模型名称；新名称能不能关掉「思考」模式 (模型自动切换用)"""
+    import os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import main as m
+    try:
+        print("[models]", [x.id for x in m.client.models.list().data])
+    except Exception as e:  # noqa: BLE001
+        print("[models] ERR", type(e).__name__, str(e)[:200])
+    msg = [{"role": "user", "content": 'Reply with JSON {"ok": 1, "n": 2}'}]
+    tries = [("deepseek-chat", {}), ("deepseek-flash", {}), ("deepseek-flash", {"thinking": {"type": "disabled"}}),
+             ("deepseek-v4-flash", {"thinking": {"type": "disabled"}}), ("deepseek-flash", {"reasoning_effort": "none"}),
+             ("deepseek-flash-chat", {}), ("deepseek-v4.1-flash", {}), ("deepseek-not-a-model", {})]
+    for model, extra in tries:
+        try:
+            r = m.client.chat.completions.create(model=model, messages=msg, max_tokens=60, temperature=0,
+                                                 response_format={"type": "json_object"}, extra_body=extra or None)
+            det = getattr(r.usage, "completion_tokens_details", None)
+            print(f"[{model} {extra}] served={r.model} reasoning={getattr(det, 'reasoning_tokens', None)} out={r.choices[0].message.content!r}")
+        except Exception as e:  # noqa: BLE001
+            st = getattr(e, "status_code", None)
+            print(f"[{model} {extra}] ERR {type(e).__name__} status={st}: {str(e)[:220]}")
+
+
 def main():
+    if "--models" in sys.argv:
+        return dump_models()
     if "--qr" in sys.argv:
         return dump_qr()
     if "--fin2" in sys.argv:
