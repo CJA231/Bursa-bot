@@ -336,8 +336,8 @@
     var rows = f.codes.length ? '<div class="rows">' + f.codes.map(watchRow).join('') + '</div>' : T('<p class="dim">这个文件夹还是空的。上面搜索加入，或在个股页点「☆ 文件夹名」。</p>');
     var tools = T('<div class="opts"><button type="button" data-wa="ren">改名</button>') + (W.folders.length > 1 ? T('<button type="button" data-wa="del">删除文件夹</button>') : '') +
       T('<button type="button" data-wa="exp">导出备份</button><button type="button" data-wa="imp">导入</button></div>') +
-      (ACC && ACCT ? '<p class="dim">' + Z('☁ 已用 ' + esc(ACC.email) + ' 登录：观察列表会自动同步到你的其他设备。', '☁ Signed in as ' + esc(ACC.email) + ': your watchlists sync to your other devices.') + '</p>'
-        : ACCT ? '<p class="dim">' + Z('观察列表现在只存在这台设备。', 'Watchlists are only on this device right now.') + ' <button type="button" class="more" data-acct="toggle">' + Z('用 Google 登录，跨设备同步 →', 'Sign in with Google to sync across devices →') + '</button></p>'
+      (ACC && ACCT ? '<p class="dim">☁ ' + Z('已同步', 'Synced') + '</p>'
+        : ACCT ? '<p class="dim"><button type="button" class="more" data-acct="toggle">' + Z('登录以同步 →', 'Sign in to sync →') + '</button></p>'
         : T('<p class="dim">观察列表只存在这台设备的浏览器里，换手机或清除网站资料会不见，记得「导出备份」。</p>'));
     var topForm = WF.mode === 'new' && !WF.code ? wForm('page') : '', botForm = WF.mode && WF.mode !== 'new' ? wForm('page') : '';
     return pn(T('WATCHLIST 观察列表'), W.folders.length + T(' 个文件夹 · ') + watchCount() + T(' 支'), tabs + topForm) + pn('📁 ' + esc(f.name), f.codes.length + T(' 支'), add + rows + tools + botForm);
@@ -1248,7 +1248,7 @@
   }
   function themeView() {
     var cur = TH.preview || themeCurrent(), sw = function (t) { return ['bg', 'fg', 'acc', 'up', 'dn'].map(function (k) { return '<i style="background:' + t[k] + '"></i>'; }).join(''); };
-    var h = '<div class="th">' + '<p class="dim">' + Z('点一个预设，或用一句话描述想要的样子，整个页面会马上变给你看；满意再按保存 (只存在这台设备)。', 'Pick a preset or describe the look in one sentence; the whole page changes right away. Save when you like it (this device only).') + '</p>' +
+    var h = '<div class="th">' +
       '<div class="th-pre">' + '<button type="button" class="th-p" data-th="default"><span class="th-sw"><i style="background:#303030"></i><i style="background:#F8F6F2"></i><i style="background:#D8D0C1"></i><i style="background:#8FD19E"></i><i style="background:#F2949A"></i></span>' + Z('默认', 'Default') + '</button>' +
       THEME_PRESETS.map(function (t) { return '<button type="button" class="th-p" data-th="' + t.id + '"' + (cur && cur.name === t.name[0] ? ' aria-pressed="true"' : '') + '><span class="th-sw">' + sw(t) + '</span>' + t.name[LANG === 'en' ? 1 : 0] + '</button>'; }).join('') + '</div>' +
       '<div class="ai-in"><textarea id="th-q" rows="2" placeholder="' + Z('例如：深蓝配金色，字大一点，圆角多一点', 'e.g. deep blue with gold, larger text, rounder corners') + '">' + esc(TH.prompt) + '</textarea>' +
@@ -1288,7 +1288,7 @@
       h += modelRow();
       if (TH.view) h += themeView();
       else h += '<div class="ai-log" id="ai-log">' + (AI.msgs.length ? AI.msgs.map(function (m) { return '<div class="ai-m ai-' + m.role + '">' + (m.role === 'user' ? esc(m.show || m.content) : (aiFmt(m.content) || '<span class="ai-dots"><i></i><i></i><i></i></span>') + (m.by ? '<small class="ai-by">' + esc(m.by) + '</small>' : '')) + '</div>'; }).join('') :
-          T('<p class="dim">会把这一页的资料 (价格、指标、财报、公告、AI 整理) 一起交给 AI。可以点下面的问题，或自己输入。</p>')) + '</div>' +
+          '') + '</div>' +
         (aiReady() ? '<div class="opts ai-chips">' + aiChips().map(function (q) { return '<button type="button" data-ai="ask" data-v="' + esc(q) + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
           T('<div class="ai-in"><textarea id="ai-q" rows="2" placeholder="问 AI… (例如：这家公司的负债高吗？)"></textarea><button type="button" class="ok" data-ai="send"') + (AI.busy ? ' disabled' : '') + '>' + (AI.busy ? '…' : T('发送')) + '</button></div>'
           : '<div class="ai-need"><span>' + PROV[AI.cfg.prov].name + Z(' 还没设 API 密钥', ' has no API key yet') + '</span><button type="button" class="ok" data-ai="setp" data-v="' + AI.cfg.prov + '">' + Z('设置 ', 'Set up ') + PROV[AI.cfg.prov].name + '</button></div>') +
@@ -1307,8 +1307,8 @@
       var md0 = c.mode === 'key' ? 'key' : 'worker';
       h += '<div class="opts"><button type="button" data-ai="mode" data-v="worker" aria-pressed="' + (md0 === 'worker') + T('">Worker (推荐)</button><button type="button" data-ai="mode" data-v="key" aria-pressed="') + (md0 === 'key') + T('">自己的 DeepSeek 密钥</button></div>') +
         (md0 === 'worker' ? T('<label>Worker 网址<input id="ai-url" type="url" autocomplete="off" placeholder="https://bursa-ai.xxx.workers.dev" value="') + esc(c.url || '') + '"></label>' +
-          T('<label>通行码<input id="ai-pass" type="password" autocomplete="off" value="') + esc(c.pass || '') + T('"></label><p class="dim">设置方法见仓库 worker/README.md：密钥放在 Cloudflare，网页上看不到。</p>') +
-          T('<label>编辑通行码 (只有网站管理员需要，可留空)<input id="ai-edit" type="password" autocomplete="off" value="') + esc(c.edit || '') + T('"></label><p class="dim">填了之后，AI 资讯、公司简介、日历和 IPO 旁边会出现 ✎，可以用 AI 改写后发布到网站。</p>')
+          T('<label>通行码<input id="ai-pass" type="password" autocomplete="off" value="') + esc(c.pass || '') + '"></label>' +
+          (c.edit || SY.admin ? '<label>' + Z('编辑通行码', 'Edit passcode') + '<input id="ai-edit" type="password" autocomplete="off" value="' + esc(c.edit || '') + '"></label>' : '')  // 管理员才用：已填过或网址有 ?admin 才显示
           : T('<label>DeepSeek API 密钥<input id="ai-key" type="password" autocomplete="off" placeholder="sk-…" value="') + esc(c.key || '') + '"></label>');
     } else {
       var cur = curModel(p), ex = c.extra[p] || '';
@@ -1317,8 +1317,7 @@
         (cur && !PROV[p].models.some(function (m) { return m[0] === cur; }) ? '<option value="' + esc(cur) + '" selected>' + esc(cur) + '</option>' : '') + '</select></label>' +
         '<label>' + Z('其他模型名称 (可留空；填了就用这个)', 'Other model id (optional; used if filled in)') + '<input id="ai-x" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(ex) + '"></label>';
     }
-    h += (p === 'deepseek' && c.mode !== 'key' ? '' : '<p class="dim">' + Z('密钥只存在这台设备的浏览器：问问题时直接连到 ', 'Keys stay in this browser only: questions go straight to ') + PROV[p].name +
-      Z('，不会传到本网站的服务器，也不会跨设备同步。费用由该服务商按你的用量收取，建议另开一个设了用量上限的密钥。', ', never through this site’s servers, and keys are not synced across devices. The provider bills your own usage; a separate key with a spending limit is a good idea.') + '</p>') +
+    h += (p === 'deepseek' && c.mode !== 'key' ? '' : '<p class="dim">' + Z('密钥仅保存在本设备', 'Key stays on this device') + '</p>') +
       '<div class="opts"><button type="button" class="ok" data-ai="save">' + T('保存') + '</button>' + (anyReady() ? '<button type="button" data-ai="done">' + Z('返回', 'Back') + '</button>' : '') +
       (p !== 'deepseek' && c.keys[p] ? '<button type="button" data-ai="forget">' + Z('删除这个密钥', 'Remove this key') + '</button>' : '') + '</div></div>';
     return h;
@@ -2486,15 +2485,15 @@
         row(Z('深色 / 浅色、语言、K 线样式', 'Dark / light, language, candle style'), yes, yes) +
         row(Z('🎨 自定义主题', '🎨 Custom theme'), yes, yes) +
         row(Z('自定义回测设定', 'Custom backtest settings'), yes, yes) +
-        row(Z('价格', 'Price'), Z('免费', 'Free'), esc(pm) + Z(' / 月', ' / month') + '<br>' + esc(py) + Z(' / 年', ' / year')) +
-        '</tbody></table><p class="dim">' + Z('AI 密钥、通行码不会上传，只留在这台设备。', 'AI keys and passcodes are never uploaded; they stay on this device.') + (ACC && !plus ? upg : '') + '</p></div>';
+        (ACC && ACC.pay ? row(Z('价格', 'Price'), Z('免费', 'Free'), esc(pm) + Z(' / 月', ' / month') + '<br>' + esc(py) + Z(' / 年', ' / year')) : '') +
+        '</tbody></table>' + (ACC && !plus && upg ? '<p class="dim">' + upg + '</p>' : '') + '</div>';
     }
     h += '<div class="acct-body">';
     if (!ACC) {
-      h += '<p>' + Z('用 Google 账号登录，观察列表、主题和界面设定就会在手机、平板、电脑之间自动同步。不登录也可以照常使用全部功能。', 'Sign in with Google and your watchlists, theme and settings sync across your phone, tablet and computer. Everything still works without signing in.') + '</p>' +
+      h += '<p>' + Z('在所有设备同步观察列表与设定。', 'Sync your watchlists and settings across devices.') + '</p>' +
         '<div id="g-btn" class="g-btn">' + (SY.busy ? '<span class="ai-dots"><i></i><i></i><i></i></span>' : '') + '</div>' +
         (SY.err ? '<p class="dn">' + esc(SY.err) + '</p>' : '') + (SY.note ? '<p class="up">' + esc(SY.note) + '</p>' : '') +
-        '<p class="dim">' + Z('登录即表示你同意<a href="' + legal + '">使用条款</a> (第 14 条：会储存你的电邮地址和同步的设定)。', 'By signing in you agree to the <a href="' + legal + '">Terms</a> (clause 14: we store your email address and synced settings).') + '</p>';
+        '<p class="dim">' + Z('登录即表示同意<a href="' + legal + '">使用条款</a>', 'By signing in you agree to the <a href="' + legal + '">Terms</a>') + '</p>';
     } else {
       var over = !plus && (nf > lim.folders || ns > lim.stocks);
       var when = ACC.at ? new Date(ACC.at) : null, hm = when ? ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2) : '';
@@ -2503,25 +2502,24 @@
         '<p><span class="plan' + (plus ? ' plus' : '') + '">' + (plus ? 'Plus' : Z('免费版', 'Free')) + '</span>' + (plus && ACC.until ? ' <span class="dim">' + Z('到期 ', 'until ') + esc(ACC.until) + '</span>' : '') + '</p></div></div>' +
         '<p class="acct-st ' + st + '"><span>' + (st === 'busy' ? Z('同步中…', 'Syncing…') : st === 'err' ? '⚠ ' + esc(SY.err) : st === 'ok' ? Z('✓ 已同步 · ', '✓ Synced · ') + hm : Z('还没同步', 'Not synced yet')) + '</span>' +
         '<span class="acct-use' + (over ? ' warn' : '') + '">' + esc(use) + '</span></p>' +
-        (over || ACC.trimmed ? '<p class="warn">' + Z('免费版只同步' + (lim.folders > 1 ? '前 ' + lim.folders + ' 个列表' : '第一个列表') + ' (最多 ' + lim.stocks + ' 只股票)；其余只存在这台设备。', 'The free plan syncs ' + (lim.folders > 1 ? 'the first ' + lim.folders + ' lists' : 'your first list') + ' (up to ' + lim.stocks + ' stocks); the rest stay on this device only.') + '</p>' : '') +
-        (!plus && (ACC.pay || upLink) ? '<div class="acct-up"><p><b>' + Z('升级 Plus', 'Upgrade to Plus') + '</b> <span class="dim">' + Z('同步 ' + pl.folders + ' 个列表', 'sync ' + pl.folders + ' lists') + '</span></p>' +
-          (ACC.pay ? '<div class="opts acct-act">' + (ACC.pay.month ? '<button type="button" class="ok" data-acct="buy" data-v="month"' + (SY.busy ? ' disabled' : '') + '>' + esc(pm) + Z(' / 月', ' / month') + '</button>' : '') +
-            (ACC.pay.year ? '<button type="button" class="ok" data-acct="buy" data-v="year"' + (SY.busy ? ' disabled' : '') + '>' + esc(py) + Z(' / 年', ' / year') + '</button>' : '') + '</div>' +
-            '<p class="dim">' + Z('经 Stripe 安全付款 (信用卡 / FPX 网银 / 电子钱包)，自动续订、随时可以取消；付款后几秒内生效。', 'Paid securely through Stripe (card / FPX / e-wallet). Renews automatically, cancel any time; active within seconds of paying.') + '</p>' : '') +
-          (upLink ? '<p class="dim"><a href="' + esc(upLink) + '" target="_blank" rel="noopener">' + (ACC.pay ? Z('其他付款方式 (DuitNow / 银行转账) ↗', 'Other ways to pay (DuitNow / bank transfer) ↗') : Z('联系我们开通 Plus ↗', 'Contact us to get Plus ↗')) + '</a></p>' : '') + '</div>' : '') +
-        (plus && ACC.stripe && ACC.pay ? '<p class="dim"><button type="button" class="more" data-acct="portal">' + Z('管理订阅 (取消、换卡、收据) ↗', 'Manage subscription (cancel, card, receipts) ↗') + '</button></p>' : '') +
+        (over || ACC.trimmed ? '<p class="warn">' + Z('超出免费版上限的部分仅存于本设备', 'Items over the free limit stay on this device') + '</p>' : '') +
+        (!plus && ACC.pay ? '<div class="acct-up"><b>' + Z('升级 Plus', 'Upgrade to Plus') + '</b><div class="opts acct-act">' +
+          (ACC.pay.month ? '<button type="button" class="ok" data-acct="buy" data-v="month"' + (SY.busy ? ' disabled' : '') + '>' + esc(pm) + Z(' / 月', ' / month') + '</button>' : '') +
+          (ACC.pay.year ? '<button type="button" class="ok" data-acct="buy" data-v="year"' + (SY.busy ? ' disabled' : '') + '>' + esc(py) + Z(' / 年', ' / year') + '</button>' : '') + '</div>' +
+          (upLink ? '<a class="dim" href="' + esc(upLink) + '" target="_blank" rel="noopener">' + Z('其他付款方式 ↗', 'Other ways to pay ↗') + '</a>' : '') + '</div>' : '') +
+        (plus && ACC.stripe && ACC.pay ? '<p class="dim"><button type="button" class="more" data-acct="portal">' + Z('管理订阅 ↗', 'Manage subscription ↗') + '</button></p>' : '') +
         (SY.note ? '<p class="up">' + esc(SY.note) + '</p>' : '') +
-        (SY.lang ? '<p class="dim">' + Z('语言设定已从别的设备同步过来 (English)。', 'Language synced from another device (中文).') + ' <button type="button" class="more" data-acct="lang">' + Z('现在切换', 'Switch now') + '</button></p>' : '') +
+        (SY.lang ? '<p class="dim">' + Z('语言已同步为 English', 'Language synced: 中文') + ' <button type="button" class="more" data-acct="lang">' + Z('现在切换', 'Switch now') + '</button></p>' : '') +
         '<div class="opts acct-act"><button type="button" class="ok" data-acct="sync"' + (SY.busy ? ' disabled' : '') + '>' + Z('立即同步', 'Sync now') + '</button>' +
         '<button type="button" data-acct="out">' + Z('登出', 'Sign out') + '</button><button type="button" class="danger" data-acct="del">' + Z('删除云端资料', 'Delete cloud data') + '</button>' +
-        (ACC.owner ? '<button type="button" data-acct="admin" aria-pressed="' + !!SY.admin + '">' + Z('👑 管理 Plus 用户', '👑 Manage Plus users') + '</button>' : '') + '</div>' +
-        (ACC.owner && SY.admin ? adminView() : '') +
-        '<p class="dim">' + Z('登出后，这台设备上的列表和设定会保留。', 'Signing out keeps the lists and settings on this device.') + ' <a href="' + legal + '">' + Z('隐私说明', 'Privacy') + '</a></p>';
+        '</div>' + (ACC.owner && SY.admin ? adminView() : '') +
+        '<p class="dim"><a href="' + legal + '">' + Z('隐私说明', 'Privacy') + '</a></p>';
     }
     var keep = {}; ['adm-email', 'adm-len', 'adm-date', 'adm-note'].forEach(function (id) { var el = document.getElementById(id); if (el) keep[id] = el.value; });  // 重画时保留管理员正在填的
     box.innerHTML = h + '</div>';
     Object.keys(keep).forEach(function (id) { var el = document.getElementById(id); if (el) el.value = keep[id]; });
     if (!ACC && !SY.busy) gisButton();
+    if (ACC && ACC.owner && SY.admin && !ADM.items && !ADM.busy && !ADM.err) admLoad();  // 网址加 ?admin 才打开 (界面上没有入口)
   }
   // 👑 管理员：手动开通 / 延长 / 取消别人的 Plus (例如收到 DuitNow 转账后)
   var ADM = { items: null, busy: false, err: '', msg: '', extra: [] };
@@ -2532,11 +2530,11 @@
   }
   function adminView() {
     var today = ADM.today || new Date().toISOString().slice(0, 10);
-    var h = '<div class="acct-admin"><p><b>' + Z('👑 管理 Plus 用户', '👑 Manage Plus users') + '</b> <span class="dim">' + Z('只有你看得到', 'only you can see this') + '</span></p>' +
-      '<div class="adm-form"><input id="adm-email" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="' + Z('用户登录用的 Gmail', 'The Gmail they sign in with') + '">' +
+    var h = '<div class="acct-admin"><b>Plus</b>' +
+      '<div class="adm-form"><input id="adm-email" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Gmail">' +
       '<div class="adm-row"><select id="adm-len"><option value="1">' + Z('+1 个月', '+1 month') + '</option><option value="12">' + Z('+1 年', '+1 year') + '</option><option value="forever">' + Z('永久', 'Forever') + '</option></select>' +
       '<input id="adm-date" type="date" min="' + today + '" aria-label="' + Z('或指定到期日', 'Or pick an end date') + '" title="' + Z('或指定到期日 (填了就用这个)', 'Or pick an end date (used if set)') + '"></div>' +
-      '<input id="adm-note" type="text" maxlength="80" autocomplete="off" placeholder="' + Z('备注 (可留空，例如 DuitNow 11/19)', 'Note (optional, e.g. DuitNow 19 Nov)') + '">' +
+      '<input id="adm-note" type="text" maxlength="80" autocomplete="off" placeholder="' + Z('备注', 'Note') + '">' +
       '<button type="button" class="ok" data-acct="adm-set"' + (ADM.busy ? ' disabled' : '') + '>' + Z('开通 / 延长', 'Grant / extend') + '</button></div>' +
       (ADM.err ? '<p class="dn">⚠ ' + esc(ADM.err) + '</p>' : '') + (ADM.msg ? '<p class="up">' + esc(ADM.msg) + '</p>' : '') +
       (ADM.busy && !ADM.items ? '<span class="ai-dots"><i></i><i></i><i></i></span>' : '');
@@ -2546,8 +2544,7 @@
       return '<li><div><b>' + esc(x.email) + '</b><span class="' + (live ? 'up' : 'dim') + '">' + (x.until === 'forever' ? Z('永久', 'forever') : esc(x.until)) + (live ? '' : Z(' (已过期)', ' (expired)')) + '</span>' +
         '<span class="dim">' + (x.src === 'stripe' ? 'Stripe' : Z('手动', 'manual')) + (x.note ? ' · ' + esc(x.note) : '') + '</span></div>' +
         '<button type="button" class="danger" data-acct="adm-del" data-v="' + esc(x.email) + '">' + Z('取消', 'Remove') + '</button></li>'; }).join('') + '</ul>'
-      : ADM.items ? '<p class="dim">' + Z('还没有 Plus 用户。', 'No Plus users yet.') + '</p>' : '';
-    if (ADM.extra.length) h += '<p class="dim">' + Z('另外在 Worker 设定里永远是 Plus：', 'Always Plus via Worker settings: ') + esc(ADM.extra.join(', ')) + '</p>';
+      : ADM.items ? '<p class="dim">' + Z('暂无', 'None') + '</p>' : '';
     return h + '</div>';
   }
   function admUntil(email) {  // +1 个月 / +1 年：从现在的到期日 (还没过期的话) 往后加
@@ -2588,12 +2585,12 @@
     }
     else if (a === 'close') SY.open = false;
     else if (a === 'sync') { syncRun(); return; }
-    else if (a === 'out') { accOut(); SY.err = ''; SY.note = Z('已登出。这台设备上的列表和设定都还在。', 'Signed out. Your lists and settings are still on this device.'); }
+    else if (a === 'out') { accOut(); SY.err = ''; SY.note = Z('已登出', 'Signed out'); }
     else if (a === 'lang') { location.replace(location.pathname + location.search.replace(/([?&])lang=(en|zh)&?/, '$1').replace(/[?&]$/, '') + location.hash); return; }
     else if (a === 'del') {
       if (!window.confirm(Z('删除云端的同步资料并登出？这台设备上的列表和设定会保留。', 'Delete your synced data from the cloud and sign out? Lists and settings on this device are kept.'))) return;
       SY.busy = true; acctRender();
-      accApi('/sync/delete').then(function () { accOut(); SY.err = ''; SY.note = Z('云端资料已删除，已登出。', 'Cloud data deleted. You are signed out.'); },
+      accApi('/sync/delete').then(function () { accOut(); SY.err = ''; SY.note = Z('云端资料已删除', 'Cloud data deleted'); },
         function (e) { SY.err = e.message; }).then(function () { SY.busy = false; acctRender(); });
       return;
     }
@@ -2608,8 +2605,9 @@
     })();
     // 从 Stripe 付款页回来：?plus=ok / ?plus=cancel → 打开账号面板说明，网址拿掉参数
     var PAID = /[?&]plus=ok\b/.test(location.search), CANCEL = /[?&]plus=cancel\b/.test(location.search);
+    if (/[?&]admin\b/.test(location.search)) { SY.open = true; SY.admin = true; }  // 网站管理员入口 (只有 OWNER_EMAILS 的账号会显示)
     if (PAID || CANCEL) {
-      SY.open = true; SY.note = PAID ? Z('付款成功，谢谢！Plus 几秒内生效。', 'Payment received, thank you! Plus turns on within seconds.') : Z('已取消付款，没有扣款。', 'Payment cancelled; you were not charged.');
+      SY.open = true; SY.note = PAID ? Z('付款成功', 'Payment received') : Z('已取消付款', 'Payment cancelled');
       try { history.replaceState(null, '', location.pathname + location.search.replace(/([?&])plus=(ok|cancel)&?/, '$1').replace(/[?&]$/, '') + location.hash); } catch (e) {}
     }
     fetch('account.json?v=' + V).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
