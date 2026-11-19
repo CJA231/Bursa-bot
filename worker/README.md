@@ -18,7 +18,7 @@
 ## 在网页上编辑内容 (owner，可选)
 
 同一个 Worker 也让你 (网站管理员) 在终端版网页上修改 **AI 资讯、公司简介、日历事件、IPO 超额认购 / 上市日**，可以叫 AI 按你的指令改写，确认后发布：
-Worker 把你的版本提交到仓库的 `docs/terminal/overrides.json`，GitHub Pages 约 1–2 分钟后所有人看得到。
+Worker 把你的版本提交到仓库的 `docs/terminal/overrides.json`，「Deploy site」流程约 1–2 分钟后部署，所有人看得到。
 之后 `company_intel.yml` 重新整理那家公司时，AI 新版本和你的版本会对照公告 / 新闻 / 财报核对、合并：跟资料矛盾的按资料改、找不到根据的保留，两种都列给你看 (只有你看得到)。
 
 1. GitHub → 右上角头像 → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**：
@@ -42,3 +42,9 @@ Worker 把你的版本提交到仓库的 `docs/terminal/overrides.json`，GitHub
 
 ## 费用
 每问一次大约用 2,000–6,000 tokens (附带的页面资料占大部分)。deepseek-chat 的价钱下，一般一次不到 RM0.01 (以 DeepSeek 后台为准)。
+
+## 更新 (2026-11)
+
+重新部署最新的 `worker/ai-proxy.js` (Workers → 你的 Worker → Edit code → 贴上 → Deploy)，多了两样：
+- **DeepSeek 模型自动切换**：旧名称 `deepseek-chat` 失效时，自动改用 DeepSeek 现在支持的名称 (从错误信息读出来，flash 优先)，并关掉思考模式。不用改任何设定
+- **POST `/theme`**：终端版 AI 面板的 🎨「用一句话设计界面主题」。用同一个通行码 (`PASS`)，只回传主题的颜色 / 字号 / 圆角 / 玻璃感。没更新 Worker 的话，🎨 的预设照样能用，只是不能用一句话生成
