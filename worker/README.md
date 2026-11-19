@@ -91,7 +91,18 @@ GitHub 网页打开 [`docs/terminal/account.json`](../docs/terminal/account.json
 - 免费版只同步 1 个列表 (最多 30 只股票)，Plus 同步 5 个列表；多出来的留在原来的设备 (账号面板会提示)。账号面板右上角的 ⓘ 显示两个方案的对照表
 - 升级一个人：在 KV `bursa-sync` 里 **Add entry**，key = `plus:电邮` (小写，例如 `plus:someone@gmail.com`)，value = 到期日 `2027-12-31` 或 `forever`，马上生效、不用重新部署；到期自动变回免费版。删掉那一笔 = 取消。或者把电邮加进 `PLUS_EMAILS`
 - 升级后，之前被截掉的股票会在下一次同步时自动送上去
-- 收费方式 (付款页、订阅) 还没接上：现在是收到款后手动加 `plus:` 那一笔
+- **网站管理员面板**：Worker 加 `OWNER_EMAILS` (Text，你的 Gmail，逗号分隔可以多个)。你自己永远是 Plus；登录后账号面板多一个「👑 管理 Plus 用户」：填用户的 Gmail → +1 个月 / +1 年 / 永久 (或指定到期日) → 开通 / 延长，下面列出所有 Plus 用户，可以取消。收到 DuitNow / 银行转账后在这里开通，不用进 Cloudflare 后台
+
+### 💳 Stripe 自动收款 (可选)
+用户在账号面板按「RM9.90 / 月」或「RM99 / 年」→ Stripe 付款页 (信用卡、FPX 网银、电子钱包) → Stripe 通知 Worker → 几秒内变 Plus；每次续订成功自动延长 (到这一期结束 + 2 天)，取消后到期自动变回免费版。Plus 用户有「管理订阅」(Stripe 客户中心：取消、换卡、收据)。
+1. 注册 https://dashboard.stripe.com (最好用公司 Sdn Bhd 的资料；马来西亚可以收信用卡、FPX、GrabPay)。先在 **Test mode** 试，没问题再切到正式
+2. **Product catalog → Add product**：名称 `Bursa Bot Plus`，加两个价格：**Recurring** RM9.90 每月、RM99 每年。复制两个价格 ID (`price_…`)
+3. **Developers → API keys**：建议建一把 **Restricted key**，权限只开 Checkout Sessions (Write)、Customer portal (Write)、Customers (Read)。复制 (`rk_…` 或 `sk_…`)
+4. **Developers → Webhooks → Add endpoint**：网址 `https://<你的 Worker>/pay/webhook`，事件只选 **invoice.paid**。复制 **Signing secret** (`whsec_…`)
+5. **Settings → Billing → Customer portal**：打开 (让用户可以取消订阅、换卡)
+6. Cloudflare Worker → **Variables and Secrets** 加：`STRIPE_SECRET_KEY` (Secret)、`STRIPE_WEBHOOK_SECRET` (Secret)、`STRIPE_PRICE_MONTH`、`STRIPE_PRICE_YEAR` (Text)。重新部署最新的 `worker/ai-proxy.js`
+7. 显示的价格在 `docs/terminal/account.json` 的 `plans.plus.price` (只是文字，实际收多少看 Stripe 的价格)；`upgrade` 可以填 DuitNow / WhatsApp 的链接，当作「其他付款方式」
+- 没设 Stripe 的话，账号面板只显示 `upgrade` 链接 (联系你开通)，你再用管理员面板手动开通
 
 ### 资料、隐私、费用
 - KV 里每个账号一笔 `d:<Google 账号 ID>`，内容是同步的资料 + 电邮 (电邮也放在那一笔的 metadata，key 列表里看得到)。用户在账号面板按「删除云端资料」就删掉；有人用电邮要求删除而不方便自己按时，在 KV 的 key 列表按 metadata 的电邮找到那一笔删掉 (或用 `npx wrangler kv key list --namespace-id <ID>` 列出全部)
