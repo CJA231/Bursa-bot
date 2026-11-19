@@ -13,6 +13,7 @@ public_site/
 !/docs/terminal/
 /docs/terminal/*
 !/docs/terminal/overrides.json
+!/docs/terminal/account.json
 /data/ann_latency.json
 /data/ipos.json
 /data/watchlist.json
