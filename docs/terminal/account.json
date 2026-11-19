@@ -1,7 +1,7 @@
 {
   "_说明": "👤 终端版「用 Google 登录 · 跨设备同步」的公开设定 (不是密钥，任何人都看得到没关系)。两个都填好、推到 main，约 1–2 分钟后网站右上角出现「登录」。设置步骤见 worker/README.md。",
   "google_client_id": "805755231110-flbae2t8stt4i1r2ff3mjeoj97rl7mi8.apps.googleusercontent.com",
-  "worker": "",
+  "worker": "https://bursa-ai.jamestanchinaun12.workers.dev",
   "upgrade": "",
   "plans": {"free": {"folders": 1, "stocks": 30}, "plus": {"folders": 5, "stocks": 2000}}
 }
