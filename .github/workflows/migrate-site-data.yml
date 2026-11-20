@@ -43,6 +43,7 @@ jobs:
   deploy:
     needs: migrate
     uses: ./.github/workflows/deploy.yml
+    secrets: inherit
     permissions:
       contents: read
       pages: write

@@ -10,10 +10,16 @@
   python3 scripts/site_state.py restore                     # 把 site-data 的资料放回 docs/ 和 data/ (跑报告 / 部署之前)
   python3 scripts/site_state.py save --role report -m "…"   # 只保存 report 负责的路径
   python3 scripts/site_state.py untrack                     # 一次性：main 不再追踪生成的文件 (迁移用)
+资料放另一个私有仓库 (代码仓库保持公开、网站资料不公开)：设环境变量
+  SITE_DATA_REPO  = 例如 CJA231/Bursa-bot-data (空的私有仓库就可以)
+  SITE_DATA_TOKEN = 只对那个仓库有 Contents: Read and write 的 fine-grained token
+两个都有就改用那个仓库的 site-data 分支；那边还是空的时候，restore 先从这个仓库的 site-data 拿 (第一次搬家)，save 就在那边建立。
+token 放在 HTTP 标头 (不放在网址)，错误讯息里不会出现
 role：report (马股报告：docs/ 里 us、intel、holders、filings、segments、esg 以外的全部 + data/ 的状态文件)、report-us (docs/us/)、
       intel (docs/intel、holders、filings、segments)、esg (docs/esg)、watchlist (data/watchlist*.json + docs/stock)、all
 """
 import argparse
+import base64
 import io
 import os
 import subprocess
@@ -23,6 +29,9 @@ import time
 
 BRANCH = "site-data"
 REMOTE_REF = "refs/remotes/origin/" + BRANCH
+DATA_REF = "refs/remotes/sitedata/" + BRANCH
+DATA_REPO = (os.environ.get("SITE_DATA_REPO") or "").strip().strip("/")
+DATA_TOKEN = (os.environ.get("SITE_DATA_TOKEN") or "").strip()
 STATE_FILES = ("data/ann_latency.json", "data/ipos.json", "data/watchlist.json", "data/watchlist_changes.json")
 ROOTS = ("docs", "data")
 SIDE = ("docs/us/", "docs/intel/", "docs/holders/", "docs/filings/", "docs/segments/", "docs/esg/")
@@ -71,15 +80,38 @@ def owns(role, path):
     raise SystemExit(f"不认识的 role: {role}")
 
 
-def fetch():
-    """抓 site-data 最新的提交；分支不存在返回 None"""
-    r = git("fetch", "--quiet", "--depth=1", "origin", f"+refs/heads/{BRANCH}:{REMOTE_REF}", check=False)
+def private():
+    """资料放在另一个私有仓库？(SITE_DATA_REPO + SITE_DATA_TOKEN 都有才算)"""
+    if DATA_REPO and not DATA_TOKEN:  # 不能悄悄存回公开仓库 (那就不是私有了)：直接停，让人看到
+        raise SystemExit("设了 SITE_DATA_REPO 但没有 SITE_DATA_TOKEN (Secret)：资料不会存回公开仓库，请先加上 token")
+    return bool(DATA_REPO and DATA_TOKEN)
+
+
+def remote(use_private):
+    """→ (git 前面的 -c 设定, 远端, 本地参照)。私有仓库：先清掉 actions/checkout 留下的 GITHUB_TOKEN 标头 (它进不了别的私有仓库)，再放自己的"""
+    if not use_private:
+        return [], "origin", REMOTE_REF
+    auth = base64.b64encode(f"x-access-token:{DATA_TOKEN}".encode()).decode()
+    key = "http.https://github.com/.extraheader"
+    url = os.environ.get("SITE_DATA_URL") or f"https://github.com/{DATA_REPO}.git"  # SITE_DATA_URL 只给测试用 (本地仓库)
+    return ["-c", f"{key}=", "-c", f"{key}=AUTHORIZATION: basic {auth}"], url, DATA_REF
+
+
+def fetch(use_private=None):
+    """抓 site-data 最新的提交；分支不存在返回 None。use_private=None：有设私有仓库就用它"""
+    use_private = private() if use_private is None else use_private
+    cfg, url, ref = remote(use_private)
+    r = git(*cfg, "fetch", "--quiet", "--depth=1", url, f"+refs/heads/{BRANCH}:{ref}", check=False)
     if r.returncode:
         err = r.stderr.decode(errors="replace")
-        if "couldn't find remote ref" in err or "not found" in err.lower():
+        if "couldn't find remote ref" in err:
             return None
-        raise RuntimeError("fetch site-data failed: " + err.strip()[:300])
-    return out("rev-parse", REMOTE_REF)
+        if not use_private and "not found" in err.lower():
+            return None
+        where = DATA_REPO if use_private else "origin"
+        raise RuntimeError(f"fetch site-data ({where}) failed: " + err.strip()[:300]
+                           + ("\n→ 检查 SITE_DATA_REPO 名称、SITE_DATA_TOKEN 有没有那个仓库的 Contents 读写权限" if use_private else ""))
+    return out("rev-parse", ref)
 
 
 def extract(rev, only=None):
@@ -109,6 +141,11 @@ def bootstrap_rev():
 
 def cmd_restore(a):
     tip = fetch()
+    if not tip and private():
+        # 第一次搬到私有仓库：那边还是空的 → 先用这个仓库原来的 site-data，第一次保存时就会在私有仓库建立
+        tip = fetch(use_private=False)
+        if tip:
+            print(f"资料仓库 {DATA_REPO} 还没有 site-data：先用这个仓库原来的 site-data")
     if tip:
         n = extract(tip)
         # 工作目录跟 site-data 完全一致：site-data 里已经没有的生成文件 (过期的下载、下市的股票…) 也删掉，不然下次保存又被加回去
@@ -170,9 +207,10 @@ def cmd_save(a):
             return
         commit = out("commit-tree", tree, "-m", a.message, env=BOT)
         lease = f"--force-with-lease=refs/heads/{BRANCH}:{tip or ''}"
-        r = git("push", "--quiet", lease, "origin", f"{commit}:refs/heads/{BRANCH}", check=False)
+        cfg, url, _ = remote(private())
+        r = git(*cfg, "push", "--quiet", lease, url, f"{commit}:refs/heads/{BRANCH}", check=False)
         if r.returncode == 0:
-            print(f"site-data ← {commit[:8]} ({a.role}，{n} 个文件；{'取代 ' + tip[:8] if tip else '第一次建立'})")
+            print(f"site-data{' (' + DATA_REPO + ')' if private() else ''} ← {commit[:8]} ({a.role}，{n} 个文件；{'取代 ' + tip[:8] if tip else '第一次建立'})")
             return
         print(f"推送被拒 (第 {attempt} 次，别的流程刚保存过)，重新抓最新的再做：{r.stderr.decode(errors='replace').strip()[:160]}")
         time.sleep(min(30, 4 * attempt))

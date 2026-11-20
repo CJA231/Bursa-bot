@@ -11,6 +11,11 @@ on:
         required: false
         default: '1'
 
+# 网站资料存在私有仓库 (代码仓库保持公开)：变量 SITE_DATA_REPO + Secret SITE_DATA_TOKEN；没设就用这个仓库的 site-data 分支
+env:
+  SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO }}
+  SITE_DATA_TOKEN: ${{ secrets.SITE_DATA_TOKEN }}
+
 jobs:
   debug_stock:
     runs-on: ubuntu-latest

@@ -35,6 +35,11 @@ permissions:
 # 不跟每日报告排同一组：公司资讯第一次补资料可能跑很久，同一组的话报告只能干等，再来一个就被 GitHub 取消 (一组只能 1 个在跑 + 1 个在等)。
 # 两边写的文件不重叠 (报告不写 docs/intel、holders、filings、segments)，push 前 pull --rebase + 重试就不会冲突。
 # 排队组放在 job 上：报告被取消时触发的那次 (job 被 if 跳过) 不会进来把正在等的挤掉
+# 网站资料存在私有仓库 (代码仓库保持公开)：变量 SITE_DATA_REPO + Secret SITE_DATA_TOKEN；没设就用这个仓库的 site-data 分支
+env:
+  SITE_DATA_REPO: ${{ vars.SITE_DATA_REPO }}
+  SITE_DATA_TOKEN: ${{ secrets.SITE_DATA_TOKEN }}
+
 jobs:
   intel:
     concurrency:

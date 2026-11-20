@@ -495,15 +495,21 @@ GitHub Pages 的网页一定是公开的 (私有仓库开 Pages 要付费，开�
   - 部署这一版的 `worker/ai-proxy.js`
 - Google Cloud → OAuth 用户端 → Authorized JavaScript origins 加上 `https://bursa-bot.pages.dev`
 
-**5. 关掉公开的部分**
+**5. 网站资料存到私有仓库 (代码仓库保持公开)**
+
+代码公开没关系 (里面没有行情资料)，而且公开仓库的 Actions 不限分钟，cron-job.org 的频率不用改。但网站资料原本存在这个公开仓库的 `site-data` 分支，谁都能在 GitHub 上看到、下载，所以要搬到私有仓库：
+- 建一个**空的私有仓库**，例如 `Bursa-bot-data` (不用勾 README，什么都不放)
+- 建 fine-grained token：Settings (个人) → Developer settings → Fine-grained tokens → Generate：Repository access 只选 `Bursa-bot-data`，Permissions → **Contents: Read and write**；有效期选最长 (到期前 GitHub 会寄信提醒，换新的贴回 Secret 就好)
+- 这个仓库 (Bursa-bot) 的 Settings → Secrets and variables → Actions：Secret `SITE_DATA_TOKEN` = 那个 token、变量 `SITE_DATA_REPO` = `CJA231/Bursa-bot-data`
+- 手动跑一次 **DeepSeek Stock Bot** (Run workflow，勾 force)：第一次会把原来 `site-data` 的资料搬过去，log 里看到 `site-data (CJA231/Bursa-bot-data) ← …` 就成功了；之后报告、公司资讯、部署都读写私有仓库
+- 等网站确认正常 (终端版资料是最新的)，删掉这个仓库的 `site-data` 分支：Code → Branches → site-data → 删除。要回到旧做法的话，删掉变量 `SITE_DATA_REPO` 就会再用这个仓库的分支
+- 只设了变量没设 token 时，流程会直接停下来报错 (不会悄悄把资料存回公开仓库)
+
+**6. 关掉公开的部分**
 - GitHub：Settings → Pages → **Unpublish site**
-- Settings → General → Danger Zone → **Change visibility → Private**；Insights → Forks 看有没有人 fork 过
 - 有设变量 `PUBLIC_REPO` 的话 (「公开展示站」，见下面)，删掉 `PUBLIC_REPO` / `PUBLIC_REPO_TOKEN`，那个公开仓库也改私有或删掉
 - 密钥：放在 GitHub Secrets / Worker 设定里的密钥不会因为仓库公开而外泄，不用换；只有曾经贴进代码、Issue、Actions log 的才要换。`NTFY_TOPIC` 是推送频道名称，知道名称的人都能订阅，确认它是一串别人猜不到的乱码
-
-**6. 私有仓库的 Actions 额度**
-- 私有仓库每月免费 2,000 分钟 (公开仓库不限)。现在 cron-job.org 交易时段每 30 分钟跑一次报告，每次报告后接着跑公司资讯，一天约 200 分钟，私有的话一个月会超过
-- 改成每个交易日收盘后 **17:25 跑一次** (cron-job.org：星期一至五 17:25，时区 Asia/Kuala_Lumpur)，一个月约 300 分钟，在额度内。之后可以在 Settings → Billing 看实际用量
+- 想连代码也改私有：Settings → General → Change visibility → Private。注意私有仓库的 Actions 每月只有 2,000 分钟免费，现在每 30 分钟跑一次报告 + 公司资讯一天约 200 分钟会超过；要改私有就把 cron-job.org 改成收盘后 17:25 跑一次 (一个月约 300 分钟)
 
 ## 免责声明
 
