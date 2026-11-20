@@ -1566,7 +1566,14 @@
   var PDAY = {}, PDL = {}, PLD = null;
   function arch() { return (D && D.arch) || {}; }
   function archUrl(p) { return (D.report || '../') + p; }
-  function poolDates() { var a = arch().pool; return a && Array.isArray(a.dates) ? a.dates : []; }
+  var TDAYS = null;  // 有日线的日子 = 交易日 (90 天 K 线里任何一支股票有那天的 K 线)
+  function tradeDay(d) {
+    if (new Date(d + 'T00:00:00Z').getUTCDay() % 6 === 0) return false;  // 周六、周日
+    if (!BARS) return true;
+    if (!TDAYS) { TDAYS = { min: '9999' }; Object.keys(BARS).forEach(function (c) { BARS[c].forEach(function (x) { TDAYS[x[0]] = 1; if (x[0] < TDAYS.min) TDAYS.min = x[0]; }); }); }
+    return d < TDAYS.min || !!TDAYS[d];  // 90 天以内：没有任何 K 线的日子 = 公共假期 / 休市
+  }
+  function poolDates() { var a = arch().pool; return a && Array.isArray(a.dates) ? a.dates.filter(tradeDay) : []; }
   function pdOn() { return !!(S.pd && D && S.pd !== D.date); }  // 正在看过去某一天
   function csvParse(t) {
     var rows = [], row = [], f = '', q = false; t = String(t).replace(/^\ufeff/, '');

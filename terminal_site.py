@@ -133,6 +133,8 @@ def archive_block(downloads, pool_index_path, out_dir):
     except OSError:
         pass
     out = {}
+    # 只列交易日：周六日不算 (存档日期本来就是最新一根日线的日期，这里再挡一次)；公共假期没有日线所以不会有存档
+    files = {d: f for d, f in files.items() if datetime.strptime(d, "%Y-%m-%d").weekday() < 5}
     if files:
         dates = sorted(files, reverse=True)
         out["pool"] = {"fmt": rel(pool_dir) + files[dates[0]].replace(dates[0], "{d}"), "dates": dates}
