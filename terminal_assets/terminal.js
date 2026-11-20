@@ -741,7 +741,7 @@
     var tail = m[3] === 'none' ? Z(' ' + q.w + ' 天', ' ' + q.w + 'd') : m[4] && q.w > 1 ? Z(' (近 ' + q.w + ' 天)', ' (last ' + q.w + 'd)') : '';
     return [opndLbl(q.l), sym + (right ? ' ' + right : '') + tail + (q.d > 1 ? Z(' · 连 ' + q.d + ' 天', ' · ' + q.d + 'd in a row') : '')];
   }
-  if (window.BTERM_TEST) window.BTERM_TEST.bt = { IND: IND, ctx: cbCtx, ser: cbSer, opnd: opnd, test: cbTest, cond: cbCond, conds: cbConds, exits: function (j) { return cbExits(j); }, stock: function () { return cbStock.apply(null, arguments); }, swing: function (X, k) { return swingLows(X, k); } };  // 只给自动测试用
+  if (window.BTERM_TEST) window.BTERM_TEST.bt = { IND: IND, ctx: cbCtx, ser: cbSer, opnd: opnd, test: cbTest, cond: cbCond, conds: cbConds, exits: function (j) { return cbExits(j); }, stock: function () { return cbStock.apply(null, arguments); }, swing: function (X, k) { return swingLows(X, k); }, cands: function () { return cbCands.apply(null, arguments); }, port: function () { return cbPort.apply(null, arguments); }, mc: function () { return cbMC.apply(null, arguments); } };  // 只给自动测试用
   var XS = {  // [中文, English, 参数 [key, 中文, English, 默认, 最小, 最大, 步长, 单位], 分组]
     stop: ['止损', 'Stop loss', [['v', '从进场价跌', 'Drop from entry', 10, 0.5, 90, 0.5, '%']], 'risk'],
     trail: ['移动止损', 'Trailing stop', [['v', '从持仓最高点回落', 'Drop from highest high', 10, 0.5, 90, 0.5, '%']], 'risk'],
@@ -754,12 +754,14 @@
   var XG = [['risk', '价格止损 / 止盈', 'Price stops / targets'], ['struct', '趋势结构', 'Trend structure'], ['time', '时间', 'Time']];
   var CB_XDEF = [{ t: 'stop', v: 10 }, { t: 'swing', k: 2 }];  // 默认出场：止损 10% + 跌破最近回调低点 (让趋势跑)
   var CB = (function () {
-    var d = { codes: [], from: '', to: '', q: '' }, j = null;
+    var d = { codes: [], from: '', to: '', q: '', uni: 'market', slots: 3, size: 20000, pick: 'rand', runs: 50, minpx: 0.1 }, j = null;
     try { j = JSON.parse(localStorage.getItem('bterm_cbt') || 'null'); if (j) Object.keys(d).forEach(function (k) { if (j[k] !== undefined) d[k] = j[k]; }); } catch (e) {}
+    if (['market', 'pool', 'custom'].indexOf(d.uni) < 0) d.uni = 'market'; d.slots = Math.max(1, Math.min(50, Math.round(+d.slots) || 3)); d.size = Math.max(1000, Math.min(1e7, +d.size || 20000));
+    d.minpx = Math.max(0, Math.min(100, +d.minpx || 0)); if (d.pick !== 'tov') d.pick = 'rand'; d.runs = [20, 50, 100].indexOf(+d.runs) >= 0 ? +d.runs : 50;
     d.conds = cbConds(j); d.exits = cbExits(j); d.q = ''; d.tlim = 60; d.sens = null; d.res = null; d.busy = false; d.err = ''; d.pop = null; d.cq = '';
     return d;
   })();
-  function cbSave() { try { localStorage.setItem('bterm_cbt', JSON.stringify({ codes: CB.codes, from: CB.from, to: CB.to, conds: CB.conds, exits: CB.exits })); } catch (e) {} syncSoon(); }
+  function cbSave() { try { localStorage.setItem('bterm_cbt', JSON.stringify({ codes: CB.codes, from: CB.from, to: CB.to, conds: CB.conds, exits: CB.exits, uni: CB.uni, slots: CB.slots, size: CB.size, pick: CB.pick, runs: CB.runs, minpx: CB.minpx })); } catch (e) {} syncSoon(); }
   // ---------- 回测策略模板 (只有网站管理员看得到；存在管理员自己的同步资料里，别人拿不到) ----------
   var TPL = (function () { try { var a = JSON.parse(localStorage.getItem('bterm_tpl') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } })();
   function tplSave() { try { localStorage.setItem('bterm_tpl', JSON.stringify(TPL)); } catch (e) {} syncSoon(); }
@@ -918,10 +920,11 @@
   function tickDn(p) { var t = tick(p); return +(Math.floor(p / t + 1e-9) * t).toFixed(3); }  // 卖出止损：第一个成交得到的价格 ≤ 这个价位
   function tickUp(p) { var t = tick(p); return +(Math.ceil(p / t - 1e-9) * t).toFixed(3); }
   // 一支股票：照条件进场 (当天收盘价)，照结束条件出场 → 每一笔交易
-  function cbStock(code, b, from, to, cost, exits) {
-    var X = cbCtx(b, FIN[code]), c = X.c, o = X.o, h = X.h, l = X.l, v = X.v, test = cbTest(X, CB.conds), warm = cbWarm(CB.conds);
+  var XC = {};  // 每支股票的指标快取 (同一份日线重算时不用再算)
+  function cbStock(code, b, from, to, cost, exits, all) {
+    var X = XC[code] && XC[code].b === b ? XC[code] : (XC[code] = cbCtx(b, FIN[code])), c = X.c, o = X.o, h = X.h, l = X.l, v = X.v, test = cbTest(X, CB.conds), warm = cbWarm(CB.conds);
     exits = exits || CB.exits;
-    var e5 = emaS(c, 5), e20 = emaS(c, 20), sar = psarS(b), st = stS(b, 3, 1.4), av = smaS(v, 20);  // 「趋势转坏」用
+    var e5 = X.m('x:e5', function () { return emaS(c, 5); }), e20 = X.m('x:e20', function () { return emaS(c, 20); }), sar = X.m('x:sar', function () { return psarS(b); }), st = X.m('x:st', function () { return stS(b, 3, 1.4); }), av = X.m('x:av', function () { return smaS(v, 20); });  // 「趋势转坏」用
     var xf = exits.map(function (q) { return q.t ? null : cbFn(X, q); });
     var sw = {}, atr = {};
     exits.forEach(function (q) { if (q.t === 'swing') sw[q.k] = swingLows(X, q.k); if (q.t === 'atr') atr[q.n] = cbSer(X, opnd({ k: 'atr', p: [q.n] })); });
@@ -961,54 +964,127 @@
         peak = Math.max(peak, h[j]); hi = Math.max(hi, h[j]);
       }
       var x = why != null ? j : b.length - 1, ex = why != null ? fill : c[x], ret = (ex / en - 1) * 100;
-      trades.push({ code: code, sig: b[i].d, entry: en, exit_date: b[x].d, exit: ex, days: x - i, reason: why == null ? 'open' : 'x' + why, det: det, ret: ret, net: why == null ? ret : ret - cost,
+      trades.push({ code: code, sig: b[i].d, entry: en, tov: en * v[i], exit_date: b[x].d, exit: ex, days: x - i, reason: why == null ? 'open' : 'x' + why, det: det, ret: ret, net: why == null ? ret : ret - cost,
         mae: isFinite(lo) ? Math.min(0, (lo / en - 1) * 100) : 0, mfe: isFinite(mx) ? Math.max(0, (mx / en - 1) * 100) : 0 });
+      if (all) { i++; continue; }  // 组合回测：每个信号日都是一笔候选
       if (why == null) break;  // 还在持仓：之后不会再有新的进场
       i = x + 1;  // 同一支卖掉之后才看下一个信号
     }
     return trades;
   }
-  function cbStats(tr) {
-    var cl = tr.filter(function (t) { return t.reason !== 'open'; }), w = cl.filter(function (t) { return t.net > 0; }), l = cl.filter(function (t) { return t.net <= 0; });
-    var sum = function (a) { return a.reduce(function (s, t) { return s + t.net; }, 0); };
-    var cum = 0, peak = 0, mdd = 0;
-    cl.slice().sort(function (a, b) { return a.exit_date < b.exit_date ? -1 : 1; }).forEach(function (t) { cum += t.net; peak = Math.max(peak, cum); mdd = Math.min(mdd, cum - peak); });
-    var aw = w.length ? sum(w) / w.length : null, al = l.length ? sum(l) / l.length : null;
-    return { n: tr.length, closed: cl.length, open: tr.length - cl.length, win: cl.length ? w.length / cl.length * 100 : null, avg: cl.length ? sum(cl) / cl.length : null,
-      total: sum(cl), mdd: mdd, payoff: aw != null && al ? aw / -al : null, days: cl.length ? cl.reduce(function (s, t) { return s + t.days; }, 0) / cl.length : null };
+  // ---------- 组合回测：全市场 / 股票池 / 自选，同时最多持有几笔、每笔多少钱，信号多过空位就随机挑 ----------
+  function cbUni() {
+    if (CB.uni === 'custom') return CB.codes.slice();
+    if (CB.uni === 'pool') return LIST.filter(function (s) { return s.pool === 1; }).map(function (s) { return s.code; });
+    return (D.daily && D.daily.length ? D.daily : Object.keys(NAMES)).slice();  // 有 2 年日线的全部股票 (旧的 data.json 没有清单：先用全部名单试)
   }
-  function cbCalc(all, exits) {  // 用已经下载的日线算一次 (改参数测试也用这个)
-    var cost = (D.bt && isNum(D.bt.cost)) ? D.bt.cost : 0.5, first = null, last = null, per = [], trades = [];
-    CB.codes.forEach(function (code, k) {
-      var b = all[k];
-      if (!b || b.length < 60) { per.push({ code: code, none: true }); return; }
-      if (!first || b[0].d < first) first = b[0].d; if (!last || b[b.length - 1].d > last) last = b[b.length - 1].d;
-      var t = cbStock(code, b, CB.from || '0000', CB.to || '9999', cost, exits);
-      per.push({ code: code, st: cbStats(t), bh: (function () { var s2 = b.filter(function (x) { return x.d >= (CB.from || '0000') && x.d <= (CB.to || '9999'); }); return s2.length > 1 ? (s2[s2.length - 1].c / s2[0].c - 1) * 100 : null; })() });
-      trades = trades.concat(t);
+  function cbUniN() { return CB.uni === 'custom' ? CB.codes.length : cbUni().length; }
+  function cbLoadAll(codes, prog) {  // 同时最多 8 个下载；下载过的留在记忆体
+    var out = new Array(codes.length), k = 0, done = 0;
+    return new Promise(function (ok) {
+      if (!codes.length) { ok(out); return; }
+      var next = function () {
+        if (k >= codes.length) return;
+        var i = k++;
+        loadDaily(codes[i]).then(function (b) { out[i] = b; done++; if (prog) prog(done, codes.length); if (done === codes.length) ok(out); else next(); });
+      };
+      for (var t = 0; t < Math.min(8, codes.length); t++) next();
     });
-    return { trades: trades.sort(function (a, b) { return a.sig < b.sig ? 1 : -1; }), per: per, all: cbStats(trades), first: first, last: last, cost: cost, exits: JSON.parse(JSON.stringify(exits)) };
+  }
+  function rng(seed) { return function () { seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function cbOpt() {
+    return { slots: CB.slots, size: CB.size, pick: CB.pick, runs: CB.runs, minpx: CB.minpx, from: CB.from || '0000', to: CB.to || '9999', cost: (D.bt && isNum(D.bt.cost)) ? D.bt.cost : 0.5 };
+  }
+  // 候选交易：每支股票的每一个信号日都算一笔 (出场只看那支股票自己的走势)；组合模拟再决定买不买
+  function cbCands(codes, all, exits, opt) {
+    var cands = [], first = null, last = null, close = {}, n = 0;
+    codes.forEach(function (code, k) {
+      var b = all[k]; if (!b || b.length < 60) return;
+      n++;
+      if (!first || b[0].d < first) first = b[0].d; if (!last || b[b.length - 1].d > last) last = b[b.length - 1].d;
+      var m = {}; b.forEach(function (x) { m[x.d] = x.c; }); close[code] = m;
+      var t = cbStock(code, b, opt.from, opt.to, opt.cost, exits, true);
+      for (var i = 0; i < t.length; i++) if (!(t[i].entry < (opt.minpx || 0))) cands.push(t[i]);  // 仙股：跳一格就是 10–50%，止损保护不了
+    });
+    return { cands: cands, first: first, last: last, close: close, n: n };
+  }
+  // 一次组合模拟：每天先处理出场，再用收盘价进场；同一支卖掉当天不再买回；每笔按 100 股一手买到不超过设定金额
+  function cbPort(P, opt, seed) {
+    var byDay = {}, dset = {}, rnd = seed != null ? rng(seed) : null, half = opt.cost / 200;
+    P.cands.forEach(function (t) { (byDay[t.sig] || (byDay[t.sig] = [])).push(t); });
+    Object.keys(P.close).forEach(function (code) { var m = P.close[code]; for (var d in m) dset[d] = 1; });
+    var days = Object.keys(dset).filter(function (d) { return d >= opt.from && d <= opt.to; }).sort();
+    var cap = opt.slots * opt.size, cash = cap, held = [], done = [], eq = [], nh = [], missed = 0, lastPx = {}, sold = {};
+    days.forEach(function (d) {
+      held = held.filter(function (p) {
+        if (p.t.reason === 'open' || p.t.exit_date !== d) return true;
+        var got = p.sh * p.t.exit * (1 - half); cash += got; p.pl = got - p.basis; done.push(p); sold[p.t.code] = d; return false;
+      });
+      var cs = (byDay[d] || []).filter(function (t) { return sold[t.code] !== d && !held.some(function (p) { return p.t.code === t.code; }); });
+      if (rnd) { for (var i = cs.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)), x = cs[i]; cs[i] = cs[j]; cs[j] = x; } }
+      else cs.sort(function (a, b) { return (b.tov || 0) - (a.tov || 0); });
+      cs.forEach(function (t) {
+        if (held.length >= opt.slots) { missed++; return; }
+        var amt = Math.min(opt.size, cash / (1 + half)), sh = Math.floor(amt / t.entry / 100) * 100;
+        if (sh <= 0) { missed++; return; }
+        var basis = sh * t.entry * (1 + half); cash -= basis; held.push({ t: t, sh: sh, basis: basis });
+      });
+      var mv = 0;
+      held.forEach(function (p) { var c0 = P.close[p.t.code][d]; if (c0 != null) lastPx[p.t.code] = c0; mv += p.sh * (lastPx[p.t.code] != null ? lastPx[p.t.code] : p.t.entry); });
+      eq.push(cash + mv); nh.push(held.length);
+    });
+    var peak = -Infinity, mdd = 0, mddRM = 0;
+    eq.forEach(function (v) { peak = Math.max(peak, v); if (v / peak - 1 < mdd / 100) { mdd = (v / peak - 1) * 100; mddRM = v - peak; } });
+    var tr = done.map(function (p) { var t = p.t; return { code: t.code, sig: t.sig, entry: t.entry, exit_date: t.exit_date, exit: t.exit, days: t.days, reason: t.reason, det: t.det, net: t.net, ret: t.ret, mae: t.mae, mfe: t.mfe, sh: p.sh, pl: p.pl }; })
+      .concat(held.map(function (p) { var t = p.t, px0 = lastPx[t.code] != null ? lastPx[t.code] : t.entry, val = p.sh * px0; return { code: t.code, sig: t.sig, entry: t.entry, exit_date: null, exit: px0, days: t.days, reason: 'open', det: '', net: (px0 / t.entry - 1) * 100, ret: (px0 / t.entry - 1) * 100, mae: t.mae, mfe: t.mfe, sh: p.sh, pl: val - p.basis }; }))
+      .sort(function (a, b) { return a.sig < b.sig ? 1 : a.sig > b.sig ? -1 : 0; });
+    var fin = eq.length ? eq[eq.length - 1] : cap, yrs = days.length / 245, cl = tr.filter(function (t) { return t.reason !== 'open'; });
+    return { cap: cap, final: fin, ret: (fin / cap - 1) * 100, cagr: yrs > 0.25 && fin > 0 ? (Math.pow(fin / cap, 1 / yrs) - 1) * 100 : null, mdd: mdd, mddRM: mddRM, days: days, eq: eq, nh: nh, trades: tr, missed: missed,
+      n: tr.length, open: held.length, win: cl.length ? cl.filter(function (t) { return t.pl > 0; }).length / cl.length * 100 : null,
+      hold: cl.length ? cl.reduce(function (s, t) { return s + t.days; }, 0) / cl.length : null,
+      avgHeld: nh.length ? nh.reduce(function (s, x) { return s + x; }, 0) / nh.length : 0, full: nh.length ? nh.filter(function (x) { return x >= opt.slots; }).length / nh.length * 100 : 0 };
+  }
+  // 随机挑选跑很多次 → 看结果的分布 (不是只靠一次运气)；「成交额大的先」只跑一次
+  function cbMC(P, opt, runs) {
+    var rs = [];
+    if (opt.pick === 'tov') rs.push(cbPort(P, opt, null));
+    else for (var s = 1; s <= (runs || opt.runs); s++) rs.push(cbPort(P, opt, s * 7919));
+    var by = rs.slice().sort(function (a, b) { return a.final - b.final; });
+    var q = function (arr, f) { return arr[Math.min(arr.length - 1, Math.max(0, Math.round(f * (arr.length - 1))))]; };
+    var rets = rs.map(function (r) { return r.ret; }).sort(function (a, b) { return a - b; }), dds = rs.map(function (r) { return r.mdd; }).sort(function (a, b) { return a - b; });
+    var ns = rs.map(function (r) { return r.n; }).sort(function (a, b) { return a - b; }), ws = rs.map(function (r) { return r.win == null ? 0 : r.win; }).sort(function (a, b) { return a - b; });
+    return { rep: by[Math.round((by.length - 1) * 0.5)], runs: rs.length, ret: { lo: q(rets, 0.05), med: q(rets, 0.5), hi: q(rets, 0.95) }, dd: { worst: dds[0], lo: q(dds, 0.05), med: q(dds, 0.5), hi: q(dds, 0.95) },
+      loss: rs.filter(function (r) { return r.ret < 0; }).length / rs.length * 100, n: q(ns, 0.5), win: q(ws, 0.5) };
   }
   function cbRun() {
-    if (!CB.codes.length) { CB.err = T('先加至少一支股票'); render(); return; }
+    var codes = cbUni();
+    if (!codes.length) { CB.err = CB.uni === 'custom' ? T('先加至少一支股票') : Z('没有股票资料', 'No stock data'); render(); return; }
     if (!CB.conds.length) { CB.err = Z('至少加一个进场条件', 'Add at least one entry condition'); render(); return; }
-    CB.busy = true; CB.err = ''; CB.sens = null; render();  // 旧结果留着，算好再换 (改条件时自动重算不会闪)
-    Promise.all(CB.codes.map(loadDaily)).then(function (all) { CB.res = cbCalc(all, CB.exits); CB.busy = false; cbSave(); render(); });
-  }
-  // 参数测试：同一组进场条件，把某一个结束条件换成几个不同的数值，各算一次
-  var SENS = { stop: ['v', [5, 7, 10, 12, 15, 20]], trail: ['v', [5, 8, 10, 12, 15, 20]], take: ['v', [10, 15, 20, 30, 50, 100]], swing: ['k', [1, 2, 3, 4, 5]], atr: ['m', [2, 2.5, 3, 3.5, 4, 5]], hold: ['v', [10, 20, 40, 60, 90, 120]] };
-  function cbSens(k) {
-    var q = CB.exits[k], sp = q && SENS[q.t]; if (!sp) return;
-    CB.sens = { k: k, busy: true }; render();
-    Promise.all(CB.codes.map(loadDaily)).then(function (all) {
-      var rows = sp[1].concat(null).map(function (val) {
-        var ex = CB.exits.filter(function (_, t) { return t !== k || val != null; }).map(function (x, t) { if (x !== q) return x; var y = JSON.parse(JSON.stringify(x)); y[sp[0]] = val; return y; });
-        var r = cbCalc(all, ex).all; return { val: val, n: r.n, win: r.win, avg: r.avg, total: r.total, mdd: r.mdd };
-      });
-      CB.sens = { k: k, rows: rows, key: sp[0], cur: q[sp[0]] }; render();
+    CB.busy = true; CB.err = ''; CB.sens = null; CB.load = { d: 0, n: codes.length }; CB.tlim = 60; render();  // 旧结果留着，算好再换
+    cbLoadAll(codes, function (d, n) { CB.load = { d: d, n: n }; var bt = document.querySelector('[data-cb="run"]'); if (bt) bt.textContent = Z('载入资料 ', 'Loading data ') + d + '/' + n + '…'; }).then(function (all) {
+      CB.load = null; var bt = document.querySelector('[data-cb="run"]'); if (bt) bt.textContent = Z('计算中…', 'Running…');
+      setTimeout(function () {
+        var opt = cbOpt(), P = cbCands(codes, all, CB.exits, opt), mc = cbMC(P, opt);
+        CB.res = { mc: mc, rep: mc.rep, trades: mc.rep.trades, exits: JSON.parse(JSON.stringify(CB.exits)), first: P.first, last: P.last, n: P.n, cost: opt.cost, opt: opt };
+        CB.data = { codes: codes, all: all }; CB.busy = false; cbSave(); render();
+      }, 30);
     });
   }
-  function cbRe() { if (CB.res && !CB.busy && CB.codes.length && CB.conds.length) cbRun(); }  // 已经跑过：改了设定就自动重算
+  // 参数测试：同一组进场条件，把某一个结束条件换成几个不同的数值，各跑一次组合模拟 (随机挑选的话每个数值跑 20 次取中位数)
+  var SENS = { stop: ['v', [5, 7, 10, 12, 15, 20]], trail: ['v', [5, 8, 10, 12, 15, 20]], take: ['v', [10, 15, 20, 30, 50, 100]], swing: ['k', [1, 2, 3, 4, 5]], atr: ['m', [2, 2.5, 3, 3.5, 4, 5]], hold: ['v', [10, 20, 40, 60, 90, 120]] };
+  function cbSens(k) {
+    var q = CB.exits[k], sp = q && SENS[q.t]; if (!sp || !CB.data) return;
+    CB.sens = { k: k, busy: true }; render();
+    setTimeout(function () {
+      var opt = cbOpt(), rows = sp[1].concat(null).map(function (val) {
+        var ex = CB.exits.filter(function (_, t) { return t !== k || val != null; }).map(function (x) { if (x !== q) return x; var y = JSON.parse(JSON.stringify(x)); y[sp[0]] = val; return y; });
+        var mc = cbMC(cbCands(CB.data.codes, CB.data.all, ex, opt), opt, Math.min(opt.runs, 20));
+        return { val: val, n: mc.n, win: mc.win, ret: mc.ret.med, dd: mc.dd.med, loss: mc.loss };
+      });
+      CB.sens = { k: k, rows: rows, key: sp[0], cur: q[sp[0]] }; render();
+    }, 30);
+  }
+  function cbRe() { if (CB.res && !CB.busy && (CB.uni !== 'custom' || CB.codes.length) && CB.conds.length) cbRun(); }  // 已经跑过：改了设定就自动重算
   function cbAdd(codes) { codes.forEach(function (c) { if (c && CB.codes.indexOf(c) < 0 && CB.codes.length < 30) CB.codes.push(c); }); CB.q = ''; cbSave(); render(); }
   function cbPreset(k) {
     var last = D.date || new Date().toISOString().slice(0, 10), d = new Date(last + 'T00:00:00Z');
@@ -1094,10 +1170,21 @@
         '<div id="cb-clist">' + cbList('e') + '</div>';
     } else if (p === 'stocks') {
       var name = function (c) { return ST[c] ? ST[c].name : NAMES[c] || c; };
-      h = head(Z('回测股票', 'Stocks')) + '<div class="grep"><label for="cb-q">' + Z('添加&gt;', 'add&gt;') + '</label><input id="cb-q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="' + Z('名称或代码', 'Name or code') + '" value="' + esc(CB.q) + '"></div>' +
+      var mp = '<label>' + Z('不买股价低于', 'Skip prices below') + '</label><div class="opts">' + [0, 0.05, 0.1, 0.2, 0.5, 1].map(function (x) { return '<button type="button" data-cb="capv" data-v="minpx:' + x + '" aria-pressed="' + (CB.minpx === x) + '">' + (x ? 'RM' + x.toFixed(2) : Z('不限', 'none')) + '</button>'; }).join('') + '</div>';
+      var seg = '<div class="opts seg cbp-rt" role="group">' + [['market', Z('全市场', 'Market')], ['pool', Z('股票池', 'Pool')], ['custom', Z('自选', 'Custom')]].map(function (u) { return '<button type="button" data-cb="uni" data-v="' + u[0] + '" aria-pressed="' + (CB.uni === u[0]) + '">' + u[1] + '</button>'; }).join('') + '</div>';
+      if (CB.uni !== 'custom') h = head(Z('回测股票', 'Stocks')) + seg + '<p class="dim">' + (CB.uni === 'market' ? Z('有 2 年日线的全部股票，共 ', 'All stocks with 2 years of daily data: ') : Z('成交量 ≥ 1M 的股票，共 ', 'Stocks trading ≥ 1M shares: ')) + cbUniN() + Z(' 支。', '.') + '</p>' + mp;
+      else h = head(Z('回测股票', 'Stocks')) + seg + mp + '<div class="grep"><label for="cb-q">' + Z('添加&gt;', 'add&gt;') + '</label><input id="cb-q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="' + Z('名称或代码', 'Name or code') + '" value="' + esc(CB.q) + '"></div>' +
         '<div class="opts" id="cb-sug">' + cbSug() + '</div>' +
         '<div class="opts"><button type="button" data-cb="add-sig">' + Z('+ 今天信号股', '+ Today’s signals') + '</button><button type="button" data-cb="add-watch">+ ' + esc(curFolder().name) + '</button><button type="button" data-cb="add-top">' + Z('+ 成交额前 10', '+ Top 10 turnover') + '</button>' + (CB.codes.length ? '<button type="button" data-cb="clear">' + Z('清空', 'Clear') + '</button>' : '') + '</div>' +
         (CB.codes.length ? '<div class="opts">' + CB.codes.map(function (c) { return '<button type="button" class="chip" data-cb="del" data-v="' + c + '" aria-label="' + Z('移除 ', 'Remove ') + esc(name(c)) + '">' + esc(name(c)) + ' ×</button>'; }).join('') + '</div>' : '');
+    } else if (p === 'cap') {
+      var cb = function (k, vals, fmt) { return '<div class="opts">' + vals.map(function (x) { return '<button type="button" data-cb="capv" data-v="' + k + ':' + x + '" aria-pressed="' + (CB[k] === x) + '">' + fmt(x) + '</button>'; }).join('') + '</div>'; };
+      h = head(Z('资金与持仓', 'Capital and positions')) +
+        '<label>' + Z('同时最多持有', 'Max positions at once') + '</label>' + cb('slots', [1, 2, 3, 5, 10, 20], function (x) { return x + Z(' 笔', ''); }) +
+        '<label>' + Z('每笔金额', 'Amount per position') + '<span class="cbp-n"><input type="text" inputmode="decimal" autocomplete="off" data-cbk="size" value="' + esc(fmtV(CB.size, '')) + '"><span class="dim">RM</span></span></label>' + cb('size', [5000, 10000, 20000, 50000, 100000], function (x) { return 'RM' + x / 1000 + 'K'; }) +
+        '<label>' + Z('同一天信号多过空位时', 'When signals exceed free slots') + '</label>' + '<div class="opts seg cbp-rt" role="group"><button type="button" data-cb="capv" data-v="pick:rand" aria-pressed="' + (CB.pick === 'rand') + '">' + Z('随机挑', 'Random') + '</button><button type="button" data-cb="capv" data-v="pick:tov" aria-pressed="' + (CB.pick === 'tov') + '">' + Z('成交额大的先', 'Highest turnover first') + '</button></div>' +
+        (CB.pick === 'rand' ? '<label>' + Z('随机跑几次', 'Random runs') + '</label>' + cb('runs', [20, 50, 100], function (x) { return x + Z(' 次', ''); }) : '') +
+        '<p class="dim">' + Z('起始资金 = 笔数 × 每笔金额 = RM', 'Starting capital = positions × amount = RM') + (CB.slots * CB.size).toLocaleString('en') + Z('。按 100 股一手买进。', '. Bought in 100-share lots.') + '</p>';
     } else if (p === 'period') {
       h = head(Z('回测期间', 'Period')) + '<div class="opts">' + [['m3', Z('3 个月', '3 months')], ['m6', Z('6 个月', '6 months')], ['y1', Z('1 年', '1 year')], ['all', Z('全部', 'All')]].map(function (x) { return '<button type="button" data-cb="preset" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' +
         '<div class="cb-dates"><label>' + Z('从', 'From') + ' <input type="date" id="cb-from" value="' + esc(CB.from) + '"></label><label>' + Z('到', 'To') + ' <input type="date" id="cb-to" value="' + esc(CB.to) + '"></label></div>';
@@ -1106,10 +1193,10 @@
   }
   function cbBar() {
     var name = function (c) { return ST[c] ? ST[c].name : NAMES[c] || c; };
-    var stk = CB.codes.length === 1 ? esc(name(CB.codes[0])) : CB.codes.length ? Z(CB.codes.length + ' 支', CB.codes.length + ' stocks') : Z('未选', 'none');
+    var stk = (CB.uni === 'market' ? Z('全市场 ', 'Market ') + cbUniN() : CB.uni === 'pool' ? Z('股票池 ', 'Pool ') + cbUniN() : CB.codes.length === 1 ? esc(name(CB.codes[0])) : CB.codes.length ? Z(CB.codes.length + ' 支', CB.codes.length + ' stocks') : Z('未选', 'none')) + (CB.minpx ? ' · ≥RM' + CB.minpx.toFixed(2) : '');
     var per = !CB.from && !CB.to ? Z('全部', 'All') : md(CB.from || (CB.res && CB.res.first) || '') + ' ~ ' + (CB.to ? md(CB.to) : Z('最新', 'now'));
     var tcur = TPL.filter(function (t) { return t.id === CB.tpl; })[0];
-    var row1 = (tplOn() ? pill('tpl', Z('模板', 'Template'), tcur ? esc(tcur.name) : TPL.length ? Z(TPL.length + ' 个', TPL.length + '') : '+') : '') + pill('stocks', Z('股票', 'Stocks'), stk) + pill('period', Z('期间', 'Period'), per) + '<span class="cbf-sep" aria-hidden="true"></span>' +
+    var row1 = (tplOn() ? pill('tpl', Z('模板', 'Template'), tcur ? esc(tcur.name) : TPL.length ? Z(TPL.length + ' 个', TPL.length + '') : '+') : '') + pill('stocks', Z('股票', 'Stocks'), stk) + pill('period', Z('期间', 'Period'), per) + pill('cap', Z('资金', 'Capital'), Z(CB.slots + ' 笔 × RM', CB.slots + ' × RM') + (CB.size >= 1000 ? +(CB.size / 1000).toFixed(1) + 'K' : CB.size) + (CB.pick === 'rand' ? Z(' · 随机', ' · random') : '')) + '<span class="cbf-sep" aria-hidden="true"></span>' +
       CB.conds.map(function (q, i) { var l = cbLbl(q); return pill('c:' + i, esc(l[0]), esc(l[1]), ['cdel', 'c' + i], l.join(' ')); }).join('') +
       (CB.conds.length < 15 ? '<button type="button" class="padd" data-cb="pop" data-v="add" aria-expanded="' + (CB.pop === 'add') + '">+ ' + Z('条件', 'Condition') + '</button>' : '');
     var row2 = '<span class="cbf-k">' + Z('出场 (任一)', 'Exit (any)') + '</span>' + CB.exits.map(function (q, i) { var l = xLbl(q); return pill('e:' + i, esc(l[0]), esc(l[1]), ['cdel', 'e' + i], l.join(' ')); }).join('') +
@@ -1126,27 +1213,45 @@
   function pageCustom() {
     var pos = (D.bt && D.bt.position) || 20000, R = function (v) { return isNum(v) ? v / 100 * pos : null; };
     var name = function (c) { return ST[c] ? ST[c].name : NAMES[c] || c; };
-    var h = cbBar() + '<button type="button" class="run" data-cb="run"' + (CB.busy ? ' disabled' : '') + '>' + (CB.busy ? Z('计算中…', 'Running…') : Z('▶ 运行回测', '▶ Run backtest')) + '</button>' + (CB.err ? '<p class="dn">' + esc(CB.err) + '</p>' : '');
+    var h = cbBar() + '<button type="button" class="run" data-cb="run"' + (CB.busy ? ' disabled' : '') + '>' + (CB.busy ? (CB.load ? Z('载入资料 ', 'Loading data ') + CB.load.d + '/' + CB.load.n + '…' : Z('计算中…', 'Running…')) : Z('▶ 运行回测', '▶ Run backtest')) + '</button>' + (CB.err ? '<p class="dn">' + esc(CB.err) + '</p>' : '');
     var r = CB.res;
     if (r) {
-      var a = r.all;
+      var a = r.rep, mc = r.mc, o = r.opt, K = function (v) { return (v < 0 ? '-' : '+') + 'RM' + Math.abs(Math.round(v)).toLocaleString('en'); };
       var ymd = function (d) { return d ? d.slice(2, 10).replace(/-/g, '/') : ''; };  // 跨年份：显示 25/05/06
-      h += pn(ttl(T('RESULT 结果')), CB.codes.length + T(' 支合计 · ') + ymd(CB.from || r.first) + ' ~ ' + ymd(CB.to || r.last) + T(' · 成本 ') + r.cost + '%',
-        kv([[T('笔数'), a.n + (a.open ? T(' (进行中 ') + a.open + ')' : '')], [T('胜率'), isNum(a.win) ? a.win.toFixed(1) + '%' : '—'], [T('期望值'), pct(a.avg), cls(a.avg)], [T('合计'), rm(R(a.total)), cls(a.total)]], true) +
-        kv([[T('最大回撤'), rm(R(a.mdd)), 'dn'], [T('盈亏比'), isNum(a.payoff) ? a.payoff.toFixed(2) : '—'], [T('平均天数'), isNum(a.days) ? a.days.toFixed(1) + T(' 天') : '—'], [T('每笔'), 'RM' + (pos / 1000) + 'K']]) +
-        (a.closed > 1 ? (function () { var cl = r.trades.filter(function (t) { return t.reason !== 'open'; }).sort(function (x, y) { return x.exit_date < y.exit_date ? -1 : 1; }), cum = 0;
-          return blockChart([0].concat(cl.map(function (t) { cum += t.net; return R(cum); })), { rows: 6, zero: true, label: T('自定义回测资金曲线'), fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
-            color: function (v) { return v >= 0 ? 'acc' : 'dn'; }, dates: [md(cl[0].exit_date), md(cl[cl.length - 1].exit_date)] }); })() : '') +
+      var pc = function (v) { return isNum(v) ? (v > 0 ? '+' : '') + v.toFixed(1) + '%' : '—'; };
+      h += pn(ttl(T('RESULT 结果')), r.n + Z(' 支 · ', ' stocks · ') + ymd(CB.from || r.first) + ' ~ ' + ymd(CB.to || r.last) + T(' · 成本 ') + r.cost + '%' + (o.pick === 'rand' ? Z(' · 随机 ' + mc.runs + ' 次的中位数', ' · median of ' + mc.runs + ' random runs') : ''),
+        kv([[Z('起始资金', 'Start'), 'RM' + a.cap.toLocaleString('en')], [Z('期末资金', 'End'), 'RM' + Math.round(a.final).toLocaleString('en'), cls(a.ret)], [Z('总收益', 'Return'), pc(a.ret), cls(a.ret)], [Z('最大回撤', 'Max drawdown'), pc(a.mdd), 'dn']], true) +
+        kv([[Z('年化', 'Per year'), pc(a.cagr), cls(a.cagr)], [Z('回撤金额', 'Drawdown RM'), K(a.mddRM), 'dn'], [Z('笔数', 'Trades'), a.n + (a.open ? Z(' (持仓中 ', ' (open ') + a.open + ')' : '')], [Z('胜率', 'Win rate'), isNum(a.win) ? a.win.toFixed(1) + '%' : '—'],
+          [Z('平均持有', 'Avg holding'), isNum(a.hold) ? a.hold.toFixed(1) + Z(' 天', ' days') : '—'], [Z('平均持仓', 'Avg positions'), a.avgHeld.toFixed(1) + ' / ' + o.slots], [Z('满仓天数', 'Days fully invested'), a.full.toFixed(0) + '%'], [Z('没空位错过', 'Missed (no slot)'), a.missed + Z(' 个信号', ' signals')]]) +
+        (a.eq.length > 2 ? blockChart(a.eq.map(function (v) { return v - a.cap; }), { rows: 6, zero: true, label: Z('资金曲线 (每天按收盘价计市值)', 'Equity (marked to market daily)'), fmt: function (v) { return (v >= 0 ? '+' : '') + (v / 1000).toFixed(1) + 'k'; },
+          color: function (v) { return v >= 0 ? 'acc' : 'dn'; }, dates: [ymd(a.days[0]), ymd(a.days[a.days.length - 1])] }) +
+          blockChart(a.nh, { rows: Math.min(6, Math.max(2, o.slots)), label: Z('同时持仓数', 'Positions held'), fmt: function (v) { return v.toFixed(0); }, color: function () { return 'cu'; }, dates: [ymd(a.days[0]), ymd(a.days[a.days.length - 1])] }) : '') +
         (a.n ? '' : '<p class="dim">' + Z('这段时间没有任何一天同时满足全部条件。移除几个条件或拉长时间试试。', 'No day in this period met every condition. Remove some conditions or use a longer period.') + '</p>'));
-      if (r.per.length > 1) h += pn(ttl(T('BY STOCK 分别')), '', '<pre class="txt">' + span('dim', cell(T('股票'), 10) + cell(T('笔'), 4, 1) + cell(T('胜率'), 7, 1) + cell(T('合计 RM'), 10, 1) + cell(T('同期涨跌'), 10, 1)) + '\n' +
-        r.per.map(function (p) { return '<button type="button" class="nm" data-q="' + p.code + '">' + cell(esc(name(p.code)), 10) + '</button>' + (p.none ? span('dim', T('没有日线')) : pad(p.st.n, 4, true) + pad(isNum(p.st.win) ? p.st.win.toFixed(0) + '%' : '—', 7, true) + span(cls(p.st.total), pad(rm(R(p.st.total)).replace('RM ', ''), 10, true)) + span(cls(p.bh), pad(pct(p.bh, 1), 10, true))); }).join('\n') + '</pre>');
+      if (o.pick === 'rand' && mc.runs > 1) h += pn(Z('随机 ' + mc.runs + ' 次', mc.runs + ' random runs'), Z('同一天信号多过空位时随机挑，看运气占多少', 'random picks when signals exceed slots: how much is luck'),
+        '<div class="trd-wrap"><table class="trd"><thead><tr><th></th><th class="n">' + Z('最差 5%', 'Worst 5%') + '</th><th class="n">' + Z('中位数', 'Median') + '</th><th class="n">' + Z('最好 5%', 'Best 5%') + '</th></tr></thead><tbody>' +
+        '<tr><td>' + Z('总收益', 'Return') + '</td><td class="n ' + cls(mc.ret.lo) + '">' + pc(mc.ret.lo) + '</td><td class="n ' + cls(mc.ret.med) + '">' + pc(mc.ret.med) + '</td><td class="n ' + cls(mc.ret.hi) + '">' + pc(mc.ret.hi) + '</td></tr>' +
+        '<tr><td>' + Z('最大回撤', 'Max drawdown') + '</td><td class="n dn">' + pc(mc.dd.lo) + '</td><td class="n dn">' + pc(mc.dd.med) + '</td><td class="n dn">' + pc(mc.dd.hi) + '</td></tr>' +
+        '<tr><td>' + Z('亏钱的机率', 'Chance of a loss') + '</td><td class="n" colspan="3">' + mc.loss.toFixed(0) + '%</td></tr></tbody></table></div>');
+      // 每月：开仓 / 平仓 / 平均持仓 / 当月盈亏 / 月底资金
+      if (a.days.length > 20) {
+        var mo = {}, order = [];
+        a.days.forEach(function (d, i) { var k = d.slice(0, 7), g = mo[k]; if (!g) { g = mo[k] = { o: 0, c: 0, h: 0, n: 0, s: i ? a.eq[i - 1] : a.cap, e: 0 }; order.push(k); } g.h += a.nh[i]; g.n++; g.e = a.eq[i]; });
+        a.trades.forEach(function (t) { var k1 = t.sig.slice(0, 7); if (mo[k1]) mo[k1].o++; if (t.exit_date && mo[t.exit_date.slice(0, 7)]) mo[t.exit_date.slice(0, 7)].c++; });
+        h += pn(Z('每月', 'By month'), '', '<div class="trd-wrap"><table class="trd"><thead><tr><th>' + Z('月份', 'Month') + '</th><th class="n">' + Z('开仓', 'Opened') + '</th><th class="n">' + Z('平仓', 'Closed') + '</th><th class="n">' + Z('平均持仓', 'Avg held') + '</th><th class="n">' + Z('当月盈亏', 'P/L') + '</th><th class="n">' + Z('月底资金', 'Equity') + '</th></tr></thead><tbody>' +
+          order.slice().reverse().map(function (k) { var g = mo[k], pl = g.e - g.s; return '<tr><td>' + k.slice(2).replace('-', '/') + '</td><td class="n">' + g.o + '</td><td class="n">' + g.c + '</td><td class="n">' + (g.h / g.n).toFixed(1) + '</td><td class="n ' + cls(pl) + '">' + K(pl) + '</td><td class="n">' + Math.round(g.e).toLocaleString('en') + '</td></tr>'; }).join('') + '</tbody></table></div>');
+      }
+      // 分别：有交易的股票，按盈亏排 (最多 20 支)
+      var per = {}; a.trades.forEach(function (t) { var g = per[t.code] || (per[t.code] = { n: 0, w: 0, s: 0 }); g.n++; if (t.pl > 0) g.w++; g.s += t.pl; });
+      var pk = Object.keys(per).sort(function (x, y) { return per[y].s - per[x].s; });
+      if (pk.length > 1) h += pn(ttl(T('BY STOCK 分别')), pk.length > 20 ? Z('盈亏最多 / 最少的各 10 支', 'top and bottom 10') : '', '<div class="trd-wrap"><table class="trd"><thead><tr><th>' + Z('股票', 'Stock') + '</th><th class="n">' + Z('笔', 'Trades') + '</th><th class="n">' + Z('胜率', 'Win') + '</th><th class="n">' + Z('合计 RM', 'Total RM') + '</th></tr></thead><tbody>' +
+        (pk.length > 20 ? pk.slice(0, 10).concat(pk.slice(-10)) : pk).map(function (c) { var g = per[c]; return '<tr><td><button type="button" class="nm" data-q="' + esc(c) + '"><b>' + esc(name(c)) + '</b></button></td><td class="n">' + g.n + '</td><td class="n">' + (g.w / g.n * 100).toFixed(0) + '%</td><td class="n ' + cls(g.s) + '">' + K(g.s) + '</td></tr>'; }).join('') + '</tbody></table></div>');
       var xl = function (t) { if (t.reason === 'open') return Z('持仓中', 'Still open'); var q = r.exits[+t.reason.slice(1)]; return q ? xLbl(q).join(' ').trim() : t.reason; };
       var cl = r.trades.filter(function (t) { return t.reason !== 'open'; });
       // 出场原因：哪一个结束条件出了几笔、赚还是亏
       if (r.trades.length) {
-        var grp = {}; r.trades.forEach(function (t) { var g = grp[t.reason] || (grp[t.reason] = { n: 0, w: 0, s: 0, lbl: xl(t) }); g.n++; if (t.net > 0) g.w++; g.s += t.net; });
+        var grp = {}; r.trades.forEach(function (t) { var g = grp[t.reason] || (grp[t.reason] = { n: 0, w: 0, s: 0, rm: 0, lbl: xl(t) }); g.n++; if (t.pl > 0) g.w++; g.s += t.net; g.rm += t.pl; });
         h += pn(Z('出场原因', 'Exit reasons'), '', '<div class="trd-wrap"><table class="trd"><thead><tr><th>' + Z('原因', 'Reason') + '</th><th class="n">' + Z('笔', 'Trades') + '</th><th class="n">' + Z('胜率', 'Win') + '</th><th class="n">' + Z('平均', 'Avg') + '</th><th class="n">' + Z('合计 RM', 'Total RM') + '</th></tr></thead><tbody>' +
-          Object.keys(grp).sort(function (a, b) { return grp[b].n - grp[a].n; }).map(function (k) { var g = grp[k]; return '<tr><td>' + esc(g.lbl) + '</td><td class="n">' + g.n + '</td><td class="n">' + (g.w / g.n * 100).toFixed(0) + '%</td><td class="n ' + cls(g.s) + '">' + pct(g.s / g.n, 1) + '</td><td class="n ' + cls(g.s) + '">' + rm(R(g.s)).replace('RM ', '') + '</td></tr>'; }).join('') + '</tbody></table></div>');
+          Object.keys(grp).sort(function (a, b) { return grp[b].n - grp[a].n; }).map(function (k) { var g = grp[k]; return '<tr><td>' + esc(g.lbl) + '</td><td class="n">' + g.n + '</td><td class="n">' + (g.w / g.n * 100).toFixed(0) + '%</td><td class="n ' + cls(g.s) + '">' + pct(g.s / g.n, 1) + '</td><td class="n ' + cls(g.rm) + '">' + K(g.rm) + '</td></tr>'; }).join('') + '</tbody></table></div>');
       }
       // 最大浮亏 / 浮盈：赢的交易中途最多跌多少 (止损可以设在哪)、最多涨过多少 (回吐了多少)
       if (cl.length > 2) {
@@ -1160,15 +1265,15 @@
       // 参数测试：换几个数值看合计和回撤
       var sx = r.exits.map(function (q, k) { return SENS[q.t] ? k : -1; }).filter(function (k) { return k >= 0; });
       if (sx.length && a.n) {
-        var sv = CB.sens, rows = sv && sv.rows ? '<div class="trd-wrap"><table class="trd"><thead><tr><th>' + esc(xLbl(r.exits[sv.k])[0]) + '</th><th class="n">' + Z('笔', 'Trades') + '</th><th class="n">' + Z('胜率', 'Win') + '</th><th class="n">' + Z('期望值', 'Expectancy') + '</th><th class="n">' + Z('合计 RM', 'Total RM') + '</th><th class="n">' + Z('最大回撤 RM', 'Max DD RM') + '</th></tr></thead><tbody>' +
-          sv.rows.map(function (x) { return '<tr' + (x.val === sv.cur ? ' class="on"' : '') + '><td>' + (x.val == null ? Z('不用', 'off') : x.val + (sv.key === 'v' && r.exits[sv.k].t !== 'hold' ? '%' : '')) + '</td><td class="n">' + x.n + '</td><td class="n">' + (isNum(x.win) ? x.win.toFixed(0) + '%' : '—') + '</td><td class="n ' + cls(x.avg) + '">' + pct(x.avg, 2) + '</td><td class="n ' + cls(x.total) + '">' + rm(R(x.total)).replace('RM ', '') + '</td><td class="n dn">' + rm(R(x.mdd)).replace('RM ', '') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '';
+        var sv = CB.sens, rows = sv && sv.rows ? '<div class="trd-wrap"><table class="trd"><thead><tr><th>' + esc(xLbl(r.exits[sv.k])[0]) + '</th><th class="n">' + Z('笔', 'Trades') + '</th><th class="n">' + Z('胜率', 'Win') + '</th><th class="n">' + Z('总收益', 'Return') + '</th><th class="n">' + Z('最大回撤', 'Max DD') + '</th><th class="n">' + Z('亏钱机率', 'Loss chance') + '</th></tr></thead><tbody>' +
+          sv.rows.map(function (x) { return '<tr' + (x.val === sv.cur ? ' class="on"' : '') + '><td>' + (x.val == null ? Z('不用', 'off') : x.val + (sv.key === 'v' && r.exits[sv.k].t !== 'hold' ? '%' : '')) + '</td><td class="n">' + x.n + '</td><td class="n">' + (isNum(x.win) ? x.win.toFixed(0) + '%' : '—') + '</td><td class="n ' + cls(x.ret) + '">' + pc(x.ret) + '</td><td class="n dn">' + pc(x.dd) + '</td><td class="n">' + x.loss.toFixed(0) + '%</td></tr>'; }).join('') + '</tbody></table></div>' : '';
         h += pn(Z('参数测试', 'Parameter test'), '', '<div class="sens-f"><select id="cb-sx">' + sx.map(function (k) { return '<option value="' + k + '"' + (sv && sv.k === k ? ' selected' : '') + '>' + esc(xLbl(r.exits[k]).join(' ').trim()) + '</option>'; }).join('') + '</select><button type="button" class="ok" data-cb="sens"' + (sv && sv.busy ? ' disabled' : '') + '>' + (sv && sv.busy ? Z('计算中…', 'Running…') : Z('测试不同数值', 'Try other values')) + '</button></div>' + rows);
       }
       // 逐笔：栏位对齐
       if (r.trades.length) h += pn(ttl(T('TRADES 逐笔')), r.trades.length + T(' 笔 (新到旧)'), '<div class="trd-wrap"><table class="trd trd-t"><thead><tr><th>' + Z('股票', 'Stock') + '</th><th>' + Z('进场', 'Entry') + '</th><th>' + Z('出场', 'Exit') + '</th><th class="n">' + Z('天数', 'Days') + '</th><th>' + Z('出场原因', 'Exit reason') + '</th><th class="n">' + Z('最大浮亏', 'Worst') + '</th><th class="n">' + Z('最大浮盈', 'Best') + '</th><th class="n">' + Z('盈亏', 'P/L') + '</th><th class="n">RM</th></tr></thead><tbody>' +
         r.trades.slice(0, CB.tlim).map(function (t) {
           return '<tr><td><button type="button" class="nm" data-q="' + esc(t.code) + '"><b>' + esc(name(t.code)) + '</b></button></td><td>' + ymd(t.sig) + ' <span class="dim">' + px(t.entry) + '</span></td><td>' + (t.reason === 'open' ? '—' : ymd(t.exit_date) + ' <span class="dim">' + px(t.exit) + '</span>') + '</td><td class="n">' + t.days + '</td>' +
-            '<td class="rsn">' + esc(xl(t)) + (t.det ? ' <span class="dim">@' + t.det + '</span>' : '') + '</td><td class="n dn">' + pct(t.mae, 1) + '</td><td class="n up">' + pct(t.mfe, 1) + '</td><td class="n b ' + cls(t.net) + '">' + pct(t.net, 1) + '</td><td class="n ' + cls(t.net) + '">' + rm(R(t.net)).replace('RM ', '') + '</td></tr>';
+            '<td class="rsn">' + esc(xl(t)) + (t.det ? ' <span class="dim">@' + t.det + '</span>' : '') + '</td><td class="n dn">' + pct(t.mae, 1) + '</td><td class="n up">' + pct(t.mfe, 1) + '</td><td class="n b ' + cls(t.net) + '">' + pct(t.net, 1) + '</td><td class="n ' + cls(t.pl) + '">' + K(t.pl) + '</td></tr>';
         }).join('') + '</tbody></table></div>' + (r.trades.length > CB.tlim ? '<button type="button" class="more" data-cb="tmore">' + Z('再显示 60 笔', 'Show 60 more') + '</button>' : ''));
     }
     return h;
@@ -1199,6 +1304,8 @@
     else if (a === 'xadd') { var xq = xNew(v); if (!xq) return; CB.exits.push(xq); CB.pop = xq.t === 'combo' ? null : 'e:' + (CB.exits.length - 1); cbSave(); render(); cbRe(); }
     else if (a === 'sens') { var sel = document.getElementById('cb-sx'); if (sel) cbSens(+sel.value); }
     else if (a === 'tmore') { CB.tlim += 60; render(); }
+    else if (a === 'uni') { CB.uni = v; cbSave(); render(); cbRe(); }
+    else if (a === 'capv') { var cv = v.split(':'); CB[cv[0]] = cv[0] === 'pick' ? cv[1] : +cv[1]; cbSave(); render(); cbRe(); }
   }
   try { S.bt = localStorage.getItem('bterm_btmode') === 'custom' ? 'custom' : 'ledger'; } catch (e) { S.bt = 'ledger'; }
   var FLT = [['s', 'sar', 'SAR▲', function (s) { return s.sar === 1; }], ['e', 'ema', '>EMA20', function (s) { return isNum(s.ema) && s.p > s.ema; }],
@@ -2809,7 +2916,8 @@
   document.addEventListener('toggle', function (e) { var d = e.target; if (d.classList && d.classList.contains('info')) OPEN[d.dataset.code] = d.open; }, true);
   document.addEventListener('change', function (e) {
     var el = e.target, d = el.dataset || {};
-    if (d.cbc) {  // 条件编辑框：「i:栏位」或「x:结束条件」
+    if (d.cbk === 'size') { var sz = parseV(el.value); if (isFinite(sz) && sz >= 1000) CB.size = Math.min(1e7, Math.round(sz)); cbSave(); render(); cbRe(); return; }
+    if (d.cbc) {  // 条件编辑框：「c3:栏位」进场 /「e1:栏位」出场
       var pr = d.cbc.split(':'), n = parseFloat(el.value);
       var L = pr[0][0], arr = L === 'e' ? CB.exits : CB.conds, ci = +pr[0].slice(1), q = arr[ci], path = pr[1], val = el.value, norm = L === 'e' ? xCond : cbCond;
       if (!q || q.t === 'ema50') return;
@@ -2985,7 +3093,7 @@
     }
     var cb0 = null; try { cb0 = JSON.parse(lsGet('bterm_cbt') || 'null'); } catch (e) { cb0 = null; }
     if (d.cbt && !same(cb0, d.cbt)) {
-      ['codes', 'from', 'to'].forEach(function (k) { if (d.cbt[k] !== undefined) CB[k] = d.cbt[k]; });
+      ['codes', 'from', 'to', 'uni', 'slots', 'size', 'pick', 'runs', 'minpx'].forEach(function (k) { if (d.cbt[k] !== undefined) CB[k] = d.cbt[k]; });
       if (!Array.isArray(CB.codes)) CB.codes = [];
       CB.conds = cbConds(d.cbt); CB.exits = cbExits(d.cbt); CB.pop = null;
       CB.res = null; cbSave(); redraw = true;
