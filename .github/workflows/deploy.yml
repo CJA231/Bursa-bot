@@ -1,6 +1,10 @@
-# 部署网站到 GitHub Pages：main 的手写文件 (report.js、vendor/、overrides.json…) + site-data 分支最新的网站资料。
+# 部署网站：main 的手写文件 (report.js、vendor/、overrides.json…) + site-data 分支最新的网站资料。
 # 报告、公司资讯、ESG、股票名单任何一个跑完就自动部署；手写的 docs/ 文件推到 main (包括管理员在网页上的编辑) 也会部署。
-# 需要先在 Settings → Pages → Build and deployment → Source 选「GitHub Actions」。
+# 部署到哪里看仓库变量 DEPLOY_TARGET：
+#   没设 / github  → GitHub Pages (公开网页；要先在 Settings → Pages → Source 选「GitHub Actions」)
+#   cloudflare     → Cloudflare Pages (前面加 Cloudflare Access = 只有自己登录得了，见 README「只给自己用」)。
+#                    要设 Secret CLOUDFLARE_API_TOKEN (权限 Cloudflare Pages: Edit)、CLOUDFLARE_ACCOUNT_ID，
+#                    变量 CF_PAGES_PROJECT (例如 bursa-bot；没有这个项目会自动建立)
 name: Deploy site
 
 on:
@@ -25,7 +29,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && vars.DEPLOY_TARGET != 'cloudflare'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -60,3 +64,32 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  # Cloudflare Pages：同一份 docs/ 上传成一个新版本 (wrangler 直接上传，不经过 Cloudflare 的 Git 连接，所以仓库可以是私有的)
+  deploy_cloudflare:
+    if: (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && vars.DEPLOY_TARGET == 'cloudflare'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Restore site data
+        run: python3 scripts/site_state.py restore
+      - name: Check site
+        run: |
+          test -s docs/index.html && test -s docs/terminal/index.html || { echo "::error::网站资料不完整 (docs/index.html 或 docs/terminal/index.html 不见了)，不部署"; exit 1; }
+          echo "部署 $(find docs -type f | wc -l) 个文件，$(du -sh docs | cut -f1)"
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT: ${{ vars.CF_PAGES_PROJECT || 'bursa-bot' }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::还没设 Secret CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID (见 README「只给自己用」)"; exit 1
+          fi
+          W="npx --yes wrangler@3.114.0"
+          # 第一次：项目不存在就建立 (已经有了会报错，忽略)
+          $W pages project create "$PROJECT" --production-branch main >/dev/null 2>&1 || true
+          $W pages deploy docs --project-name "$PROJECT" --branch main --commit-dirty=true

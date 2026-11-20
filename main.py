@@ -175,7 +175,10 @@ def load_watchlist():
 WATCHLIST = load_watchlist()
 
 REPORT_PATH = os.path.join(DOCS_DIR, "index.html")
-REPORT_URL = MKT["url"]
+# 网站网址：仓库变量 SITE_URL (例如搬到 Cloudflare Pages 后的 https://bursa-bot.pages.dev/)；没设就用上面写的 GitHub Pages 网址。
+# 美股在同一个网站的 us/ 底下。通知的链接、终端版读个股 / 公告资料都用这个网址
+_SITE = (os.environ.get("SITE_URL") or "").strip()
+REPORT_URL = (_SITE.rstrip("/") + "/" + ("us/" if MARKET_ID == "US" else "")) if _SITE.startswith("https://") else MKT["url"]
 CHART_HISTORY_DAYS = 90  # 图表显示最近约 90 个交易日
 # 流动性门槛 (见 MARKETS 里的说明)：马股按价格分级的成交量，美股按成交额
 VOLUME_TIERS = MKT["volume_tiers"]

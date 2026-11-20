@@ -209,6 +209,9 @@
     var rank = function (a, b) { return ((ST[b] && ST[b].to) || 0) - ((ST[a] && ST[a].to) || 0) || (a < b ? -1 : 1); };
     return head.sort(rank).concat(mid.sort(rank)).slice(0, n || 8);
   }
+  function siteBase() {  // 资料网址 (data.json 的 report) 跟现在的网站不同 (例如刚搬到 Cloudflare Pages)：改读同一个网站的资料
+    try { if (D.report && /^https?:/.test(D.report) && new URL(D.report).origin !== location.origin && /^https?:$/.test(location.protocol)) D.report = new URL('../', location.href).href; } catch (e) {}
+  }
   function ingest() {
     LIST = D.stocks.map(function (r) {
       return { code: r[0], name: r[1], p: r[2], c: r[3], vol: r[4], to: r[5], rv: r[6], rsi: r[7], sar: r[8], ema: r[9], sma: r[10],
@@ -3142,7 +3145,7 @@
       if (document.visibilityState !== 'visible' || !D) return;
       wgLast = Date.now();
       fetch('data.json?t=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
-        if (!j) return; D = j; ingest(); document.getElementById('status').innerHTML = status(); BARS = null; barsLoading = false; CAL = null; calLoading = false; render();
+        if (!j) return; D = j; siteBase(); ingest(); document.getElementById('status').innerHTML = status(); BARS = null; barsLoading = false; CAL = null; calLoading = false; render();
       }).catch(function () {});
     };
     setInterval(wgRefresh, 5 * 60e3);
@@ -3939,7 +3942,7 @@
   document.addEventListener('click', function (e) { if (e.target.closest('[data-reload]')) location.reload(); });
 
   fetch('data.json?v=' + V).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); OFFLINE = r.headers.get('x-bterm-offline') === '1'; return r.json(); }).then(function (j) {
-    D = j; ingest(); fromHash(); offlineBar(); loadOv();
+    D = j; siteBase(); ingest(); fromHash(); offlineBar(); loadOv();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { CW = null; render(); });  // 网页字体到了再量一次字宽
     document.getElementById('status').innerHTML = status();
     var tk = document.querySelector('#status .tick > span');  // 速度固定约每秒 40px，内容长短不影响快慢

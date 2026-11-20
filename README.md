@@ -465,6 +465,46 @@ Bursa-bot/
 
 更完整的设计笔记（策略细节、历史踩坑、排程调试过程）见 [`bursa-bot.md`](./bursa-bot.md)。
 
+## 🔒 只给自己用 (私有部署：Cloudflare Pages + Cloudflare Access)
+
+GitHub Pages 的网页一定是公开的 (私有仓库开 Pages 要付费，开出来照样公开)。只给自己用的话，把网站搬到 Cloudflare Pages，前面加 Cloudflare Access：只有你的 Gmail 能打开，别人连页面都看不到。资料流程、终端版、回测都不用改。
+
+**1. Cloudflare：取得部署用的钥匙**
+- My Profile → API Tokens → Create Token → Custom token：权限选 Account → **Cloudflare Pages → Edit**，建立后复制
+- Account ID：Workers & Pages 页面右边就有
+
+**2. GitHub 仓库：Settings → Secrets and variables → Actions**
+- Secrets：`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`
+- Variables：`DEPLOY_TARGET` = `cloudflare`、`CF_PAGES_PROJECT` = `bursa-bot` (项目名称，会变成 `bursa-bot.pages.dev`；名称被用掉的话 Cloudflare 会加后缀，以部署记录里的网址为准)
+- Actions → **Deploy site** → Run workflow。跑完在 log 最后看到网址 (例如 `https://bursa-bot.pages.dev`)
+
+**3. Cloudflare Access：只让自己进来** (先做这步再用新网址，部署后到加上 Access 之间网页是公开的)
+- 打开 Zero Trust (`one.dash.cloudflare.com`)，第一次要取团队名称、选 Free 方案 (50 人以内免费；可能会要求填付款方式，免费方案不收费)
+- Access → Applications → Add an application → **Self-hosted**
+  - 网域填 `bursa-bot.pages.dev`，再加一个 `*.bursa-bot.pages.dev` (每次部署的预览网址)
+  - Policy：Action = Allow，Include → **Emails** = 你的 Gmail
+  - 登录方式：默认的 One-time PIN (寄验证码到你的 Gmail) 就可以
+  - Session Duration 设长一点 (例如 1 month)，不用常常重新登录；过期后终端版会显示读取失败，重新整理页面就会回到登录页
+- 用无痕视窗打开网址，应该先看到 Cloudflare 的登录页才对
+
+**4. 网址和 AI / 同步 Worker 改成新网站**
+- GitHub 变量 `SITE_URL` = `https://bursa-bot.pages.dev/` (通知的链接用这个网址；下一次报告生效。终端版本身会自动读同一个网站的资料，没设也能用)
+- Cloudflare Worker (`bursa-ai`) → Settings → Variables：
+  - `ALLOW_ORIGIN` = `https://bursa-bot.pages.dev` (搬家期间可以写 `https://cja231.github.io,https://bursa-bot.pages.dev`，确认新网站正常后拿掉旧的)
+  - `ALLOW_EMAILS` = 你的 Gmail (只有你能登录 / 同步，之前发出去的登录凭证也一起失效)
+  - 部署这一版的 `worker/ai-proxy.js`
+- Google Cloud → OAuth 用户端 → Authorized JavaScript origins 加上 `https://bursa-bot.pages.dev`
+
+**5. 关掉公开的部分**
+- GitHub：Settings → Pages → **Unpublish site**
+- Settings → General → Danger Zone → **Change visibility → Private**；Insights → Forks 看有没有人 fork 过
+- 有设变量 `PUBLIC_REPO` 的话 (「公开展示站」，见下面)，删掉 `PUBLIC_REPO` / `PUBLIC_REPO_TOKEN`，那个公开仓库也改私有或删掉
+- 密钥：放在 GitHub Secrets / Worker 设定里的密钥不会因为仓库公开而外泄，不用换；只有曾经贴进代码、Issue、Actions log 的才要换。`NTFY_TOPIC` 是推送频道名称，知道名称的人都能订阅，确认它是一串别人猜不到的乱码
+
+**6. 私有仓库的 Actions 额度**
+- 私有仓库每月免费 2,000 分钟 (公开仓库不限)。现在 cron-job.org 交易时段每 30 分钟跑一次报告，每次报告后接着跑公司资讯，一天约 200 分钟，私有的话一个月会超过
+- 改成每个交易日收盘后 **17:25 跑一次** (cron-job.org：星期一至五 17:25，时区 Asia/Kuala_Lumpur)，一个月约 300 分钟，在额度内。之后可以在 Settings → Billing 看实际用量
+
 ## 免责声明
 
 本项目及其生成的报告：

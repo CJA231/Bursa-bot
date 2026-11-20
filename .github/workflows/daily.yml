@@ -75,6 +75,7 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           FORCE_RUN: ${{ github.event.inputs.force }}
           MARKET: ${{ github.event.inputs.market || 'MY' }}
+          SITE_URL: ${{ vars.SITE_URL }}  # 网站网址 (搬到 Cloudflare Pages 后设)；没设 = GitHub Pages
           PYTHONUNBUFFERED: '1'  # 不缓冲输出，Actions 日志里每一行的时间戳才是真实的 (以前全部挤在结束那一秒)
         run: python main.py
 

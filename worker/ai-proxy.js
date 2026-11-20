@@ -9,7 +9,7 @@
 // 密钥都只存在 Cloudflare 的 Secret 里，网页上看不到。需要设置 (Workers → Settings → Variables and Secrets)：
 //   DEEPSEEK_KEY  (Secret) DeepSeek API 密钥 —— 建议另外开一个、设好用量上限
 //   PASS          (Secret) 通行码，自己定 (终端 AI 设置里填同一个)；没有通行码的请求一律拒绝
-//   ALLOW_ORIGIN  (Text)   https://cja231.github.io
+//   ALLOW_ORIGIN  (Text)   https://cja231.github.io (几个网站用逗号分开，例如搬家期间 https://cja231.github.io,https://bursa-bot.pages.dev)
 //   以下只有要在网页上编辑内容才需要 (没设置 = 编辑功能关闭，问答照常)：
 //   EDIT_PASS     (Secret) 编辑通行码，跟 PASS 不同 —— 问答通行码可以给朋友，编辑通行码只有你自己知道
 //   GH_TOKEN      (Secret) GitHub fine-grained token：只选这个仓库，权限只开 Contents = Read and write
@@ -23,6 +23,7 @@
 //   PLUS_EMAILS      (Text)   付费 (Plus) 用户的电邮，逗号分隔；也可以在 KV 加一笔 plus:<电邮> = 到期日 YYYY-MM-DD (或 forever)
 //   FREE_MAX_FOLDERS / FREE_MAX_STOCKS / PLUS_MAX_FOLDERS / PLUS_MAX_STOCKS (Text，可不设) 同步上限，默认 1 / 30 / 5 / 2000
 //   OWNER_EMAILS     (Text)   网站管理员的电邮：自己是 Plus，账号面板里可以手动开通 / 取消别人的 Plus
+//   ALLOW_EMAILS     (Text，可不设) 只有这些电邮可以登录 / 同步 (逗号分隔)；只给自己用就填自己的 Gmail。没设 = 任何人都可以登录
 //   STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET (Secret)、STRIPE_PRICE_MONTH / STRIPE_PRICE_YEAR (Text)：Stripe 自动收款 (可不设)
 // 6) POST /admin/plus/list|set|remove (管理员)、/pay/checkout|portal (登录的用户)、/pay/webhook (Stripe 呼叫，签名验证)
 const SYSTEM = `你是 Bursa Bot 终端版里的 AI 助手，帮用户看懂马来西亚股票的公开资料。
@@ -33,9 +34,10 @@ const SYSTEM = `你是 Bursa Bot 终端版里的 AI 助手，帮用户看懂马�
 const MAX_MSG = 12, MAX_CHARS = 16000;
 const OV_PATH = 'docs/terminal/overrides.json';
 
+const origins = env => String(env.ALLOW_ORIGIN || '').split(/[\s,]+/).filter(Boolean).map(o => o.replace(/\/+$/, ''));
 function cors(env, req) {
-  const origin = req.headers.get('Origin') || '';
-  const ok = !env.ALLOW_ORIGIN || origin === env.ALLOW_ORIGIN;
+  const origin = req.headers.get('Origin') || '', list = origins(env);
+  const ok = !list.length || list.includes(origin);
   return { ok, h: { 'Access-Control-Allow-Origin': ok ? origin || '*' : 'null', 'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Pass, X-Edit-Pass', 'Access-Control-Max-Age': '86400', 'Vary': 'Origin' } };
 }
@@ -152,11 +154,13 @@ async function sessionCheck(env, req) {
   let p = null;
   try { p = JSON.parse(dec.decode(b64uDec(m[1]))); } catch (e) { p = null; }
   if (!p || !p.s || !(p.x > Date.now() / 1000)) throw fail(401, 'login expired');
+  if (!allowed(env, String(p.e || ''))) throw fail(403, 'this account is not allowed');  // 后来才加 ALLOW_EMAILS：之前发出去的登录凭证也一起挡掉
   return { sub: String(p.s), email: String(p.e || '') };
 }
 
 const emailList = v => String(v || '').toLowerCase().split(/[\s,;]+/).filter(Boolean);
 const isOwner = (env, email) => !!email && emailList(env.OWNER_EMAILS).includes(email);
+const allowed = (env, email) => { const l = emailList(env.ALLOW_EMAILS); return !l.length || l.includes(String(email || '').toLowerCase()); };
 async function planOf(env, email) {
   if (isOwner(env, email) || emailList(env.PLUS_EMAILS).includes(email)) return { plan: 'plus', until: null };
   const r = env.SYNC && email ? await env.SYNC.getWithMetadata('plus:' + email) : null;  // Cloudflare 后台 KV 加一笔就升级，不用重新部署
@@ -228,6 +232,7 @@ function cleanDoc(d, lim, owner) {
 async function account(env, req, path, b) {
   if (path === '/auth/login') {
     const u = await verifyGoogle(env, b.credential);
+    if (!allowed(env, u.email)) throw fail(403, 'this account is not allowed');
     const pl = await planOf(env, u.email);
     return { token: await sessionIssue(env, u), email: u.email, name: u.name, picture: u.picture, days: SESSION_DAYS, ...pl, limits: limitsOf(env, pl.plan), ...extras(env, u.email) };
   }
@@ -322,7 +327,7 @@ async function stripe(env, path, params) {
 }
 function backUrl(env, b) {  // 付款完 / 取消后回到哪里：只接受本网站的网址
   const u = typeof b.back === 'string' ? b.back : '';
-  const site = env.ALLOW_ORIGIN || '';
+  const list = origins(env), site = list.find(o => u.startsWith(o + '/')) || list[0] || '';
   return site && u.startsWith(site + '/') && u.length < 400 ? u.replace(/[?#].*$/, '') : (site || 'https://example.com') + '/';
 }
 async function pay(env, u, path, b) {

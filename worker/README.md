@@ -9,7 +9,8 @@
 3. **Settings → Variables and Secrets**，加三个：
    - `DEEPSEEK_KEY` (类型 Secret)：DeepSeek API 密钥。建议在 DeepSeek 后台另外开一个新密钥给它用，并设好用量上限。
    - `PASS` (类型 Secret)：你自己定的通行码 (一串不容易猜的字)。
-   - `ALLOW_ORIGIN` (类型 Text)：`https://cja231.github.io`
+   - `ALLOW_ORIGIN` (类型 Text)：`https://cja231.github.io` (几个网站用逗号分开；搬到 Cloudflare Pages 见主 README「只给自己用」)
+   - (可选) `ALLOW_EMAILS` (类型 Text)：只有这些电邮能登录 / 同步，只给自己用就填自己的 Gmail
 4. 复制 Worker 的网址 (像 `https://bursa-ai.<你的名字>.workers.dev`)。
 5. 打开终端版 → 右下角「✦ AI」→「⚙ 设置」→ 选「Worker」，贴上网址和通行码 → 保存。
 

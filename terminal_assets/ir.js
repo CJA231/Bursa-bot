@@ -207,7 +207,7 @@
       root.innerHTML = '<div class="irw-h"><b>' + esc(short) + '</b> <span class="dim">' + (EN ? 'Investor updates' : '投资者资讯') + '</span></div>' +
         '<h3>' + t('anns') + '</h3><ul class="ir-l">' + (annRows(intel, 5) || '<li class="dim">—</li>') + '</ul>' +
         '<h3>' + t('cal') + '</h3><ul class="ir-l">' + (evRows(ev.filter(function (e) { return e.date <= addDays(today(), 30); }), 6) || '<li class="dim">' + t('nocal') + '</li>') + '</ul>' +
-        '<p class="dim irw-f">' + t('powered') + ' · <a href="https://cja231.github.io/Bursa-bot/terminal/ir.html?code=' + esc(CODE) + '" target="_blank" rel="noopener">bursa.term</a></p>';
+        '<p class="dim irw-f">' + t('powered') + ' · <a href="' + esc(new URL('ir.html?code=' + encodeURIComponent(CODE), location.href).href) + '" target="_blank" rel="noopener">bursa.term</a></p>';
       return;
     }
     var p = Object.assign({}, stock.profile || {}), op = ov && ov.profile;
