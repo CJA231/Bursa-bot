@@ -413,7 +413,7 @@
   // X = 一支股票的资料 + 快取：X.c / o / h / l / v (数组)、X.b (K 线)、X.fin (季报)、X.m(key, fn) 记住算过的
   var IND = {}, INDK = [];
   function ind(k, g, zh, en, p, out, u, fn, d) { IND[k] = { k: k, g: g, zh: zh, en: en, p: p || [], out: out || null, u: u || '', fn: fn, d: d || null }; INDK.push(k); }
-  var IG = [['px', '价格', 'Price'], ['ma', '均线', 'Moving averages'], ['osc', '动能', 'Oscillators'], ['trend', '趋势', 'Trend'], ['vola', '波动 / 通道', 'Volatility / channels'], ['volu', '成交量', 'Volume'], ['fin', '财务 (季报)', 'Financials (quarterly)']];
+  var IG = [['px', '价格', 'Price'], ['ma', '均线', 'Moving averages'], ['osc', '动能', 'Oscillators'], ['trend', '趋势', 'Trend'], ['vola', '波动 / 通道', 'Volatility / channels'], ['volu', '成交量', 'Volume'], ['pat', '形态', 'Patterns'], ['fin', '财务 (季报)', 'Financials (quarterly)']];
   var N = function (d) { return ['n', '周期', 'Length', d, 1, 500, 1]; };
   function arr(n) { var a = new Array(n); for (var i = 0; i < n; i++) a[i] = null; return a; }
   function nn(x) { return x != null && isFinite(x); }
@@ -614,6 +614,35 @@
   ind('tov', 'volu', '成交额', 'Value traded', [], null, 'RM', function (X) { return X.c.map(function (c, i) { return c * X.v[i]; }); }, { op: 'ge', v: 1e6 });
   ind('obv', 'volu', 'OBV 能量潮', 'On-balance volume', [], null, '', function (X) { var s = 0; return X.c.map(function (c, i) { if (i) s += c > X.c[i - 1] ? X.v[i] : c < X.c[i - 1] ? -X.v[i] : 0; return s; }); }, { op: 'up', w: 5 });
   ind('cmf', 'volu', 'CMF 蔡金资金流', 'Chaikin money flow', [N(20)], null, '', function (X, p) { var mfv = X.c.map(function (c, i) { var r = X.h[i] - X.l[i]; return r ? ((c - X.l[i]) - (X.h[i] - c)) / r * X.v[i] : 0; }), a = smaA(mfv, p[0]), b = smaA(X.v, p[0]); return a.map(function (x, i) { return nn(x) && b[i] > 0 ? x / b[i] : null; }); }, { op: 'gt', v: 0 });
+  // 形态 (是 / 否)：用确认过的高低点 (左右各 k 根 K 线，k 根之后才确认，不偷看未来)
+  function pivots(X, k) {
+    return X.m('piv:' + k, function () {
+      var h = X.h, l = X.l, his = [], los = [];
+      for (var i = 2 * k; i < h.length; i++) {
+        var p = i - k, okH = true, okL = true;
+        for (var t = 1; t <= k; t++) { if (!(h[p] > h[p - t]) || !(h[p] >= h[p + t])) okH = false; if (!(l[p] < l[p - t]) || !(l[p] <= l[p + t])) okL = false; }
+        if (okH) his.push({ p: p, v: h[p] }); if (okL) los.push({ p: p, v: l[p] });
+      }
+      return { hi: his, lo: los };
+    });
+  }
+  function pivIn(list, i, n, k) {  // i 那天以前已经确认、而且在最近 n 天内的高 / 低点 (旧到新)
+    var out = [];
+    for (var j = list.length - 1; j >= 0; j--) { var x = list[j]; if (x.p + k > i) continue; if (x.p < i - n) break; out.unshift(x); }
+    return out;
+  }
+  ind('hhhl', 'pat', '上升结构 (更高的高点和低点)', 'Uptrend structure (higher highs and lows)', [['n', '最近几天', 'Within days', 30, 5, 250, 1], ['k', '高低点确认 (左右各几根)', 'Pivot strength (bars each side)', 2, 1, 10, 1]], null, '',
+    function (X, p) { var P = pivots(X, p[1]); return mapA(X.c.length, function (i) { var H = pivIn(P.hi, i, p[0], p[1]), L = pivIn(P.lo, i, p[0], p[1]);
+      return H.length >= 2 && L.length >= 2 && H[H.length - 1].v > H[H.length - 2].v && L[L.length - 1].v > L[L.length - 2].v ? 1 : 0; }); }, { op: 'gt', v: 0 });
+  ind('nshape', 'pat', 'N 字形 (涨 → 回调出更高的低点 → 再涨)', 'N-shape (rally, pullback to a higher low, rising again)', [['n', '最近几天', 'Within days', 30, 5, 250, 1], ['k', '高低点确认 (左右各几根)', 'Pivot strength (bars each side)', 2, 1, 10, 1], ['b', '要突破前高 (1 要 / 0 不用)', 'Must break the prior high (1 yes / 0 no)', 0, 0, 1, 1]], null, '',
+    function (X, p) { var P = pivots(X, p[1]); return mapA(X.c.length, function (i) {
+      var L = pivIn(P.lo, i, p[0], p[1]); if (L.length < 2) return 0;
+      var L2 = L[L.length - 1], L1 = L[L.length - 2]; if (!(L2.v > L1.v)) return 0;              // 回调的低点比前一个低点高 (HL)
+      var H1 = null; P.hi.forEach(function (x) { if (x.p > L1.p && x.p < L2.p && (!H1 || x.v > H1.v)) H1 = x; }); if (!H1) return 0;  // 中间有一段上涨的高点
+      for (var j = L2.p + 1; j <= i; j++) if (X.l[j] < L2.v) return 0;                            // 之后没有再跌破这个低点
+      if (!(X.c[i] > X.c[L2.p])) return 0;                                                        // 已经再涨
+      return p[2] >= 1 && !(X.c[i] > H1.v) ? 0 : 1; }); }, { op: 'gt', v: 0 });
+  IND.hhhl.b = IND.nshape.b = 1;  // 是 / 否 的指标
   // 财务 (季报)
   [['pe', '本益比 P/E', 'P/E ratio', '', { op: 'in', v: 5, v2: 15 }], ['pb', '股价净值比 P/B', 'P/B ratio', '', { op: 'lt', v: 1 }], ['mcap', '市值', 'Market cap', 'RM', { op: 'ge', v: 1e8 }],
    ['eps', '每股盈利 (季)', 'EPS (quarter)', 'RM', { op: 'gt', v: 0 }], ['eps_ttm', '每股盈利 (近 4 季)', 'EPS (TTM)', 'RM', { op: 'gt', v: 0 }],
@@ -636,7 +665,7 @@
   var OPK = ['gt', 'ge', 'lt', 'le', 'xup', 'xdn', 'x', 'in', 'out', 'gtp', 'ltp', 'up', 'dn'];
   var SH = { sma: 'SMA', ema: 'EMA', wma: 'WMA', hma: 'HMA', vwma: 'VWMA', rsi: 'RSI', stoch: 'KD', stochrsi: 'StochRSI', macd: 'MACD', cci: 'CCI', wr: '%R', mom: 'MOM', roc: 'ROC', mfi: 'MFI', ao: 'AO',
     sar: 'SAR', st: 'Supertrend', adx: 'DMI', aroon: 'Aroon', kc: 'KC', atr: 'ATR', atrp: 'ATR%', obv: 'OBV', cmf: 'CMF', pe: 'P/E', pb: 'P/B', roe: 'ROE' };
-  var SHZ = { ichi: ['一目', 'Ichimoku'], bb: ['布林', 'BB'], dc: ['唐奇安', 'Donchian'], volsma: ['均量', 'Vol SMA'], rvol: ['相对量', 'RVOL'], perf: ['涨跌', 'Perf'], hh: ['前高', 'Prev high'], ll: ['前低', 'Prev low'], vol: ['成交量', 'Volume'], tov: ['成交额', 'Value'] };
+  var SHZ = { hhhl: ['上升结构', 'HH/HL'], nshape: ['N 字形', 'N-shape'], ichi: ['一目', 'Ichimoku'], bb: ['布林', 'BB'], dc: ['唐奇安', 'Donchian'], volsma: ['均量', 'Vol SMA'], rvol: ['相对量', 'RVOL'], perf: ['涨跌', 'Perf'], hh: ['前高', 'Prev high'], ll: ['前低', 'Prev low'], vol: ['成交量', 'Volume'], tov: ['成交额', 'Value'] };
   function opnd(s) {  // 整理一个指标 (参数补上默认值、限制范围)
     var d = s && IND[s.k]; if (!d) return null;
     var o = { k: s.k, p: d.p.map(function (q, j) { var x = s.p ? +s.p[j] : NaN; if (!isFinite(x)) x = q[3]; x = Math.max(q[4], Math.min(q[5], x)); return q[6] >= 1 ? Math.round(x) : +x.toFixed(4); }) };
@@ -652,6 +681,7 @@
     if (!c) return null;
     if (c.t === 'ema50') return { t: 'ema50' };
     var l = opnd(c.l); if (!l) return null;
+    if (IND[l.k].b) { var bq = { l: l, op: c.op === 'lt' ? 'lt' : 'gt' }; bq.v = bq.op === 'gt' ? 0 : 1; if (+c.d > 1) bq.d = Math.min(30, Math.round(+c.d)); return bq; }  // 是 / 否：成立 = > 0，不成立 = < 1
     var op = OPS[c.op] ? c.op : 'gt', need = OPS[op][3], q = { l: l, op: op }, num = function (x, df) { x = +x; return isFinite(x) ? x : df; };
     if (need === 'rv' || need === 'ri') { var r = opnd(c.r); if (r) q.r = r; else if (need === 'ri') { q.r = opnd({ k: 'ema', p: [20] }); } else q.v = num(c.v, 0); }
     if (need === 'ri') q.v = Math.max(0, num(c.v, 5));
@@ -733,6 +763,7 @@
   }
   function cbLbl(q) {  // 标签上显示 [左边, 比较 + 右边]
     if (q.t === 'ema50') return [Z('价格或 EMA5', 'Price or EMA5'), '> EMA50'];
+    if (IND[q.l.k].b) return [opndLbl(q.l), (q.op === 'lt' ? Z('不成立', 'not met') : Z('成立', 'met')) + (q.d > 1 ? Z(' · 连 ' + q.d + ' 天', ' · ' + q.d + 'd in a row') : '')];
     var m = OPS[q.op], u = IND[q.l.k].u, sym = m[2], right = '';
     if (m[3] === 'rv') right = q.r ? opndLbl(q.r) : fmtV(q.v, u);
     else if (m[3] === 'ri') right = opndLbl(q.r) + ' +' + q.v + '%';
@@ -741,7 +772,7 @@
     var tail = m[3] === 'none' ? Z(' ' + q.w + ' 天', ' ' + q.w + 'd') : m[4] && q.w > 1 ? Z(' (近 ' + q.w + ' 天)', ' (last ' + q.w + 'd)') : '';
     return [opndLbl(q.l), sym + (right ? ' ' + right : '') + tail + (q.d > 1 ? Z(' · 连 ' + q.d + ' 天', ' · ' + q.d + 'd in a row') : '')];
   }
-  if (window.BTERM_TEST) window.BTERM_TEST.bt = { IND: IND, ctx: cbCtx, ser: cbSer, opnd: opnd, test: cbTest, cond: cbCond, conds: cbConds, exits: function (j) { return cbExits(j); }, stock: function () { return cbStock.apply(null, arguments); }, swing: function (X, k) { return swingLows(X, k); }, cands: function () { return cbCands.apply(null, arguments); }, done: function () { cbDone(); }, port: function () { return cbPort.apply(null, arguments); }, mc: function () { return cbMC.apply(null, arguments); } };  // 只给自动测试用
+  if (window.BTERM_TEST) window.BTERM_TEST.bt = { IND: IND, ctx: cbCtx, ser: cbSer, opnd: opnd, test: cbTest, cond: cbCond, conds: cbConds, exits: function (j) { return cbExits(j); }, stock: function () { return cbStock.apply(null, arguments); }, swing: function (X, k) { return swingLows(X, k); }, cands: function () { return cbCands.apply(null, arguments); }, done: function () { cbDone(); }, bars: function (c) { return bars(c); }, list: function () { return LIST; }, port: function () { return cbPort.apply(null, arguments); }, mc: function () { return cbMC.apply(null, arguments); } };  // 只给自动测试用
   var XS = {  // [中文, English, 参数 [key, 中文, English, 默认, 最小, 最大, 步长, 单位], 分组]
     stop: ['止损', 'Stop loss', [['v', '从进场价跌', 'Drop from entry', 10, 0.5, 90, 0.5, '%']], 'risk'],
     trail: ['移动止损', 'Trailing stop', [['v', '从持仓最高点回落', 'Drop from highest high', 10, 0.5, 90, 0.5, '%']], 'risk'],
@@ -754,14 +785,14 @@
   var XG = [['risk', '价格止损 / 止盈', 'Price stops / targets'], ['struct', '趋势结构', 'Trend structure'], ['time', '时间', 'Time']];
   var CB_XDEF = [{ t: 'stop', v: 10 }, { t: 'swing', k: 2 }];  // 默认出场：止损 10% + 跌破最近回调低点 (让趋势跑)
   var CB = (function () {
-    var d = { codes: [], from: '', to: '', q: '', uni: 'market', slots: 3, size: 20000, pick: 'rand', runs: 50, minpx: 0.1 }, j = null;
+    var d = { codes: [], from: '', to: '', q: '', uni: 'market', slots: 3, size: 20000, rank: 'tov', sz: 'fix', runs: 50, minpx: 0.1 }, j = null;
     try { j = JSON.parse(localStorage.getItem('bterm_cbt') || 'null'); if (j) Object.keys(d).forEach(function (k) { if (j[k] !== undefined) d[k] = j[k]; }); } catch (e) {}
     if (['market', 'pool', 'custom'].indexOf(d.uni) < 0) d.uni = 'market'; d.slots = Math.max(1, Math.min(50, Math.round(+d.slots) || 3)); d.size = Math.max(1000, Math.min(1e7, +d.size || 20000));
-    d.minpx = Math.max(0, Math.min(100, +d.minpx || 0)); if (d.pick !== 'tov') d.pick = 'rand'; d.runs = [20, 50, 100].indexOf(+d.runs) >= 0 ? +d.runs : 50;
+    d.minpx = Math.max(0, Math.min(100, +d.minpx || 0)); if (['tov', 'rvol', 'chg', 'rand'].indexOf(d.rank) < 0) d.rank = 'tov'; if (d.sz !== 'pct') d.sz = 'fix'; d.runs = [20, 50, 100].indexOf(+d.runs) >= 0 ? +d.runs : 50;
     d.conds = cbConds(j); d.exits = cbExits(j); d.q = ''; d.tlim = 60; d.sens = null; d.res = null; d.busy = false; d.err = ''; d.pop = null; d.cq = '';
     return d;
   })();
-  function cbSave() { try { localStorage.setItem('bterm_cbt', JSON.stringify({ codes: CB.codes, from: CB.from, to: CB.to, conds: CB.conds, exits: CB.exits, uni: CB.uni, slots: CB.slots, size: CB.size, pick: CB.pick, runs: CB.runs, minpx: CB.minpx })); } catch (e) {} syncSoon(); }
+  function cbSave() { try { localStorage.setItem('bterm_cbt', JSON.stringify({ codes: CB.codes, from: CB.from, to: CB.to, conds: CB.conds, exits: CB.exits, uni: CB.uni, slots: CB.slots, size: CB.size, rank: CB.rank, sz: CB.sz, runs: CB.runs, minpx: CB.minpx })); } catch (e) {} syncSoon(); }
   // ---------- 回测策略模板 (只有网站管理员看得到；存在管理员自己的同步资料里，别人拿不到) ----------
   var TPL = (function () { try { var a = JSON.parse(localStorage.getItem('bterm_tpl') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } })();
   function tplSave() { try { localStorage.setItem('bterm_tpl', JSON.stringify(TPL)); } catch (e) {} syncSoon(); }
@@ -769,6 +800,8 @@
   var E = function (n) { return { k: 'ema', p: [n] }; }, CL = { k: 'close' };
   var X10 = { t: 'stop', v: 10 }, SW2 = { t: 'swing', k: 2 };
   var TPL_BUILTIN = [  // [中文名, English, 进场条件, 结束条件]
+    ['N 字形趋势', 'N-shape trend', [{ l: CL, op: 'gt', r: { k: 'sar', o: 'val' }, d: 7 }, { l: { k: 'vol' }, op: 'gt', v: 1e6 }, { l: E(5), op: 'gt', r: E(20) }, { l: CL, op: 'gt', r: { k: 'ichi', o: 'base' } },
+      { l: CL, op: 'gt', r: { k: 'st', p: [3, 1.4], o: 'val' } }, { l: { k: 'hhhl', p: [30, 2] }, op: 'gt', v: 0 }, { l: { k: 'nshape', p: [30, 2, 0] }, op: 'gt', v: 0 }], [X10, SW2]],
     ['后台策略', 'Built-in strategy', null, { take: 15, stop: 0, hold: 90, emab: 1, combo: 1 }],
     ['MACD 金叉 + 放量', 'MACD cross + volume', [{ l: { k: 'macd', o: 'line' }, op: 'xup', r: { k: 'macd', o: 'sig' } }, { l: { k: 'rvol' }, op: 'ge', v: 1.5 }, { l: CL, op: 'gt', r: E(50) }], [X10, SW2]],
     ['EMA5 上穿 EMA20 · 让趋势跑', 'EMA5 crosses EMA20 · let it run', [{ l: E(5), op: 'xup', r: E(20) }, { l: { k: 'vol' }, op: 'ge', v: 5e5 }], [X10, SW2]],
@@ -800,7 +833,8 @@
       var y = TPL.filter(function (t) { return t.id === v; })[0]; if (!y || !window.confirm(Z('删除模板「' + y.name + '」？', 'Delete template “' + y.name + '”?'))) return;
       TPL = TPL.filter(function (t) { return t !== y; }); if (CB.tpl === v) CB.tpl = null; CB.tnote = ''; tplSave(); render();
     } else if (a === 'tseed') {
-      TPL_BUILTIN.forEach(function (b) { TPL.push({ id: tplId(), name: Z(b[0], b[1]), conds: (b[2] || CB_DEF).map(cbCond).filter(Boolean), exits: cbExits(Array.isArray(b[3]) ? { exits: b[3] } : b[3]) }); });
+      var have = {}; TPL.forEach(function (t) { have[t.name] = 1; });
+      TPL_BUILTIN.forEach(function (b) { if (have[Z(b[0], b[1])]) return; TPL.push({ id: tplId(), name: Z(b[0], b[1]), conds: (b[2] || CB_DEF).map(cbCond).filter(Boolean), exits: cbExits(Array.isArray(b[3]) ? { exits: b[3] } : b[3]) }); });
       CB.tnote = ''; tplSave(); render();
     }
   }
@@ -811,7 +845,8 @@
       (CB.tnote ? '<p class="up tpl-note">' + esc(CB.tnote) + '</p>' : '') +
       (TPL.length ? '<div class="tpl-list">' + TPL.map(function (t) {
         return '<div class="tpl-row' + (t.id === CB.tpl ? ' on' : '') + '"><button type="button" class="tpl-load" data-cb="tload" data-v="' + esc(t.id) + '"><b>' + esc(t.name) + '</b><span class="dim">' + esc(tplSum(t)) + '</span></button><button type="button" class="px" data-cb="tdel" data-v="' + esc(t.id) + '" aria-label="' + Z('删除 ', 'Delete ') + esc(t.name) + '">🗑</button></div>';
-      }).join('') + '</div>' : '<button type="button" class="more" data-cb="tseed">' + Z('载入 ' + TPL_BUILTIN.length + ' 个内置策略模板', 'Load ' + TPL_BUILTIN.length + ' built-in strategy templates') + '</button>');
+      }).join('') + '</div>' : '') + (function () { var have = {}; TPL.forEach(function (t) { have[t.name] = 1; }); var miss = TPL_BUILTIN.filter(function (b) { return !have[Z(b[0], b[1])]; }).length;
+        return miss ? '<button type="button" class="more" data-cb="tseed">' + (TPL.length ? Z('补上 ' + miss + ' 个还没有的内置模板', 'Add ' + miss + ' missing built-in templates') : Z('载入 ' + miss + ' 个内置策略模板', 'Load ' + miss + ' built-in strategy templates')) + '</button>' : ''; })();
   }
   var DAILY = {}, PROF = {}, FIN = {};  // 代码 → 日线 [{d,o,h,l,c,v}]；代码 → 公司简介 (stock/<代码>.json 的 profile)
   var DLOAD = {};  // 同一支股票同时只下载一次
@@ -964,7 +999,7 @@
         peak = Math.max(peak, h[j]); hi = Math.max(hi, h[j]);
       }
       var x = why != null ? j : b.length - 1, ex = why != null ? fill : c[x], ret = (ex / en - 1) * 100;
-      trades.push({ code: code, sig: b[i].d, entry: en, tov: en * v[i], exit_date: b[x].d, exit: ex, days: x - i, reason: why == null ? 'open' : 'x' + why, det: det, ret: ret, net: why == null ? ret : ret - cost,
+      trades.push({ code: code, sig: b[i].d, entry: en, tov: en * v[i], rv: av[i - 1] > 0 ? v[i] / av[i - 1] : 0, chg: i && c[i - 1] > 0 ? c[i] / c[i - 1] - 1 : 0, exit_date: b[x].d, exit: ex, days: x - i, reason: why == null ? 'open' : 'x' + why, det: det, ret: ret, net: why == null ? ret : ret - cost,
         mae: isFinite(lo) ? Math.min(0, (lo / en - 1) * 100) : 0, mfe: isFinite(mx) ? Math.max(0, (mx / en - 1) * 100) : 0 });
       if (all) { i++; continue; }  // 组合回测：每个信号日都是一笔候选
       if (why == null) break;  // 还在持仓：之后不会再有新的进场
@@ -992,8 +1027,9 @@
     });
   }
   function rng(seed) { return function () { seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var RANK = { tov: [Z('成交额先', 'turnover'), Z('成交额大的', 'Highest turnover')], rvol: [Z('相对量先', 'rel. volume'), Z('相对量大的', 'Highest relative volume')], chg: [Z('涨幅先', 'day gain'), Z('当日涨幅大的', 'Biggest day gain')], rand: [Z('随机', 'random'), Z('随机 (稳健性测试)', 'Random (robustness test)')] };
   function cbOpt() {
-    return { slots: CB.slots, size: CB.size, pick: CB.pick, runs: CB.runs, minpx: CB.minpx, from: CB.from || '0000', to: CB.to || '9999', cost: (D.bt && isNum(D.bt.cost)) ? D.bt.cost : 0.5 };
+    return { slots: CB.slots, size: CB.size, rank: CB.rank, sz: CB.sz, runs: CB.runs, minpx: CB.minpx, from: CB.from || '0000', to: CB.to || '9999', cost: (D.bt && isNum(D.bt.cost)) ? D.bt.cost : 0.5 };
   }
   // 候选交易：每支股票的每一个信号日都算一笔 (出场只看那支股票自己的走势)；组合模拟再决定买不买
   function cbCands(codes, all, exits, opt) {
@@ -1022,10 +1058,11 @@
       });
       var cs = (byDay[d] || []).filter(function (t) { return sold[t.code] !== d && !held.some(function (p) { return p.t.code === t.code; }); });
       if (rnd) { for (var i = cs.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)), x = cs[i]; cs[i] = cs[j]; cs[j] = x; } }
-      else cs.sort(function (a, b) { return (b.tov || 0) - (a.tov || 0); });
+      else { var rk = opt.rank === 'rvol' ? 'rv' : opt.rank === 'chg' ? 'chg' : 'tov'; cs.sort(function (a, b) { return (b[rk] || 0) - (a[rk] || 0) || (b.tov || 0) - (a.tov || 0); }); }  // 排名：成交额 / 相对量 / 当日涨幅
+      var eqNow = cash; if (opt.sz === 'pct') held.forEach(function (p) { var c1 = P.close[p.t.code][d]; eqNow += p.sh * (c1 != null ? c1 : lastPx[p.t.code] != null ? lastPx[p.t.code] : p.t.entry); });  // 复利：每笔 = 当时资金 ÷ 笔数
       cs.forEach(function (t) {
         if (held.length >= opt.slots) { missed++; return; }
-        var amt = Math.min(opt.size, cash / (1 + half)), sh = Math.floor(amt / t.entry / 100) * 100;
+        var amt = Math.min(opt.sz === 'pct' ? eqNow / opt.slots : opt.size, cash / (1 + half)), sh = Math.floor(amt / t.entry / 100) * 100;
         if (sh <= 0) { missed++; return; }
         var basis = sh * t.entry * (1 + half); cash -= basis; held.push({ t: t, sh: sh, basis: basis });
       });
@@ -1047,7 +1084,7 @@
   // 随机挑选跑很多次 → 看结果的分布 (不是只靠一次运气)；「成交额大的先」只跑一次
   function cbMC(P, opt, runs) {
     var rs = [];
-    if (opt.pick === 'tov') rs.push(cbPort(P, opt, null));
+    if (opt.rank !== 'rand') rs.push(cbPort(P, opt, null));
     else for (var s = 1; s <= (runs || opt.runs); s++) rs.push(cbPort(P, opt, s * 7919));
     var by = rs.slice().sort(function (a, b) { return a.final - b.final; });
     var q = function (arr, f) { return arr[Math.min(arr.length - 1, Math.max(0, Math.round(f * (arr.length - 1))))]; };
@@ -1089,7 +1126,7 @@
   function cbStrat() {
     var uni = { market: Z('全市场', 'Whole market'), pool: Z('股票池', 'Pool'), custom: Z('自选', 'Custom') }[CB.uni];
     return { entry: CB.conds.map(function (q) { return cbLbl(q).join(' '); }), exit: CB.exits.map(function (q) { return xLbl(q).join(' ').trim(); }),
-      cap: Z(CB.slots + ' 笔 × RM' + CB.size.toLocaleString('en'), CB.slots + ' × RM' + CB.size.toLocaleString('en')) + ' · ' + (CB.pick === 'rand' ? Z('随机挑', 'random picks') : Z('成交额大的先', 'highest turnover first')),
+      cap: Z(CB.slots + ' 笔 × RM' + CB.size.toLocaleString('en'), CB.slots + ' × RM' + CB.size.toLocaleString('en')) + (CB.sz === 'pct' ? Z(' (复利)', ' (compounding)') : '') + ' · ' + RANK[CB.rank][0],
       uni: uni + (CB.uni !== 'custom' ? ' ' + cbUniN() : ' ' + CB.codes.length) + Z(' 支', '') + (CB.minpx ? Z(' · 不买低于 RM', ' · skip below RM') + CB.minpx.toFixed(2) : ''),
       period: (CB.from || Z('最早', 'earliest')) + ' ~ ' + (CB.to || Z('最新', 'latest')) };
   }
@@ -1114,9 +1151,9 @@
         verdict === 'good' ? Z('：表现稳定。还是建议换一段期间再跑一次确认。', ': it holds up. Still worth re-running on another period to confirm.') : Z('：好坏参半，下面几点可以试着改善。', ': mixed. A few things below may help.'));
     if (cl.length < 20) push('只有 ' + cl.length + ' 笔已结束的交易，样本太少，结果很不可靠。少用一两个进场条件或拉长期间。', 'Only ' + cl.length + ' closed trades: too few to trust. Drop a condition or use a longer period.',
       CB.from || CB.to ? { k: 'period' } : null, Z('期间改成全部', 'Use the whole period'));
-    if (mc.runs > 1 && mc.ret.hi - mc.ret.lo > 40) push('随机 ' + mc.runs + ' 次的收益从 ' + pct(mc.ret.lo, 0) + ' 到 ' + pct(mc.ret.hi, 0) + '，同一天信号太多 (没空位错过 ' + a.missed + ' 个)，结果很看挑到哪一支。条件要更严，让信号变少、变准。',
+    if (CB.rank === 'rand' && mc.runs > 1 && mc.ret.hi - mc.ret.lo > 40) push('随机 ' + mc.runs + ' 次的收益从 ' + pct(mc.ret.lo, 0) + ' 到 ' + pct(mc.ret.hi, 0) + '，同一天信号太多 (没空位错过 ' + a.missed + ' 个)，结果很看挑到哪一支。条件要更严，让信号变少、变准。',
       'Random runs range from ' + pct(mc.ret.lo, 0) + ' to ' + pct(mc.ret.hi, 0) + ': too many signals per day (' + a.missed + ' missed), so results depend on which stock gets picked. Tighten the entry so signals are fewer and better.',
-      !trend ? { k: 'addc', q: { l: { k: 'close' }, op: 'gt', r: { k: 'ema', p: [50] } } } : { k: 'pick', v: 'tov' }, !trend ? Z('加「收盘价 > EMA(50)」', 'Add “Close > EMA(50)”') : Z('改成成交额大的先', 'Pick highest turnover first'));
+      !trend ? { k: 'addc', q: { l: { k: 'close' }, op: 'gt', r: { k: 'ema', p: [50] } } } : { k: 'rank', v: 'tov' }, !trend ? Z('加「收盘价 > EMA(50)」', 'Add “Close > EMA(50)”') : Z('改成成交额大的先', 'Pick highest turnover first'));
     if (stopTr.length >= Math.max(3, cl.length * 0.35) && stopPl < 0) push(Math.round(stopTr.length / cl.length * 100) + '% 的交易是止损出场，合计 ' + (stopPl < 0 ? '-' : '+') + 'RM' + Math.abs(Math.round(stopPl)).toLocaleString('en') + '：常常一进场就反向。加一个趋势过滤，只在大趋势向上时进场。',
       Math.round(stopTr.length / cl.length * 100) + '% of trades hit the stop, totalling RM' + Math.round(stopPl).toLocaleString('en') + ': entries often reverse straight away. Add a trend filter so you only enter in an uptrend.',
       !trend ? { k: 'addc', q: { l: { k: 'close' }, op: 'gt', r: { k: 'ema', p: [50] } } } : !cbHas(function (q) { return q.l.k === 'adx'; }) ? { k: 'addc', q: { l: { k: 'adx', o: 'adx' }, op: 'gt', v: 20 } } : null,
@@ -1153,7 +1190,7 @@
     else if (f.k === 'swingk') { if (CB.exits[f.i]) CB.exits[f.i].k = 1; }
     else if (f.k === 'minpx') CB.minpx = f.v;
     else if (f.k === 'cap') { CB.slots = f.slots; CB.size = f.size; }
-    else if (f.k === 'pick') CB.pick = f.v;
+    else if (f.k === 'rank') CB.rank = f.v;
     else if (f.k === 'uni') CB.uni = f.v;
     else if (f.k === 'period') { CB.from = ''; CB.to = ''; }
     CB.pop = null; cbSave(); render(); cbRe();
@@ -1182,13 +1219,13 @@
       (del ? '<button type="button" class="px" data-cb="' + del[0] + '" data-v="' + del[1] + '" aria-label="' + Z('移除 ', 'Remove ') + esc(label || k) + '">×</button>' : '') + '</span>';
   }
   function cbList(mode) {  // 「+ 条件」/「+ 结束条件」菜单：按类别分组，可以打字筛选
-    var q = (CB.cq || '').trim().toLowerCase(), act = mode === 'e' ? 'xadd' : 'cadd', hit = function (t) { return !q || t.toLowerCase().indexOf(q) >= 0; };
+    var q = (CB.cq || '').trim().toLowerCase(), act = mode === 'e' ? 'xadd' : mode === 'p' ? 'pcadd' : 'cadd', hit = function (t) { return !q || t.toLowerCase().indexOf(q) >= 0; };
     var h = mode === 'e' ? XG.map(function (g) {
       var ks = Object.keys(XS).filter(function (k) { return XS[k][3] === g[0] && hit(XS[k][0] + ' ' + XS[k][1]); });
       return ks.length ? '<div class="cbg"><h3>' + Z(g[1], g[2]) + '</h3>' + ks.map(function (k) { return '<button type="button" data-cb="xadd" data-v="' + k + '">' + Z(XS[k][0], XS[k][1]) + '</button>'; }).join('') + '</div>' : '';
     }).join('') : '';
-    h += IG.map(function (g) {
-      var ks = INDK.filter(function (k) { var d = IND[k]; return d.g === g[0] && hit(d.zh + ' ' + d.en + ' ' + (SH[k] || '')); }), extra = mode !== 'e' && g[0] === 'ma' && (!q || /ema50|价格或|price or/.test(q) || 'ema'.indexOf(q) >= 0);
+    h += IG.filter(function (g) { return mode !== 'p' || g[0] !== 'fin'; }).map(function (g) {
+      var ks = INDK.filter(function (k) { var d = IND[k]; return d.g === g[0] && hit(d.zh + ' ' + d.en + ' ' + (SH[k] || '')); }), extra = mode === 'c' && g[0] === 'ma' && (!q || /ema50|价格或|price or/.test(q) || 'ema'.indexOf(q) >= 0);
       if (!ks.length && !extra) return '';
       return '<div class="cbg"><h3>' + (mode === 'e' ? Z('指标条件 · ', 'Indicator · ') : '') + Z(g[1], g[2]) + '</h3>' + ks.map(function (k) { return '<button type="button" data-cb="' + act + '" data-v="' + k + '">' + esc(indNm(k)) + '</button>'; }).join('') +
         (extra ? '<button type="button" data-cb="cadd" data-v="@ema50">' + Z('价格或 EMA5 高于 EMA50', 'Price or EMA5 above EMA50') + '</button>' : '') + '</div>';
@@ -1196,7 +1233,7 @@
     return h || '<p class="dim">' + Z('没有符合的条件', 'No match') + '</p>';
   }
   function indSel(key, cur) {
-    return '<select data-cbc="' + key + '">' + IG.map(function (g) {
+    return '<select data-cbc="' + key + '">' + IG.filter(function (g) { return key[0] !== 'p' || g[0] !== 'fin'; }).map(function (g) {
       return '<optgroup label="' + Z(g[1], g[2]) + '">' + INDK.filter(function (k) { return IND[k].g === g[0]; }).map(function (k) { return '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>' + esc(indNm(k)) + '</option>'; }).join('') + '</optgroup>';
     }).join('') + '</select>';
   }
@@ -1207,7 +1244,7 @@
     return h;
   }
   function condEd(L, i) {
-    var arr = L === 'e' ? CB.exits : CB.conds, q = arr[i], key = L + i; if (!q) return '';
+    var arr = L === 'e' ? CB.exits : L === 'p' ? PC : CB.conds, q = arr[i], key = L + i; if (!q) return '';
     var head = function (t) { return '<div class="cbp-h"><b>' + t + '</b><button type="button" class="px" data-cb="cdel" data-v="' + key + '" aria-label="' + Z('移除', 'Remove') + '">🗑</button><button type="button" class="px" data-cb="pop" data-v="" aria-label="' + Z('关闭', 'Close') + '">✕</button></div>'; };
     var num = function (k, lbl, v, unit, lo, hi, step) { return '<label>' + lbl + '<span class="cbp-n"><input type="number" inputmode="decimal" data-cbc="' + key + ':' + k + '" value="' + v + '" min="' + lo + '" max="' + hi + '" step="' + (step || 1) + '">' + (unit ? '<span class="dim">' + unit + '</span>' : '') + '</span></label>'; };
     if (q.t === 'ema50') return head(Z('价格或 EMA5 高于 EMA50', 'Price or EMA5 above EMA50')) + '<p class="dim">' + Z('后台策略的条件之一，不能改参数；要自己调就移除它，再用「EMA 指数均线」加。', 'One of the built-in strategy rules. To adjust it, remove it and add “EMA” instead.') + '</p>';
@@ -1220,6 +1257,9 @@
     }
     var mo = OPS[q.op], u = IND[q.l.k].u, uL = u ? ' <span class="dim">' + (u === 'RM' ? 'RM' : u) + '</span>' : '';
     var val = function (k, lbl, v) { return '<label>' + lbl + '<span class="cbp-n"><input type="text" inputmode="decimal" autocomplete="off" data-cbc="' + key + ':' + k + '" value="' + esc(fmtV(v, '')) + '" placeholder="1.5M">' + uL + '</span></label>'; };
+    if (IND[q.l.k].b) return head(esc(indNm(q.l.k))) + opndEd(key, 'l', q.l) + '<label>' + Z('条件', 'Condition') + '<select data-cbc="' + key + ':bool"><option value="1"' + (q.op !== 'lt' ? ' selected' : '') + '>' + Z('成立', 'Met') + '</option><option value="0"' + (q.op === 'lt' ? ' selected' : '') + '>' + Z('不成立', 'Not met') + '</option></select></label>' +
+      '<div class="cbp-2">' + num('d', L === 'e' ? Z('持仓期间连续成立', 'True for (in a row)') : Z('连续成立', 'True for (in a row)'), q.d || 1, Z('天', 'days'), 1, 30) + '</div>' +
+      '<p class="dim">' + Z('高低点要左右各几根 K 线都比较低 / 高才算，而且要等那几根走完才确认，不会用到未来的资料。', 'A pivot must be lower / higher than the bars on each side and is only confirmed once those bars have passed, so no future data is used.') + '</p>';
     var h = head(esc(indNm(q.l.k))) + opndEd(key, 'l', q.l) + '<label>' + Z('条件', 'Condition') + '<select data-cbc="' + key + ':op">' + OPK.map(function (o) { return '<option value="' + o + '"' + (o === q.op ? ' selected' : '') + '>' + Z(OPS[o][0], OPS[o][1]) + '</option>'; }).join('') + '</select></label>';
     if (mo[3] === 'rv') h += '<div class="opts seg cbp-rt" role="group"><button type="button" data-cb="rt" data-v="' + key + ':v" aria-pressed="' + !q.r + '">' + Z('数值', 'Value') + '</button><button type="button" data-cb="rt" data-v="' + key + ':i" aria-pressed="' + !!q.r + '">' + Z('指标', 'Indicator') + '</button></div>' +
       (q.r ? opndEd(key, 'r', q.r) : val('v', Z('数值', 'Value'), q.v));
@@ -1236,7 +1276,8 @@
       '<button type="button" class="px" data-cb="pop" data-v="" aria-label="' + Z('关闭', 'Close') + '">✕</button></div>'; };
     var num = function (key, lbl, val, unit, lo, hi, step) { return '<label>' + lbl + '<span class="cbp-n"><input type="number" inputmode="decimal" data-cbc="' + key + '" value="' + val + '" min="' + lo + '" max="' + hi + '" step="' + (step || 1) + '">' + (unit ? '<span class="dim">' + unit + '</span>' : '') + '</span></label>'; };
     var h = '';
-    if (p.indexOf('c:') === 0 || p.indexOf('e:') === 0) {
+    if ((p === 'padd' || p.indexOf('p:') === 0) !== (S.page === 'pool')) return '';  // 股票池的编辑框只在股票池页，回测的只在回测页
+    if (p.indexOf('c:') === 0 || p.indexOf('e:') === 0 || p.indexOf('p:') === 0) {
       h = condEd(p[0], +p.slice(2)); if (!h) return '';
     } else if (p === 'tpl') {
       if (!tplOn()) return '';
@@ -1244,6 +1285,9 @@
     } else if (p === 'add') {
       h = head(Z('添加进场条件', 'Add entry condition')) + '<div class="grep"><label for="cb-cq">' + Z('搜索&gt;', 'find&gt;') + '</label><input id="cb-cq" type="search" autocomplete="off" spellcheck="false" placeholder="' + Z('RSI、MACD、本益比…', 'RSI, MACD, P/E…') + '" value="' + esc(CB.cq || '') + '"></div>' +
         '<div id="cb-clist">' + cbList('c') + '</div><button type="button" class="more" data-cb="reset">' + Z('恢复后台策略的 6 个条件', 'Reset to the 6 default conditions') + '</button>';
+    } else if (p === 'padd') {
+      h = head(Z('添加筛选条件', 'Add filter')) + '<div class="grep"><label for="cb-cq">' + Z('搜索&gt;', 'find&gt;') + '</label><input id="cb-cq" type="search" autocomplete="off" spellcheck="false" placeholder="' + Z('RSI、MACD、N 字形…', 'RSI, MACD, N-shape…') + '" value="' + esc(CB.cq || '') + '"></div>' +
+        '<div id="cb-clist">' + cbList('p') + '</div><p class="dim">' + Z('用最近 90 天的日线算最新一天；财务条件请在回测里用。', 'Uses the last 90 daily bars, latest day; use financial conditions in the backtest.') + '</p>';
     } else if (p === 'xadd') {
       h = head(Z('添加结束条件', 'Add exit condition')) + '<div class="grep"><label for="cb-cq">' + Z('搜索&gt;', 'find&gt;') + '</label><input id="cb-cq" type="search" autocomplete="off" spellcheck="false" placeholder="' + Z('止损、回调低点、RSI…', 'stop, swing, RSI…') + '" value="' + esc(CB.cq || '') + '"></div>' +
         '<div id="cb-clist">' + cbList('e') + '</div>';
@@ -1259,11 +1303,12 @@
     } else if (p === 'cap') {
       var cb = function (k, vals, fmt) { return '<div class="opts">' + vals.map(function (x) { return '<button type="button" data-cb="capv" data-v="' + k + ':' + x + '" aria-pressed="' + (CB[k] === x) + '">' + fmt(x) + '</button>'; }).join('') + '</div>'; };
       h = head(Z('资金与持仓', 'Capital and positions')) +
-        '<label>' + Z('同时最多持有', 'Max positions at once') + '</label>' + cb('slots', [1, 2, 3, 5, 10, 20], function (x) { return x + Z(' 笔', ''); }) +
+        '<label>' + Z('同时最多持有', 'Max positions at once') + '<span class="cbp-n"><input type="number" inputmode="numeric" min="1" max="50" step="1" data-cbk="slots" value="' + CB.slots + '"><span class="dim">' + Z('笔', 'positions') + '</span></span></label>' + cb('slots', [1, 2, 3, 5, 10, 20], function (x) { return x + Z(' 笔', ''); }) +
         '<label>' + Z('每笔金额', 'Amount per position') + '<span class="cbp-n"><input type="text" inputmode="decimal" autocomplete="off" data-cbk="size" value="' + esc(fmtV(CB.size, '')) + '"><span class="dim">RM</span></span></label>' + cb('size', [5000, 10000, 20000, 50000, 100000], function (x) { return 'RM' + x / 1000 + 'K'; }) +
-        '<label>' + Z('同一天信号多过空位时', 'When signals exceed free slots') + '</label>' + '<div class="opts seg cbp-rt" role="group"><button type="button" data-cb="capv" data-v="pick:rand" aria-pressed="' + (CB.pick === 'rand') + '">' + Z('随机挑', 'Random') + '</button><button type="button" data-cb="capv" data-v="pick:tov" aria-pressed="' + (CB.pick === 'tov') + '">' + Z('成交额大的先', 'Highest turnover first') + '</button></div>' +
-        (CB.pick === 'rand' ? '<label>' + Z('随机跑几次', 'Random runs') + '</label>' + cb('runs', [20, 50, 100], function (x) { return x + Z(' 次', ''); }) : '') +
-        '<p class="dim">' + Z('起始资金 = 笔数 × 每笔金额 = RM', 'Starting capital = positions × amount = RM') + (CB.slots * CB.size).toLocaleString('en') + Z('。按 100 股一手买进。', '. Bought in 100-share lots.') + '</p>';
+        '<div class="opts seg cbp-rt" role="group"><button type="button" data-cb="capv" data-v="sz:fix" aria-pressed="' + (CB.sz === 'fix') + '">' + Z('每笔固定金额', 'Fixed amount') + '</button><button type="button" data-cb="capv" data-v="sz:pct" aria-pressed="' + (CB.sz === 'pct') + '">' + Z('资金 ÷ 笔数 (复利)', 'Capital ÷ positions (compounding)') + '</button></div>' +
+        '<label>' + Z('同一天符合条件的股票多过空位时，先买', 'When more stocks qualify than free slots, buy first') + '</label>' + '<div class="opts">' + Object.keys(RANK).map(function (k) { return '<button type="button" data-cb="capv" data-v="rank:' + k + '" aria-pressed="' + (CB.rank === k) + '">' + RANK[k][1] + '</button>'; }).join('') + '</div>' +
+        (CB.rank === 'rand' ? '<label>' + Z('随机跑几次', 'Random runs') + '</label>' + cb('runs', [20, 50, 100], function (x) { return x + Z(' 次', ''); }) : '') +
+        '<p class="dim">' + Z('起始资金 = 笔数 × 每笔金额 = RM', 'Starting capital = positions × amount = RM') + (CB.slots * CB.size).toLocaleString('en') + (CB.sz === 'pct' ? Z('；之后每笔 = 当时资金 ÷ 笔数', '; later each position = current capital ÷ positions') : '') + Z('。按 100 股一手买进。', '. Bought in 100-share lots.') + '</p>';
     } else if (p === 'period') {
       h = head(Z('回测期间', 'Period')) + '<div class="opts">' + [['m3', Z('3 个月', '3 months')], ['m6', Z('6 个月', '6 months')], ['y1', Z('1 年', '1 year')], ['all', Z('全部', 'All')]].map(function (x) { return '<button type="button" data-cb="preset" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' +
         '<div class="cb-dates"><label>' + Z('从', 'From') + ' <input type="date" id="cb-from" value="' + esc(CB.from) + '"></label><label>' + Z('到', 'To') + ' <input type="date" id="cb-to" value="' + esc(CB.to) + '"></label></div>';
@@ -1275,7 +1320,7 @@
     var stk = (CB.uni === 'market' ? Z('全市场 ', 'Market ') + cbUniN() : CB.uni === 'pool' ? Z('股票池 ', 'Pool ') + cbUniN() : CB.codes.length === 1 ? esc(name(CB.codes[0])) : CB.codes.length ? Z(CB.codes.length + ' 支', CB.codes.length + ' stocks') : Z('未选', 'none')) + (CB.minpx ? ' · ≥RM' + CB.minpx.toFixed(2) : '');
     var per = !CB.from && !CB.to ? Z('全部', 'All') : md(CB.from || (CB.res && CB.res.first) || '') + ' ~ ' + (CB.to ? md(CB.to) : Z('最新', 'now'));
     var tcur = TPL.filter(function (t) { return t.id === CB.tpl; })[0];
-    var row1 = (tplOn() ? pill('tpl', Z('模板', 'Template'), tcur ? esc(tcur.name) : TPL.length ? Z(TPL.length + ' 个', TPL.length + '') : '+') : '') + pill('stocks', Z('股票', 'Stocks'), stk) + pill('period', Z('期间', 'Period'), per) + pill('cap', Z('资金', 'Capital'), Z(CB.slots + ' 笔 × RM', CB.slots + ' × RM') + (CB.size >= 1000 ? +(CB.size / 1000).toFixed(1) + 'K' : CB.size) + (CB.pick === 'rand' ? Z(' · 随机', ' · random') : '')) + '<span class="cbf-sep" aria-hidden="true"></span>' +
+    var row1 = (tplOn() ? pill('tpl', Z('模板', 'Template'), tcur ? esc(tcur.name) : TPL.length ? Z(TPL.length + ' 个', TPL.length + '') : '+') : '') + pill('stocks', Z('股票', 'Stocks'), stk) + pill('period', Z('期间', 'Period'), per) + pill('cap', Z('资金', 'Capital'), Z(CB.slots + ' 笔 × RM', CB.slots + ' × RM') + (CB.size >= 1000 ? +(CB.size / 1000).toFixed(1) + 'K' : CB.size) + (CB.sz === 'pct' ? Z(' 复利', ' comp.') : '') + ' · ' + RANK[CB.rank][0]) + '<span class="cbf-sep" aria-hidden="true"></span>' +
       CB.conds.map(function (q, i) { var l = cbLbl(q); return pill('c:' + i, esc(l[0]), esc(l[1]), ['cdel', 'c' + i], l.join(' ')); }).join('') +
       (CB.conds.length < 15 ? '<button type="button" class="padd" data-cb="pop" data-v="add" aria-expanded="' + (CB.pop === 'add') + '">+ ' + Z('条件', 'Condition') + '</button>' : '');
     var row2 = '<span class="cbf-k">' + Z('出场 (任一)', 'Exit (any)') + '</span>' + CB.exits.map(function (q, i) { var l = xLbl(q); return pill('e:' + i, esc(l[0]), esc(l[1]), ['cdel', 'e' + i], l.join(' ')); }).join('') +
@@ -1305,7 +1350,7 @@
       var a = r.rep, mc = r.mc, o = r.opt, K = function (v) { return (v < 0 ? '-' : '+') + 'RM' + Math.abs(Math.round(v)).toLocaleString('en'); };
       var ymd = function (d) { return d ? d.slice(2, 10).replace(/-/g, '/') : ''; };  // 跨年份：显示 25/05/06
       var pc = function (v) { return isNum(v) ? (v > 0 ? '+' : '') + v.toFixed(1) + '%' : '—'; };
-      h += pn(ttl(T('RESULT 结果')), r.n + Z(' 支 · ', ' stocks · ') + ymd(CB.from || r.first) + ' ~ ' + ymd(CB.to || r.last) + T(' · 成本 ') + r.cost + '%' + (o.pick === 'rand' ? Z(' · 随机 ' + mc.runs + ' 次的中位数', ' · median of ' + mc.runs + ' random runs') : ''),
+      h += pn(ttl(T('RESULT 结果')), r.n + Z(' 支 · ', ' stocks · ') + ymd(CB.from || r.first) + ' ~ ' + ymd(CB.to || r.last) + T(' · 成本 ') + r.cost + '%' + (o.rank === 'rand' ? Z(' · 随机 ' + mc.runs + ' 次的中位数', ' · median of ' + mc.runs + ' random runs') : ''),
         kv([[Z('起始资金', 'Start'), 'RM' + a.cap.toLocaleString('en')], [Z('期末资金', 'End'), 'RM' + Math.round(a.final).toLocaleString('en'), cls(a.ret)], [Z('总收益', 'Return'), pc(a.ret), cls(a.ret)], [Z('最大回撤', 'Max drawdown'), pc(a.mdd), 'dn']], true) +
         kv([[Z('年化', 'Per year'), pc(a.cagr), cls(a.cagr)], [Z('回撤金额', 'Drawdown RM'), K(a.mddRM), 'dn'], [Z('笔数', 'Trades'), a.n + (a.open ? Z(' (持仓中 ', ' (open ') + a.open + ')' : '')], [Z('胜率', 'Win rate'), isNum(a.win) ? a.win.toFixed(1) + '%' : '—'],
           [Z('平均持有', 'Avg holding'), isNum(a.hold) ? a.hold.toFixed(1) + Z(' 天', ' days') : '—'], [Z('平均持仓', 'Avg positions'), a.avgHeld.toFixed(1) + ' / ' + o.slots], [Z('满仓天数', 'Days fully invested'), a.full.toFixed(0) + '%'], [Z('没空位错过', 'Missed (no slot)'), a.missed + Z(' 个信号', ' signals')]]) +
@@ -1313,7 +1358,7 @@
           color: function (v) { return v >= 0 ? 'acc' : 'dn'; }, dates: [ymd(a.days[0]), ymd(a.days[a.days.length - 1])] }) +
           blockChart(a.nh, { rows: Math.min(6, Math.max(2, o.slots)), label: Z('同时持仓数', 'Positions held'), fmt: function (v) { return v.toFixed(0); }, color: function () { return 'cu'; }, dates: [ymd(a.days[0]), ymd(a.days[a.days.length - 1])] }) : '') +
         (a.n ? '' : '<p class="dim">' + Z('这段时间没有任何一天同时满足全部条件。移除几个条件或拉长时间试试。', 'No day in this period met every condition. Remove some conditions or use a longer period.') + '</p>'));
-      if (o.pick === 'rand' && mc.runs > 1) h += pn(Z('随机 ' + mc.runs + ' 次', mc.runs + ' random runs'), Z('同一天信号多过空位时随机挑，看运气占多少', 'random picks when signals exceed slots: how much is luck'),
+      if (o.rank === 'rand' && mc.runs > 1) h += pn(Z('随机 ' + mc.runs + ' 次', mc.runs + ' random runs'), Z('同一天信号多过空位时随机挑，看运气占多少', 'random picks when signals exceed slots: how much is luck'),
         '<div class="trd-wrap"><table class="trd"><thead><tr><th></th><th class="n">' + Z('最差 5%', 'Worst 5%') + '</th><th class="n">' + Z('中位数', 'Median') + '</th><th class="n">' + Z('最好 5%', 'Best 5%') + '</th></tr></thead><tbody>' +
         '<tr><td>' + Z('总收益', 'Return') + '</td><td class="n ' + cls(mc.ret.lo) + '">' + pc(mc.ret.lo) + '</td><td class="n ' + cls(mc.ret.med) + '">' + pc(mc.ret.med) + '</td><td class="n ' + cls(mc.ret.hi) + '">' + pc(mc.ret.hi) + '</td></tr>' +
         '<tr><td>' + Z('最大回撤', 'Max drawdown') + '</td><td class="n dn">' + pc(mc.dd.lo) + '</td><td class="n dn">' + pc(mc.dd.med) + '</td><td class="n dn">' + pc(mc.dd.hi) + '</td></tr>' +
@@ -1391,12 +1436,16 @@
     else if (a === 'preset') { cbPreset(v); cbRe(); }
     else if (a === 'run') { CB.pop = null; cbRun(); }
     else if (a === 'tsave' || a === 'tload' || a === 'tdel' || a === 'tseed') tplClick(a, v);
-    else if (a === 'pop') { CB.pop = v && CB.pop !== v ? v : null; CB.cq = ''; CB.tnote = ''; render(); var f = CB.pop && document.querySelector(CB.pop === 'add' || CB.pop === 'xadd' ? '#cb-cq' : CB.pop === 'stocks' ? '#cb-q' : '#cbpop select, #cbpop input'); if (f && !narrowUI()) f.focus(); }
+    else if (a === 'pop') { CB.pop = v && CB.pop !== v ? v : null; CB.cq = ''; CB.tnote = ''; render(); var f = CB.pop && document.querySelector(CB.pop === 'add' || CB.pop === 'xadd' || CB.pop === 'padd' ? '#cb-cq' : CB.pop === 'stocks' ? '#cb-q' : '#cbpop select, #cbpop input'); if (f && !narrowUI()) f.focus(); }
+    else if (a === 'cdel' && v[0] === 'p') { PC.splice(+v.slice(1), 1); CB.pop = null; pcSave(); render(); }
     else if (a === 'cdel') { (v[0] === 'e' ? CB.exits : CB.conds).splice(+v.slice(1), 1); CB.pop = null; cbSave(); render(); cbRe(); }
+    else if (a === 'pcadd') { var pq = cbNew(v); if (!pq || pq.t) return; PC.push(pq); CB.pop = 'p:' + (PC.length - 1); pcSave(); S.limit = 50; render(); }
+    else if (a === 'pq') pqToggle(v);
+    else if (a === 'pclear') { PC = []; S.flt = {}; CB.pop = null; pcSave(); render(); }
     else if (a === 'cadd') { var nq = cbNew(v); if (!nq) return; CB.conds.push(nq); CB.pop = nq.t ? null : 'c:' + (CB.conds.length - 1); cbSave(); render(); cbRe(); }
-    else if (a === 'rt') { var rp = v.split(':'), ra = rp[0][0] === 'e' ? CB.exits : CB.conds, ri = +rp[0].slice(1), rq = ra[ri]; if (!rq || rq.t) return; rq = JSON.parse(JSON.stringify(rq));
+    else if (a === 'rt') { var rp = v.split(':'), ra = rp[0][0] === 'e' ? CB.exits : rp[0][0] === 'p' ? PC : CB.conds, ri = +rp[0].slice(1), rq = ra[ri]; if (!rq || rq.t) return; rq = JSON.parse(JSON.stringify(rq));
       if (rp[1] === 'i') rq.r = { k: rq.l.k === 'close' ? 'ema' : 'close' }; else { delete rq.r; if (rq.v == null) rq.v = 0; }
-      ra[ri] = (ra === CB.exits ? xCond : cbCond)(rq); cbSave(); render(); cbRe(); }
+      ra[ri] = (ra === CB.exits ? xCond : cbCond)(rq); if (ra === PC) { pcSave(); render(); return; } cbSave(); render(); cbRe(); }
     else if (a === 'reset') { CB.conds = CB_DEF.map(cbCond); CB.pop = null; cbSave(); render(); cbRe(); }
     else if (a === 'xadd') { var xq = xNew(v); if (!xq) return; CB.exits.push(xq); CB.pop = xq.t === 'combo' ? null : 'e:' + (CB.exits.length - 1); cbSave(); render(); cbRe(); }
     else if (a === 'sens') { var sel = document.getElementById('cb-sx'); if (sel) cbSens(+sel.value); }
@@ -1404,24 +1453,43 @@
     else if (a === 'uni') { CB.uni = v; cbSave(); render(); cbRe(); }
     else if (a === 'fix') cbFix(+v);
     else if (a === 'askai') cbAskAI();
-    else if (a === 'capv') { var cv = v.split(':'); CB[cv[0]] = cv[0] === 'pick' ? cv[1] : +cv[1]; cbSave(); render(); cbRe(); }
+    else if (a === 'capv') { var cv = v.split(':'); CB[cv[0]] = cv[0] === 'rank' || cv[0] === 'sz' ? cv[1] : +cv[1]; cbSave(); render(); cbRe(); }
   }
   try { S.bt = localStorage.getItem('bterm_btmode') === 'custom' ? 'custom' : 'ledger'; } catch (e) { S.bt = 'ledger'; }
-  var FLT = [['s', 'sar', 'SAR▲', function (s) { return s.sar === 1; }], ['e', 'ema', '>EMA20', function (s) { return isNum(s.ema) && s.p > s.ema; }],
-    ['v', 'rv', 'RVOL≥2', function (s) { return s.rv >= 2; }], ['l', 'lo', 'RSI<30', function (s) { return isNum(s.rsi) && s.rsi < 30; }],
-    ['h', 'hi', 'RSI>70', function (s) { return s.rsi > 70; }], ['n', 'new', T('今天新进'), function (s) { return s.fresh === 1; }]];
+  var FLT = [['n', 'new', T('今天新进'), function (s) { return s.fresh === 1; }]];
+  // 股票池筛选 = 跟回测一样的条件标签 (用每支股票最近 90 天的 K 线算，看最新那一天是否全部成立)；常用的几个一按就加 / 移除
+  var PQ = [['s', Z('SAR 在价下', 'SAR below'), { l: { k: 'close' }, op: 'gt', r: { k: 'sar', o: 'val' } }], ['e', '> EMA20', { l: { k: 'close' }, op: 'gt', r: { k: 'ema', p: [20] } }],
+    ['v', Z('相对量 ≥ 2', 'RVOL ≥ 2'), { l: { k: 'rvol', p: [20] }, op: 'ge', v: 2 }], ['l', 'RSI < 30', { l: { k: 'rsi', p: [14] }, op: 'lt', v: 30 }], ['h', 'RSI > 70', { l: { k: 'rsi', p: [14] }, op: 'gt', v: 70 }]];
+  var PC = (function () { try { var j = JSON.parse(localStorage.getItem('bterm_pool') || 'null'); return j && Array.isArray(j.conds) ? j.conds.map(cbCond).filter(function (q) { return q && !q.t; }).slice(0, 15) : []; } catch (e) { return []; } })();
+  function pcSave() { try { localStorage.setItem('bterm_pool', JSON.stringify({ conds: PC })); } catch (e) {} }
+  function pqIdx(k) { var q0 = cbCond(PQ.filter(function (x) { return x[0] === k; })[0][2]); for (var i = 0; i < PC.length; i++) if (same(PC[i], q0)) return i; return -1; }
+  function pqToggle(k) { var i = pqIdx(k); if (i >= 0) PC.splice(i, 1); else PC.push(cbCond(PQ.filter(function (x) { return x[0] === k; })[0][2])); CB.pop = null; pcSave(); S.limit = 50; render(); }
+  var PXC = {};  // 股票池：每支股票 90 天 K 线的指标快取
+  function pcPass() {  // → function(s) 这支股票最新一天是否符合全部条件
+    if (!PC.length) return function () { return true; };
+    return function (s) {
+      var raw = BARS && BARS[s.code]; if (!raw || raw.length < 20) return false;
+      var X = PXC[s.code] && PXC[s.code].raw === raw ? PXC[s.code].X : (PXC[s.code] = { raw: raw, X: cbCtx(bars(s.code), null) }).X;
+      return cbTest(X, PC)(raw.length - 1);
+    };
+  }
   var SORT = [['o', 'to', T('成交额'), function (s) { return s.to || 0; }], ['c', 'chg', T('涨跌'), function (s) { return s.c || 0; }],
     ['r', 'rv', T('相对量'), function (s) { return s.rv || 0; }], ['i', 'rsi', 'RSI', function (s) { return s.rsi || 0; }]];
   function poolList() {
-    var q = S.q.trim().toUpperCase(), fs = FLT.filter(function (f) { return S.flt[f[1]]; }), so = SORT.filter(function (x) { return x[1] === S.sort; })[0];
-    return LIST.filter(function (s) { return (q ? (s.name.toUpperCase().indexOf(q) >= 0 || s.code.indexOf(q) >= 0) : s.pool === 1) && fs.every(function (f) { return f[3](s); }); })
+    var q = S.q.trim().toUpperCase(), fs = FLT.filter(function (f) { return S.flt[f[1]]; }), so = SORT.filter(function (x) { return x[1] === S.sort; })[0], pass = pcPass();
+    return LIST.filter(function (s) { return (q ? (s.name.toUpperCase().indexOf(q) >= 0 || s.code.indexOf(q) >= 0) : s.pool === 1) && fs.every(function (f) { return f[3](s); }) && pass(s); })
       .sort(function (a, b) { return (so[3](a) - so[3](b)) * S.dir; });  // dir -1 = 高到低, 1 = 低到高
   }
   // 同一个排序再按一次 = 换方向 (高到低 ⇄ 低到高)
   function setSort(k) { if (S.sort === k) S.dir = -S.dir; else { S.sort = k; S.dir = -1; } render(); }
   function poolHead() {
     return T('<div class="grep"><label for="grep">grep&gt;</label><input id="grep" type="search" inputmode="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="名称或代码 (搜全部)" value="') + esc(S.q) + '"></div>' +
-      T('<div class="opts" role="group" aria-label="筛选">') + FLT.map(function (f) { return '<button type="button" data-flt="' + f[1] + '" aria-pressed="' + !!S.flt[f[1]] + '">[' + f[0] + ']' + f[2] + '</button>'; }).join('') + '</div>' +
+      '<div class="cbf" id="cbf"><div class="cbf-row" role="group" aria-label="' + Z('筛选', 'Filters') + '">' +
+        PQ.map(function (x) { return '<button type="button" class="qchip" data-cb="pq" data-v="' + x[0] + '" aria-pressed="' + (pqIdx(x[0]) >= 0) + '"><span class="k">[' + x[0] + ']</span>' + x[1] + '</button>'; }).join('') +
+        FLT.map(function (f) { return '<button type="button" class="qchip" data-flt="' + f[1] + '" aria-pressed="' + !!S.flt[f[1]] + '"><span class="k">[' + f[0] + ']</span>' + f[2] + '</button>'; }).join('') + '</div>' +
+        '<div class="cbf-row">' + PC.map(function (q, i) { var l = cbLbl(q); return pill('p:' + i, esc(l[0]), esc(l[1]), ['cdel', 'p' + i], l.join(' ')); }).join('') +
+        (PC.length < 15 ? '<button type="button" class="padd" data-cb="pop" data-v="padd" aria-expanded="' + (CB.pop === 'padd') + '">+ ' + Z('条件', 'Condition') + '</button>' : '') +
+        (PC.length || S.flt.new ? '<button type="button" class="more" data-cb="pclear">' + Z('清除全部 [a]', 'Clear all [a]') + '</button>' : '') + '</div>' + cbPop() + '</div>' +
       T('<div class="opts" role="group" aria-label="排序">') + SORT.map(function (x) { return '<button type="button" data-sort="' + x[1] + '" aria-pressed="' + (S.sort === x[1]) + T('" title="再按一次换方向">[') + x[0] + ']' + x[2] + (S.sort === x[1] ? (S.dir < 0 ? '↓' : '↑') : '') + '</button>'; }).join('') + '</div>';
   }
   function poolBody() {
@@ -1433,7 +1501,7 @@
           '<span class="num ' + cls(s.c) + '">' + pct(s.c, 1).replace('%', '') + '</span><span class="num' + (s.rv >= 2 ? ' warn' : '') + '">' + (isNum(s.rv) ? s.rv.toFixed(1) : '—') + '</span>' +
           '<span class="num">' + (isNum(s.rsi) ? s.rsi.toFixed(0) : '—') + '</span><span class="' + cls(s.c) + '">' + sparkFor(s.code, 12) + (s.fresh ? T(' <span class="acc">新</span>') : '') + (s.sig ? ' <span class="up">SIG</span>' : '') + '</span></span></button>';
       }).join('') + (l.length > S.limit ? T('<button type="button" class="more" data-more="1">→ 再显示 ') + Math.min(50, l.length - S.limit) + T(' 支 (共 ') + l.length + ')</button>' : '');
-    return { rows: rows, n: (S.q ? T('搜索 ') + l.length + T(' 支') : l.length + ' / ' + n + T(' 支 · 成交量 ≥ 1M')) };
+    return { rows: (PC.length && !BARS ? '<p class="dim">' + Z('载入 K 线中…', 'Loading bars…') + '</p>' : '') + rows, n: (S.q ? T('搜索 ') + l.length + T(' 支') : l.length + ' / ' + n + T(' 支 · 成交量 ≥ 1M')) };
   }
   function pagePool() {
     var b = poolBody();
@@ -2959,8 +3027,8 @@
     var fn = { cal: pageCal, sig: pageSig, watch: pageWatch, bt: pageBt, pool: pagePool, mkt: pageMkt, ann: pageAnn }[S.page] || pageSig;
     var focusId = document.activeElement && /^(grep|cb-q|cb-cq|sq)$/.test(document.activeElement.id) ? document.activeElement.id : null, focusGrep = !!focusId, pos = focusGrep ? document.activeElement.selectionStart : null;
     main.innerHTML = WIDGET ? pageWidget() : S.code ? pageQuote(S.code) : fn();
-    if (S.page === 'bt' && !S.code) cbPlace();
-    document.body.classList.toggle('cbp-open', !!(CB.pop && S.page === 'bt' && !S.code));  // 编辑框打开时收起底部浮动搜索
+    if ((S.page === 'bt' || S.page === 'pool') && !S.code) cbPlace();
+    document.body.classList.toggle('cbp-open', !!(CB.pop && (S.page === 'bt' || S.page === 'pool') && !S.code));  // 编辑框打开时收起底部浮动搜索
     if (focusGrep) { var g = document.getElementById(focusId); if (g) { g.focus(); try { g.setSelectionRange(pos, pos); } catch (e) {} } }
     if (!BARS) loadBars();
     if (AI.open && !AI.busy && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#ai-panel'))) aiRender();
@@ -2971,6 +3039,7 @@
     var pageChanged = (page || S.page) !== S.page || (code || null) !== S.code;
     if ((code || null) !== S.code) S.qtab = 'ov';
     if (page && page !== S.page) S.alim = 40;
+    if (pageChanged) CB.pop = null;
     S.page = page || S.page; S.code = code || null;
     var h = S.code ? '#q-' + S.code : '#' + S.page;
     if (location.hash !== h) history.replaceState(null, '', h);
@@ -2996,7 +3065,7 @@
       S.af = ab.dataset.af || ''; var sl = document.querySelector('.fscroll'), x = sl ? sl.scrollLeft : 0; render();
       var sl2 = document.querySelector('.fscroll'); if (sl2) { sl2.scrollLeft = x; var on = sl2.querySelector('[aria-pressed="true"]'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
       return; }
-    if (CB.pop && S.page === 'bt' && !e.target.closest('#cbf')) { CB.pop = null; CB.tnote = ''; render(); }  // 点编辑框外面：先收起，这一下照常生效 (例如点账号按钮)
+    if (CB.pop && (S.page === 'bt' || S.page === 'pool') && !e.target.closest('#cbf')) { CB.pop = null; CB.tnote = ''; render(); }  // 点编辑框外面：先收起，这一下照常生效 (例如点账号按钮)
     var cbt = e.target.closest('[data-cb]'); if (cbt) { cbClick(cbt); return; }
     var thb = e.target.closest('[data-th]'); if (thb) { themeClick(thb); return; }
     var ai = e.target.closest('[data-ai]'); if (ai) { aiClick(ai); return; }
@@ -3024,10 +3093,11 @@
   document.addEventListener('toggle', function (e) { var d = e.target; if (d.classList && d.classList.contains('info')) OPEN[d.dataset.code] = d.open; }, true);
   document.addEventListener('change', function (e) {
     var el = e.target, d = el.dataset || {};
+    if (d.cbk === 'slots') { var sl = Math.round(+el.value); if (sl >= 1) CB.slots = Math.min(50, sl); cbSave(); render(); cbRe(); return; }
     if (d.cbk === 'size') { var sz = parseV(el.value); if (isFinite(sz) && sz >= 1000) CB.size = Math.min(1e7, Math.round(sz)); cbSave(); render(); cbRe(); return; }
     if (d.cbc) {  // 条件编辑框：「c3:栏位」进场 /「e1:栏位」出场
       var pr = d.cbc.split(':'), n = parseFloat(el.value);
-      var L = pr[0][0], arr = L === 'e' ? CB.exits : CB.conds, ci = +pr[0].slice(1), q = arr[ci], path = pr[1], val = el.value, norm = L === 'e' ? xCond : cbCond;
+      var L = pr[0][0], arr = L === 'e' ? CB.exits : L === 'p' ? PC : CB.conds, ci = +pr[0].slice(1), q = arr[ci], path = pr[1], val = el.value, norm = L === 'e' ? xCond : cbCond;
       if (!q || q.t === 'ema50') return;
       q = JSON.parse(JSON.stringify(q));
       if (XS[q.t]) { if (isFinite(n)) q[path] = n; }
@@ -3042,7 +3112,9 @@
       else if (/^[lr]\.o$/.test(path)) q[path[0]].o = val;
       else if (path === 'v' || path === 'v2') { var xv = parseV(val); if (isFinite(xv)) q[path] = xv; }
       else if (path === 'w' || path === 'd') { if (isFinite(n)) q[path] = n; }
+      else if (path === 'bool') { q.op = val === '1' ? 'gt' : 'lt'; }
       arr[ci] = norm(q) || arr[ci];
+      if (L === 'p') { pcSave(); S.limit = 50; render(); return; }
       cbSave(); render(); cbRe();
     }
     else if (el.id === 'cb-from' || el.id === 'cb-to') { CB[el.id === 'cb-from' ? 'from' : 'to'] = el.value; cbSave(); render(); cbRe(); }
@@ -3053,7 +3125,7 @@
   // 搜索框打字时只换下面的列表 / 建议，不重画整页：重画会换掉输入框，iPhone 键盘就从数字跳回字母
   document.addEventListener('input', function (e) {
     var id = e.target.id, box;
-    if (id === 'cb-cq') { CB.cq = e.target.value; if ((box = document.getElementById('cb-clist'))) box.innerHTML = cbList(CB.pop === 'xadd' ? 'e' : 'c'); }
+    if (id === 'cb-cq') { CB.cq = e.target.value; if ((box = document.getElementById('cb-clist'))) box.innerHTML = cbList(CB.pop === 'xadd' ? 'e' : CB.pop === 'padd' ? 'p' : 'c'); }
     else if (id === 'cb-q') { CB.q = e.target.value; if ((box = document.getElementById('cb-sug'))) box.innerHTML = cbSug(); }
     else if (id === 'w-q') { WQ = e.target.value; if ((box = document.getElementById('w-sug'))) box.innerHTML = wSug(); }
     else if (id === 'th-q') TH.prompt = e.target.value;
@@ -3075,7 +3147,7 @@
       e.preventDefault(); modelStep(e.key === 'ArrowLeft' ? -1 : 1); aiRender();
       var on = document.querySelector('#ai-panel .ai-models [aria-checked="true"]'); if (on) on.focus({ preventScroll: true }); return;
     }
-    if (e.key === 'Escape' && CB.pop && S.page === 'bt') { CB.pop = null; render(); return; }
+    if (e.key === 'Escape' && CB.pop && (S.page === 'bt' || S.page === 'pool')) { CB.pop = null; render(); return; }
     if (e.key === 'Escape' && AI.open) { AI.open = false; aiRender(); return; }
     if (e.key === 'Escape' && SY.open) { SY.open = false; acctRender(); return; }
     if (e.key === 'Escape' && e.target.id === 'sq') { var fe = document.getElementById('fsq'); if (fe) fe.classList.add('shut'); e.target.blur(); return; }
@@ -3089,7 +3161,7 @@
     if (e.key === 'k') { toggleCandle(); return; }
     if (S.page === 'pool' && !S.code) {
       var f = FLT.filter(function (x) { return x[0] === e.key; })[0], s = SORT.filter(function (x) { return x[0] === e.key; })[0];
-      if (f) { S.flt[f[1]] = !S.flt[f[1]]; S.limit = 50; render(); } else if (s) setSort(s[1]); else if (e.key === 'a') { S.flt = {}; render(); }
+      if (f) { S.flt[f[1]] = !S.flt[f[1]]; S.limit = 50; render(); } else if (PQ.some(function (x) { return x[0] === e.key; })) pqToggle(e.key); else if (s) setSort(s[1]); else if (e.key === 'a') { S.flt = {}; PC = []; pcSave(); render(); }
     }
   });
   window.addEventListener('hashchange', function () { fromHash(); render(); });
@@ -3201,7 +3273,7 @@
     }
     var cb0 = null; try { cb0 = JSON.parse(lsGet('bterm_cbt') || 'null'); } catch (e) { cb0 = null; }
     if (d.cbt && !same(cb0, d.cbt)) {
-      ['codes', 'from', 'to', 'uni', 'slots', 'size', 'pick', 'runs', 'minpx'].forEach(function (k) { if (d.cbt[k] !== undefined) CB[k] = d.cbt[k]; });
+      ['codes', 'from', 'to', 'uni', 'slots', 'size', 'rank', 'sz', 'runs', 'minpx'].forEach(function (k) { if (d.cbt[k] !== undefined) CB[k] = d.cbt[k]; });
       if (!Array.isArray(CB.codes)) CB.codes = [];
       CB.conds = cbConds(d.cbt); CB.exits = cbExits(d.cbt); CB.pop = null;
       CB.res = null; cbSave(); redraw = true;

@@ -221,6 +221,11 @@ pre::-webkit-scrollbar { display: none; }
 .dg-i { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
 .dg-i li { line-height: 1.55; }
 .dg-i .more { margin-top: 4px; padding-left: 0; }
+.qchip { min-height: 34px; padding: 3px 10px; color: var(--mut); background: none; border: 1px solid var(--line); border-radius: calc(var(--r, 0px) + 6px); font: inherit; cursor: pointer; }
+.qchip .k { color: var(--mut); opacity: .7; margin-right: 2px; }
+.qchip[aria-pressed="true"] { color: var(--bg); background: var(--acc2); border-color: var(--acc2); }
+.qchip[aria-pressed="true"] .k { color: var(--bg); }
+@media (max-width: 779px) { .qchip { min-height: 32px; padding: 3px 8px; font-size: 12px; } .qchip .k { display: none; } }
 .tpl-save { display: flex; gap: 6px; }
 .tpl-save input { flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r, 0px) + 6px); padding: 7px 10px; }
 .tpl-save .ok { flex: none; padding: 6px 12px; border: 1px solid var(--acc); color: var(--acc); background: none; border-radius: calc(var(--r, 0px) + 6px); font: inherit; cursor: pointer; }
