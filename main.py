@@ -5477,11 +5477,13 @@ def main():
     try:
         downloads = export_downloads(stocks, today_local, datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M"),
                                      downloads_dir=DOWNLOADS_DIR, title=MKT["title"], tz_label=MKT["tz_label"],
-                                     file_prefix=MKT["file_prefix"])
+                                     file_prefix=MKT["file_prefix"], close_hhmm=f"{MKT['session_end'] // 60:02d}:{MKT['session_end'] % 60:02d}")
         pf = downloads.get("pool") or {}
         new_codes = set(pf.get("new_codes") or [])
         for s in stocks:
             s["pool_new"] = s["symbol"].split(".")[0] in new_codes
+        if downloads.get("kept"):
+            print(f"📥 {downloads['days'][0]['date']} 收盘后已有完整存档，这次股票少了两成以上 (资料不全)，保留原来的存档不覆盖")
         print(f"📥 下载文件已导出: 保留 {len(downloads['days'])} 天 ({downloads['days'][0]['date']} 起)；"
               f"股票池存档 {pf.get('days', 0)} 天，今天新进 {len(pf.get('new') or [])} 支"
               + (f" ({'、'.join(pf['new'][:10])}{' …' if len(pf['new']) > 10 else ''})" if pf.get("new") else ""))
@@ -5535,7 +5537,7 @@ def main():
                 stocks, market, backtest, board, REPORT_FOCUS["new"], market_state(now_dt), now_dt.strftime("%Y-%m-%d %H:%M"), MKT["tz_label"],
                 LEDGER_PATH, WATCHLIST_CHANGES_PATH, os.path.join(DOWNLOADS_DIR, "pool", "pool_index.json"),
                 mcaps={sym: q.get("mcap") for sym, q in QUOTE_META.items()}, report_url=REPORT_URL, out_dir=os.path.join(DOCS_DIR, "terminal"),
-                    watchlist_path=WATCHLIST_PATH)
+                    watchlist_path=WATCHLIST_PATH, downloads=downloads)
             if out_dir:
                 print(f"🖥️ 终端版已生成: {out_dir}/")
                 # 新股 IPO 日历 + 上市表现 (KLSE Screener IPO 页 + Yahoo 日线)：状态在 data/ipos.json，终端版读 docs/terminal/ipo.json

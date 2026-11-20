@@ -218,6 +218,8 @@ function cleanDoc(d, lim, owner) {
     out.theme = { on: t.on !== false, t: tt };
   }
   if (d.cbt && typeof d.cbt === 'object' && !Array.isArray(d.cbt) && JSON.stringify(d.cbt).length <= 6000) out.cbt = d.cbt;
+  // 股票池：条件 + 储存的筛选结果 (日期、条件、股票和当天价格)，网页那边最多 30 笔、约 30KB
+  if (d.pool && typeof d.pool === 'object' && !Array.isArray(d.pool) && JSON.stringify(d.pool).length <= 40000) out.pool = d.pool;
   if (owner && Array.isArray(d.tpl)) out.tpl = cleanTpl(d.tpl);
   if (JSON.stringify(out).length > DOC_MAX) throw fail(413, 'too large');
   return { doc: out, trimmed };
