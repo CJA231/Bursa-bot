@@ -5477,11 +5477,13 @@ def main():
     try:
         downloads = export_downloads(stocks, today_local, datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M"),
                                      downloads_dir=DOWNLOADS_DIR, title=MKT["title"], tz_label=MKT["tz_label"],
-                                     file_prefix=MKT["file_prefix"])
+                                     file_prefix=MKT["file_prefix"], close_hhmm=f"{MKT['session_end'] // 60:02d}:{MKT['session_end'] % 60:02d}")
         pf = downloads.get("pool") or {}
         new_codes = set(pf.get("new_codes") or [])
         for s in stocks:
             s["pool_new"] = s["symbol"].split(".")[0] in new_codes
+        if downloads.get("kept"):
+            print(f"📥 {downloads['days'][0]['date']} 收盘后已有完整存档，这次股票少了两成以上 (资料不全)，保留原来的存档不覆盖")
         print(f"📥 下载文件已导出: 保留 {len(downloads['days'])} 天 ({downloads['days'][0]['date']} 起)；"
               f"股票池存档 {pf.get('days', 0)} 天，今天新进 {len(pf.get('new') or [])} 支"
               + (f" ({'、'.join(pf['new'][:10])}{' …' if len(pf['new']) > 10 else ''})" if pf.get("new") else ""))

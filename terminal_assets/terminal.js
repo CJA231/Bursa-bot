@@ -1494,6 +1494,7 @@
     else if (a === 'lbn') { LB.n = +v; render(); }
     else if (a === 'lb') lbRun();
     else if (a === 'lbcsv') lbCsv();
+    else if (a === 'lb20csv') lb20Csv();
     else if (a === 'pcsv') poolCsv();
     else if (a === 'psave') psvAdd();
     else if (a === 'pdel') { PSV = PSV.filter(function (r) { return r.id !== v; }); psvSave(); render(); }
@@ -1514,17 +1515,23 @@
     else if (a === 'capv') { var cv = v.split(':'); CB[cv[0]] = cv[0] === 'rank' || cv[0] === 'sz' ? cv[1] : +cv[1]; cbSave(); render(); cbRe(); }
   }
   try { S.bt = localStorage.getItem('bterm_btmode') === 'custom' ? 'custom' : 'ledger'; } catch (e) { S.bt = 'ledger'; }
-  // 新股 = 真正的 IPO：上市 NEWD 天内 (IPO 名单的上市日，管理员更正优先；名单没有就用日线第一天)。老股票刚进股票池不算新股
+  // 新股 = 真正的 IPO：IPO 名单上 (管理员更正优先) 上市 NEWD 天内。只看 IPO 名单：日线短的不一定是新股 (附加股权利 R1、转板、改代码、资料缺口)，老股票刚进股票池也不算
   var NEWD = 180, IPOM = null;
   function dayDiff(a, b) { return Math.round((Date.parse(b) - Date.parse(a)) / 864e5); }
-  function listDays(s, at) {  // at = 以哪一天算 (回看过去的股票池)；没给 = 今天
+  function ipoListing(code) {
     if (IPO && (!IPOM || IPOM.src !== IPO)) { IPOM = { src: IPO, m: {} }; IPO.forEach(function (r) { if (r.code && r.listing) IPOM.m[r.code] = r.listing; }); }
-    var o = ovGet(s.code, 'ipo'), l = (o && o.listing) || (IPOM && IPOM.src === IPO && IPOM.m[s.code]), td = at || today();
+    var o = ovGet(code, 'ipo'); return (o && o.listing) || (IPOM && IPOM.src === IPO && IPOM.m[code]) || null;
+  }
+  function listDays(s, at) {  // 上市第几天 (个股页「上市天数」)：IPO 名单的上市日，没有就用日线第一天；at = 以哪一天算，没给 = 今天
+    var l = ipoListing(s.code), td = at || today();
     if (l) return l <= td ? dayDiff(l, td) + 1 : null;
     var st = ST[s.code] || s; if (!isNum(st.listed)) return null;
     var x = st.listed - (at ? Math.max(0, dayDiff(at, today())) : 0); return x > 0 ? x : null;
   }
-  function isNewList(s, at) { var d = listDays(s, at !== undefined ? at : pdOn() ? S.pd : null); return d != null && d <= NEWD; }
+  function isNewList(s, at) {
+    var l = ipoListing(s.code), td = at !== undefined && at !== null ? at : pdOn() ? S.pd : today();
+    return !!l && l <= td && dayDiff(l, td) + 1 <= NEWD;
+  }
   var FLT = [['n', 'ipo', Z('新股', 'New listings'), isNewList]];
   // 股票池筛选 = 跟回测一样的条件标签 (用每支股票最近 90 天的 K 线算，看最新那一天是否全部成立)；常用的几个一按就加 / 移除
   var PQ = [['s', Z('SAR 在价下', 'SAR below'), { l: { k: 'close' }, op: 'gt', r: { k: 'sar', o: 'val' } }], ['e', '> EMA20', { l: { k: 'close' }, op: 'gt', r: { k: 'ema', p: [20] } }],
@@ -1603,15 +1610,26 @@
     if (S.pd) loadPoolDay(S.pd).then(function () { if (S.page === 'pool' && !S.code) render(); });
     render();
   }
-  function poolDays() {  // 日期选择条：今天 + 最近 9 个存档日，更早的用下拉选单
-    var ds = poolDates().filter(function (d) { return d !== D.date; }), cur = pdOn() ? S.pd : '';
-    if (!ds.length) return '';
-    var chip = function (d, lab, sub) { var on = (d || '') === cur; return '<button type="button" class="pday" role="radio" aria-checked="' + on + '" data-cb="pd" data-v="' + (d || '') + '"><b>' + lab + '</b><small>' + sub + '</small></button>'; };
-    var near = ds.slice(0, 9), far = ds.slice(9), farOn = far.indexOf(cur) >= 0;
-    return '<div class="pdays" role="radiogroup" aria-label="' + Z('股票池日期', 'Pool date') + '">' + chip('', Z('今天', 'Today'), md(D.date) + ' ' + wkd(D.date)) +
-      near.map(function (d) { return chip(d, md(d), wkd(d)); }).join('') +
-      (far.length ? '<select class="pday-more' + (farOn ? ' on' : '') + '" data-pdsel="1" aria-label="' + Z('更早的日期', 'Earlier dates') + '"><option value="">' + Z('更早…', 'Earlier…') + '</option>' +
-        far.map(function (d) { return '<option value="' + d + '"' + (d === cur ? ' selected' : '') + '>' + d + ' ' + wkd(d) + '</option>'; }).join('') + '</select>' : '') + '</div>';
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function poolDays() {  // 日期选择条：最近 20 个交易日排成一排 (左旧右新，今天在最右边)；更早的在最左边的下拉选单
+    var all = [D.date].concat(poolDates().filter(function (d) { return d < D.date; })), cur = pdOn() ? S.pd : D.date;
+    if (all.length < 2) return '';
+    var near = all.slice(0, 20).reverse(), far = all.slice(20), farOn = far.indexOf(cur) >= 0;
+    var cell = function (d, i) {
+      var td = d === D.date, mo = i === 0 || d.slice(5, 7) !== near[i - 1].slice(5, 7), m = +d.slice(5, 7);
+      var top = td ? Z('今天', 'Today') : mo ? Z(m + '月', MON[m - 1]) : wkd(d);
+      return '<button type="button" class="pday' + (mo ? ' mo' : '') + (td ? ' td' : '') + '" role="radio" aria-checked="' + (d === cur) + '" data-cb="pd" data-v="' + (td ? '' : d) + '" title="' + d + ' ' + wkd(d) + '" aria-label="' + d + ' ' + wkd(d) + '">' +
+        '<small>' + top + '</small><b>' + (+d.slice(8)) + '</b></button>';
+    };
+    return '<div class="pdays" role="radiogroup" aria-label="' + Z('股票池日期 (最近 20 个交易日)', 'Pool date (last 20 trading days)') + '">' +
+      (far.length ? '<select class="pday-more' + (farOn ? ' on' : '') + '" data-pdsel="1" aria-label="' + Z('更早的日期', 'Earlier dates') + '"><option value="">' + Z('更早', 'Older') + '</option>' +
+        far.map(function (d) { return '<option value="' + d + '"' + (d === cur ? ' selected' : '') + '>' + d + ' ' + wkd(d) + '</option>'; }).join('') + '</select>' : '') +
+      near.map(cell).join('') + '</div>';
+  }
+  function pdScroll() {  // 手机上一排放不下：卷到选中的那天 (默认今天，在最右边)
+    var pd = document.querySelector('.pdays'); if (!pd || pd.scrollWidth <= pd.clientWidth) return;
+    var on = pd.querySelector('[aria-checked="true"]') || pd.lastElementChild;
+    pd.scrollLeft = Math.max(0, on.offsetLeft - pd.offsetLeft - pd.clientWidth + on.offsetWidth + 24);
   }
   // 表格的数字栏：[key, 快捷键, 名称, 表头, 宽 (ch), 取值, 显示]；显示哪几栏自己选 (至少一栏)，任何一栏都能排序 (默认成交量)，存在这台设备
   var PCOL = [['chg', 'c', Z('涨跌', 'Change'), Z('涨跌%', 'CHG%'), 6, function (s) { return s.c; }, function (s) { return '<span class="num ' + cls(s.c) + '">' + pct(s.c, 1).replace('%', '') + '</span>'; }],
@@ -1642,7 +1660,8 @@
   // 同一个排序再按一次 = 换方向 (高到低 ⇄ 低到高)
   function setSort(k) { if (S.sort === k) S.dir = -S.dir; else { S.sort = k; S.dir = -1; } psSave(); render(); }
   function poolHead() {
-    return T('<div class="grep"><label for="grep">grep&gt;</label><input id="grep" type="search" inputmode="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="名称或代码 (搜全部)" value="') + esc(S.q) + '"></div>' +
+    var past = pdOn();
+    return T('<div class="grep"><label for="grep">grep&gt;</label><input id="grep" type="search" inputmode="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="名称或代码 (搜全部)" value="').replace(/placeholder="[^"]*"/, past ? 'placeholder="' + Z('在 ' + md(S.pd) + ' 的股票池里找名称或代码', 'Name or code in the ' + md(S.pd) + ' pool') + '"' : '$&') + esc(S.q) + '"></div>' +
       '<div class="cbf" id="cbf"><div class="cbf-row" role="group" aria-label="' + Z('筛选', 'Filters') + '">' +
         PQ.map(function (x) { return '<button type="button" class="qchip" data-cb="pq" data-v="' + x[0] + '" aria-pressed="' + (pqIdx(x[0]) >= 0) + '"><span class="k">[' + x[0] + ']</span>' + x[1] + '</button>'; }).join('') +
         FLT.map(function (f) { return '<button type="button" class="qchip" data-flt="' + f[1] + '" aria-pressed="' + !!S.flt[f[1]] + '"><span class="k">[' + f[0] + ']</span>' + f[2] + '</button>'; }).join('') + '</div>' +
@@ -1692,13 +1711,13 @@
     return list.map(function (x) { return '<button type="button" class="lb-c" data-q="' + esc(x.code) + '">' + esc(x.name) + (isNum(x.ch) ? ' <span class="' + cls(x.ch) + '">' + pct(x.ch, 1) + '</span>' : '') + '</button>'; }).join('');
   }
   // 回看：这组条件 (+ 新股筛选) 在最近 N 个存档日各有哪些股票，之后到今天涨跌多少
-  var LB = { n: 10, res: null, busy: 0, key: '', prog: '' };
+  var LB = { n: 20, res: null, busy: 0, key: '', prog: '' };
   function lbKey() { return canon({ c: PC, f: S.flt, n: LB.n, d: D && D.date }); }
   function lbRun() {
-    if (LB.busy || (!PC.length && !FLT.some(function (f) { return S.flt[f[1]]; }))) return;
-    var ds = [D.date].concat(poolDates().filter(function (d) { return d !== D.date; })).slice(0, LB.n);
+    if (LB.busy) return LB.p || Promise.resolve();
+    var ds = [D.date].concat(poolDates().filter(function (d) { return d < D.date; })).slice(0, LB.n);
     LB.busy = 1; LB.res = null; LB.key = lbKey(); LB.prog = Z('载入存档…', 'Loading archives…'); render();
-    Promise.all(ds.slice(1).map(loadPoolDay)).then(function () {
+    return LB.p = Promise.all(ds.slice(1).map(loadPoolDay)).then(function () {
       var warm = cbWarm(PC), need = {};
       if (PC.length) ds.forEach(function (d, k) { var day = k ? PDAY[d] : { rows: LIST }; ((day && day.rows) || []).forEach(function (s) { if (s.pool === 1 && pxAt(s.code, k ? d : '', warm) === undefined) need[s.code] = 1; }); });
       return cbLoadAll(Object.keys(need), function (a, b) { LB.prog = Z('载入 K 线 ', 'Loading bars ') + a + ' / ' + b; var e = document.getElementById('lb-prog'); if (e) e.textContent = LB.prog; });
@@ -1712,22 +1731,23 @@
           .sort(function (a, b) { return (isNum(b.ch) ? b.ch : -1e9) - (isNum(a.ch) ? a.ch : -1e9); });
         return { d: d, n: rows.length, hit: hit };
       });
-      LB.busy = 0; if (S.page === 'pool' && !S.code) render();
+      LB.busy = 0; LB.p = null; if (S.page === 'pool' && !S.code) render();
     });
   }
+  function lb20Csv() { LB.n = 20; (LB.res && LB.key === lbKey() ? Promise.resolve() : lbRun()).then(lbCsv); }  // 最近 20 个交易日 (这组条件) 一次下载
   function lbCsv() {
     if (!LB.res) return; var rows = [], ct = condTxt(PC), ft = fltTxt(Object.keys(S.flt).filter(function (k) { return S.flt[k]; }));
     LB.res.forEach(function (r) { (r.hit || []).forEach(function (x) { rows.push([r.d, x.code, x.name, x.p, nowPx(x.code), nowD(x.code), isNum(x.ch) ? x.ch.toFixed(2) : '', [ct, ft].filter(Boolean).join(' · ')]); }); });
     csvDl('bursa-pool-lookback-' + D.date + '.csv', [Z('日期', 'Date'), Z('代码', 'Code'), Z('名称', 'Name'), Z('当天收盘', 'Close that day'), Z('最新价', 'Latest'), Z('最新价日期', 'Latest date'), Z('之后涨跌%', 'Change since %'), Z('条件', 'Conditions')], rows);
   }
   function lbPanel() {
-    var on = PC.length || FLT.some(function (f) { return S.flt[f[1]]; }), nd = poolDates().length;
+    var nd = poolDates().length, scr = PC.length || FLT.some(function (f) { return S.flt[f[1]]; });
     if (!nd) return '';
     var h = '<div class="opts po"><span class="ol">' + Z('最近', 'Last') + '</span>' + [5, 10, 20].map(function (n) { return '<button type="button" data-cb="lbn" data-v="' + n + '" aria-pressed="' + (LB.n === n) + '">' + n + Z(' 天', ' days') + '</button>'; }).join('') +
-      '<button type="button" class="lb-go" data-cb="lb"' + (on && !LB.busy ? '' : ' disabled') + '>▶ ' + Z('回看', 'Look back') + '</button>' +
+      '<button type="button" class="lb-go" data-cb="lb"' + (!LB.busy ? '' : ' disabled') + '>▶ ' + Z('回看', 'Look back') + '</button>' +
       (LB.res ? '<button type="button" class="lb-dl" data-cb="lbcsv">⤓ CSV</button>' : '') + '</div>';
-    if (!on) h += '<p class="dim">' + Z('先在上面加条件或按「新股」，再回看这组条件在过去每一天筛出哪些股票、之后到今天涨跌多少。', 'Add a condition or "New listings" above, then look back at which stocks this screen picked on each past day and how they moved since.') + '</p>';
-    else if (LB.busy) h += '<p class="dim" id="lb-prog">' + esc(LB.prog) + '</p>';
+    if (!scr && !LB.res && !LB.busy) h += '<p class="dim">' + Z('没有条件 = 每天整个股票池；在上面加条件或按「新股」，就是看这组条件在过去每一天筛出哪些股票、之后到今天涨跌多少。', 'No conditions = the whole pool each day. Add conditions or "New listings" above to see what this screen picked on each past day and how those stocks moved since.') + '</p>';
+    if (LB.busy) h += '<p class="dim" id="lb-prog">' + esc(LB.prog) + '</p>';
     else if (LB.res) {
       if (LB.key !== lbKey()) h += '<p class="warn">' + Z('条件或天数改了，按「回看」重新算。', 'The screen changed. Press "Look back" again.') + '</p>';
       h += '<div class="lb">' + LB.res.map(function (r) {
@@ -1785,6 +1805,7 @@
     var row = function (k, v) { return '<div class="dl-r"><span class="dl-k">' + k + '</span><span class="dl-v">' + v + '</span></div>'; };
     var h = '';
     h += row(Z('这次筛选结果', 'This screen'), '<button type="button" class="dl-a" data-cb="pcsv">CSV</button>');
+    h += row(Z('最近 20 个交易日', 'Last 20 trading days'), '<button type="button" class="dl-a" data-cb="lb20csv"' + (LB.busy ? ' disabled' : '') + '>CSV</button><small class="dim">' + Z('这组条件每天符合的股票 (没有条件 = 整个股票池)', 'stocks matching this screen each day (no conditions = whole pool)') + '</small>');
     if (pf && has) h += row(Z('股票池存档', 'Pool archive'), a(pf.fmt.replace('{d}', d), 'CSV'));
     h += row(Z('完整报告', 'Full report'), rep0 ? ['csv', 'xlsx', 'pdf'].filter(function (k) { return rep0.f[k]; }).map(function (k) { return a(rep0.f[k], { csv: 'CSV', xlsx: 'Excel', pdf: 'PDF' }[k]); }).join('') +
       '<small class="dim">' + esc((rep0.t ? rep0.t + Z(' 更新 · ', ' · ') : '') + (rep0.sig && rep0.sig.length ? Z('信号 ', 'signals ') + rep0.sig.join('、') : Z('无信号', 'no signal')) + ' · ' + Z('共 ', '') + rep0.n + Z(' 支', ' stocks')) + '</small>'
@@ -3328,6 +3349,7 @@
     var focusId = document.activeElement && /^(grep|cb-q|cb-cq|sq)$/.test(document.activeElement.id) ? document.activeElement.id : null, focusGrep = !!focusId, pos = focusGrep ? document.activeElement.selectionStart : null;
     main.innerHTML = WIDGET ? pageWidget() : S.code ? pageQuote(S.code) : fn();
     if ((S.page === 'bt' || S.page === 'pool') && !S.code) cbPlace();
+    if (S.page === 'pool' && !S.code) pdScroll();
     document.body.classList.toggle('cbp-open', !!(CB.pop && (S.page === 'bt' || S.page === 'pool') && !S.code));  // 编辑框打开时收起底部浮动搜索
     if (focusGrep) { var g = document.getElementById(focusId); if (g) { g.focus(); try { g.setSelectionRange(pos, pos); } catch (e) {} } }
     if (!BARS) loadBars();

@@ -238,14 +238,17 @@ pre::-webkit-scrollbar { display: none; }
 @media (max-width: 779px) { .opts.po .k { display: none; } .opts.po button { min-height: 34px; } }
 .opts.po .pcol[aria-pressed="true"] { color: var(--fg); background: none; border-color: var(--line); }  /* 显示栏位：框线 + ✓，跟实心的排序分开 */
 .nb { font-size: 0.8em; color: var(--acc); border: 1px solid currentColor; border-radius: 3px; padding: 0 2px; margin-right: 0.5ch; }  /* 新股 (真正的 IPO) */
-/* 股票池日期选择条：今天 + 最近几个存档日 (左右滑)，更早的用下拉选单 */
-.pdays { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; align-items: stretch; }
+/* 股票池日期选择条：最近 20 个交易日一排 (左旧右新)，电脑上刚好放得下，手机上左右滑；月份换的那格写月份 */
+.pdays { display: flex; flex-wrap: nowrap; gap: 2px; overflow-x: auto; scrollbar-width: none; align-items: stretch; }
 .pdays::-webkit-scrollbar { display: none; }
-.pday { flex: 0 0 auto; display: grid; justify-items: center; gap: 1px; min-width: 56px; min-height: 44px; padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r, 0px); color: var(--mut); }
-.pday b { color: var(--fg); font-weight: 600; } .pday small { font-size: 11px; }
-.pday[aria-checked="true"] { background: var(--acc2); border-color: var(--acc2); color: var(--bg); } .pday[aria-checked="true"] b { color: var(--bg); }
-.pday-more { flex: 0 0 auto; font: inherit; font-size: 12px; color: var(--mut); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r, 0px); padding: 4px 6px; min-height: 44px; }
-.pday-more.on { color: var(--bg); background: var(--acc2); border-color: var(--acc2); }
+.pday { flex: 1 1 0; min-width: 30px; display: grid; justify-items: center; align-content: center; gap: 0; min-height: 44px; padding: 3px 0; border: 1px solid var(--line); border-radius: var(--r, 0px); color: var(--mut); line-height: 1.25; }
+.pday b { color: var(--fg); font-weight: 600; font-size: 13px; } .pday small { font-size: 10px; white-space: nowrap; }
+.pday.mo { border-left: 2px solid var(--mut); } .pday.mo small { color: var(--acc); font-weight: 600; }
+.pday.td small { color: var(--acc); font-weight: 600; }
+.pday[aria-checked="true"] { background: var(--acc2); border-color: var(--acc2); color: var(--bg); } .pday[aria-checked="true"] b, .pday[aria-checked="true"] small { color: var(--bg); }
+.pday-more { flex: 0 0 auto; width: 58px; font: inherit; font-size: 11px; color: var(--mut); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r, 0px); padding: 2px 4px; min-height: 44px; }
+.pday-more.on { width: auto; max-width: 8.5em; color: var(--bg); background: var(--acc2); border-color: var(--acc2); }
+@media (max-width: 779px) { .pday { flex: 0 0 36px; } }
 /* 回看 / 储存 / 下载 */
 .lb-go, .lb-dl { border: 1px solid var(--line) !important; color: var(--fg) !important; }
 .lb-go:disabled { opacity: .45; cursor: default; }

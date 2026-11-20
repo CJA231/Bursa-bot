@@ -24,6 +24,7 @@ KEEP_REPORT_DAYS = 7  # 保留最近几个"报告日" (只有交易日才有报�
 POOL_DIR = "pool"          # downloads/pool/：每天的股票池 CSV + pool_index.json (谁哪天进来、连续几天)
 POOL_KEEP_DAYS = 250       # 每天的股票池 CSV 保留约一年 (交易日)
 POOL_HISTORY_DAYS = 60     # 合并文件放近 60 个交易日
+FINAL_SHRINK = 0.8         # 收盘后已有一份完整存档，之后同一天再跑少了两成以上 = 资料不全 (例如半夜重跑只拿到几支)，保留原来的
 DEFAULT_TITLE = "马股自动分析报告"
 DEFAULT_TZ_LABEL = "MYT"
 DEFAULT_FILE_PREFIX = "bursa-report"
@@ -306,12 +307,14 @@ def update_pool(stocks, date, downloads_dir=DOWNLOADS_DIR):
     return cur
 
 
-def archive_pool(rows, date, downloads_dir=DOWNLOADS_DIR, file_prefix=DEFAULT_FILE_PREFIX):
-    """每天的股票池 (含信号) 存一份 CSV，保留 POOL_KEEP_DAYS 天；再合并近 POOL_HISTORY_DAYS 天成一份 (多一列日期)"""
+def archive_pool(rows, date, downloads_dir=DOWNLOADS_DIR, file_prefix=DEFAULT_FILE_PREFIX, write=True):
+    """每天的股票池 (含信号) 存一份 CSV，保留 POOL_KEEP_DAYS 天；再合并近 POOL_HISTORY_DAYS 天成一份 (多一列日期)。
+    write=False：这天保留原来的存档 (见 final_kept)，只重新整理合并文件"""
     pool_dir = os.path.join(downloads_dir, POOL_DIR)
     os.makedirs(pool_dir, exist_ok=True)
     name_re = re.compile(rf"^{re.escape(file_prefix)}-pool-(\d{{4}}-\d{{2}}-\d{{2}})\.csv$")
-    write_csv(os.path.join(pool_dir, f"{file_prefix}-pool-{date}.csv"), rows)
+    if write:
+        write_csv(os.path.join(pool_dir, f"{file_prefix}-pool-{date}.csv"), rows)
     files = sorted((f for f in os.listdir(pool_dir) if name_re.match(f)), reverse=True)
     for old in files[POOL_KEEP_DAYS:]:
         os.remove(os.path.join(pool_dir, old))
@@ -327,13 +330,38 @@ def archive_pool(rows, date, downloads_dir=DOWNLOADS_DIR, file_prefix=DEFAULT_FI
 
 # ---------- 主入口 ----------
 
+def final_kept(downloads_dir, date, generated_at, n_rows, close_hhmm="17:00"):
+    """这一天收盘后已经存过一份 (generated_at ≥ 当天收盘)，这次也是收盘后跑、但股票少了两成以上 → True = 保留原来的存档。
+    收盘前的版本 (盘中) 一律被之后的覆盖；收盘后重跑资料正常 (差不多支数) 也会更新"""
+    close = f"{date} {close_hhmm}"
+    if (generated_at or "") < close:
+        return False
+    try:
+        with open(os.path.join(downloads_dir, date, "data.json"), encoding="utf-8") as f:
+            old = json.load(f)
+    except (OSError, ValueError):
+        return False
+    n_old = len(old.get("rows") or [])
+    return (old.get("generated_at") or "") >= close and n_rows < n_old * FINAL_SHRINK
+
+
+def _kept_pool(downloads_dir, date):
+    """保留原来的存档时，股票池「首次进池 / 连续天数」也用原来那一份 (pool_index.json 不改)"""
+    try:
+        with open(os.path.join(downloads_dir, POOL_DIR, "pool_index.json"), encoding="utf-8") as f:
+            idx = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return idx.get("cur") or {} if idx.get("date") == date else {}
+
+
 def _files_for(date, file_prefix=DEFAULT_FILE_PREFIX):
     base = f"{file_prefix}-{date}"
     return {"csv": f"{date}/{base}.csv", "xlsx": f"{date}/{base}.xlsx", "pdf": f"{date}/{base}.pdf"}
 
 
 def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR,
-                     title=DEFAULT_TITLE, tz_label=DEFAULT_TZ_LABEL, file_prefix=DEFAULT_FILE_PREFIX):
+                     title=DEFAULT_TITLE, tz_label=DEFAULT_TZ_LABEL, file_prefix=DEFAULT_FILE_PREFIX, close_hhmm="17:00"):
     """
     导出当天的 CSV/Excel/PDF，删掉超出保留天数的旧文件夹，再生成"近 N 天合并"文件。
     title / tz_label = PDF 标题和生成时间后面的时区；file_prefix = 文件名前缀 (马股 bursa-report，美股 us-report)。
@@ -341,18 +369,21 @@ def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR,
                         "combined": {"xlsx", "csv"} 或 None}
     """
     date = report_date_of(stocks, today)
-    pool = update_pool(stocks, date, downloads_dir)
+    # 收盘后的版本 = 那天最后的股票池；之后同一天再跑 (例如半夜) 只拿到一部分股票 → 不覆盖存档
+    keep = final_kept(downloads_dir, date, generated_at, len(build_rows(stocks)), close_hhmm)
+    pool = _kept_pool(downloads_dir, date) if keep else update_pool(stocks, date, downloads_dir)
     rows = build_rows(stocks, pool)
 
     day_dir = os.path.join(downloads_dir, date)
     os.makedirs(day_dir, exist_ok=True)
     files = _files_for(date, file_prefix)
-    # data.json 是合并文件的数据来源 (不用再去解析 CSV/Excel)
-    with open(os.path.join(day_dir, "data.json"), "w", encoding="utf-8") as f:
-        json.dump({"date": date, "generated_at": generated_at, "rows": rows}, f, ensure_ascii=False)
-    write_csv(os.path.join(downloads_dir, files["csv"]), rows)
-    write_xlsx(os.path.join(downloads_dir, files["xlsx"]), [(date, rows)])
-    write_pdf(os.path.join(downloads_dir, files["pdf"]), date, rows, generated_at, title, tz_label)
+    if not keep:
+        # data.json 是合并文件的数据来源 (不用再去解析 CSV/Excel)
+        with open(os.path.join(day_dir, "data.json"), "w", encoding="utf-8") as f:
+            json.dump({"date": date, "generated_at": generated_at, "rows": rows}, f, ensure_ascii=False)
+        write_csv(os.path.join(downloads_dir, files["csv"]), rows)
+        write_xlsx(os.path.join(downloads_dir, files["xlsx"]), [(date, rows)])
+        write_pdf(os.path.join(downloads_dir, files["pdf"]), date, rows, generated_at, title, tz_label)
 
     # 只处理名字是日期的文件夹，其他东西不碰
     day_dirs = sorted((d for d in os.listdir(downloads_dir)
@@ -386,7 +417,7 @@ def export_downloads(stocks, today, generated_at, downloads_dir=DOWNLOADS_DIR,
         write_csv(os.path.join(downloads_dir, combined["csv"]),
                   [dict(r, 日期=d) for d, rs in combined_days for r in rs], with_date=True)
 
-    pool_files = archive_pool(rows, date, downloads_dir, file_prefix)
+    pool_files = archive_pool(rows, date, downloads_dir, file_prefix, write=not keep)
     pool_files["new"] = [r["名称"] for r in rows if r.get("新进股票池")]
     pool_files["new_codes"] = [r["代码"] for r in rows if r.get("新进股票池")]
-    return {"days": days, "combined": combined, "keep_days": KEEP_REPORT_DAYS, "pool": pool_files}
+    return {"days": days, "combined": combined, "keep_days": KEEP_REPORT_DAYS, "pool": pool_files, "kept": keep}
