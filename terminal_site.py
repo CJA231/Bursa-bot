@@ -9,6 +9,7 @@
 import company  # noqa: E402  (data/company.json：页脚和使用条款的公司资料)
 import json
 import os
+import re
 import shutil
 from datetime import datetime, timedelta
 
@@ -113,8 +114,42 @@ def daily_codes(out_dir):
         return []
 
 
+POOL_FILE_RE = re.compile(r"-pool-(\d{4}-\d{2}-\d{2})\.csv$")
+
+
+def archive_block(downloads, pool_index_path, out_dir):
+    """存档清单 (终端版股票池的日期选择 + 下载区)。路径都相对报告根目录 (data.json 的 report)：
+    pool = 每天的股票池 CSV (保留约一年) {fmt: 路径样板 ({d} = 日期), dates: 新→旧, hist / hdays = 近 N 天合并}；
+    days = 近 7 个报告日的完整报告 CSV / Excel / PDF；comb = 近 7 天合并"""
+    root = os.path.dirname(os.path.abspath(out_dir))
+    pool_dir = os.path.dirname(os.path.abspath(pool_index_path))
+    rel = lambda d: os.path.relpath(d, root).replace(os.sep, "/") + "/"
+    files = {}
+    try:
+        for f in os.listdir(pool_dir):
+            m = POOL_FILE_RE.search(f)
+            if m:
+                files[m.group(1)] = f
+    except OSError:
+        pass
+    out = {}
+    if files:
+        dates = sorted(files, reverse=True)
+        out["pool"] = {"fmt": rel(pool_dir) + files[dates[0]].replace(dates[0], "{d}"), "dates": dates}
+    dl = rel(os.path.dirname(pool_dir))
+    if downloads:
+        pf = downloads.get("pool") or {}
+        if out.get("pool") and pf.get("history"):
+            out["pool"].update({"hist": dl + pf["history"], "hdays": pf.get("days")})
+        out["days"] = [{"d": d["date"], "t": (d.get("generated_at") or "")[-5:], "n": d.get("count"), "sig": d.get("signals") or [],
+                        "f": {k: dl + v for k, v in (d.get("files") or {}).items()}} for d in downloads.get("days") or []]
+        if downloads.get("combined"):
+            out["comb"] = {k: dl + v for k, v in downloads["combined"].items()}
+    return out
+
+
 def build(stocks, market, backtest, board, focus_new, state, updated, tz_label, ledger_path, changes_path, pool_index_path,
-          mcaps=None, report_url="../", out_dir=None, watchlist_path=os.path.join("data", "watchlist.json")):
+          mcaps=None, report_url="../", out_dir=None, watchlist_path=os.path.join("data", "watchlist.json"), downloads=None):
     out_dir = out_dir or TERM_DIR
     rows = [s for s in stocks if s.get("data") and not s["data"].get("low_volume")]
     if not rows:
@@ -144,6 +179,7 @@ def build(stocks, market, backtest, board, focus_new, state, updated, tz_label, 
         "changes": changes,
         "names": universe_names(watchlist_path),
         "daily": daily_codes(out_dir),  # 有 2 年日线 (stock/<代码>.json) 的股票：组合回测「全市场」用
+        "arch": archive_block(downloads, pool_index_path, out_dir),  # 股票池每天的存档 + 近 7 天报告：股票池页的日期选择和下载区
     }
     with open(os.path.join(out_dir, "data.json"), "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
