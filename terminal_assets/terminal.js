@@ -764,6 +764,10 @@
   function cbLbl(q) {  // 标签上显示 [左边, 比较 + 右边]
     if (q.t === 'ema50') return [Z('价格或 EMA5', 'Price or EMA5'), '> EMA50'];
     if (IND[q.l.k].b) return [opndLbl(q.l), (q.op === 'lt' ? Z('不成立', 'not met') : Z('成立', 'met')) + (q.d > 1 ? Z(' · 连 ' + q.d + ' 天', ' · ' + q.d + 'd in a row') : '')];
+    if (q.l.o === 'trend' && !q.r && q.v === 0 && /^(xup|xdn|gt|lt)$/.test(q.op)) {  // 方向 (1 / -1)：「↗ 0」看不懂，直接写转多 / 多头
+      var tw = { xup: ['转多', 'flips up'], xdn: ['转空', 'flips down'], gt: ['多头', 'uptrend'], lt: ['空头', 'downtrend'] }[q.op];
+      return [opndLbl(q.l).replace(/ (方向|Direction)$/, ''), Z(tw[0], tw[1]) + (OPS[q.op][4] && q.w > 1 ? Z(' (近 ' + q.w + ' 天)', ' (last ' + q.w + 'd)') : '') + (q.d > 1 ? Z(' · 连 ' + q.d + ' 天', ' · ' + q.d + 'd in a row') : '')];
+    }
     var m = OPS[q.op], u = IND[q.l.k].u, sym = m[2], right = '';
     if (m[3] === 'rv') right = q.r ? opndLbl(q.r) : fmtV(q.v, u);
     else if (m[3] === 'ri') right = opndLbl(q.r) + ' +' + q.v + '%';
@@ -1144,10 +1148,12 @@
     var low = cl.filter(function (t) { return t.entry < 0.3; }), lowPl = low.reduce(function (s, t) { return s + t.pl; }, 0);
     var trend = cbHas(function (q) { return (q.r && /^(ema|sma|wma|hma)$/.test(q.r.k) && q.r.p[0] >= 50 && /^(gt|ge)$/.test(q.op)) || (q.l.k === 'adx' && q.op === 'gt'); });
     var items = [], push = function (zh, en, act, al2) { items.push({ txt: Z(zh, en), act: act || null, lbl: act ? al2 : '' }); };
-    var med = mc.ret.med, loss = mc.loss, dd = mc.runs > 1 ? mc.dd.med : a.mdd;
+    var multi = mc.runs > 1, med = mc.ret.med, loss = mc.loss, dd = multi ? mc.dd.med : a.mdd;  // 只跑一次 (按排序挑) 时没有「机率」可言
     var verdict = med < 0 || loss > 50 ? 'bad' : med > 10 && loss < 25 && dd > -25 ? 'good' : 'mixed';
-    var vtxt = Z('中位数 ' + pct(med, 1) + '、亏钱机率 ' + loss.toFixed(0) + '%、中位最大回撤 ' + pct(dd, 1), 'Median ' + pct(med, 1) + ', chance of a loss ' + loss.toFixed(0) + '%, median max drawdown ' + pct(dd, 1)) +
-      (verdict === 'bad' ? Z('：这个策略在随机挑选下站不住，下面是从交易里看到的问题。', ': this strategy does not hold up under random picks. Here is what the trades show.') :
+    var vtxt = (multi ? Z('中位数 ' + pct(med, 1) + '、亏钱机率 ' + loss.toFixed(0) + '%、中位最大回撤 ' + pct(dd, 1), 'Median ' + pct(med, 1) + ', chance of a loss ' + loss.toFixed(0) + '%, median max drawdown ' + pct(dd, 1)) :
+      Z('总收益 ' + pct(med, 1) + '、最大回撤 ' + pct(dd, 1), 'Total return ' + pct(med, 1) + ', max drawdown ' + pct(dd, 1))) +
+      (verdict === 'bad' ? (multi ? Z('：这个策略在随机挑选下站不住，下面是从交易里看到的问题。', ': this strategy does not hold up under random picks. Here is what the trades show.') :
+        Z('：这段期间这个策略亏钱，下面是从交易里看到的问题。', ': this strategy lost money over this period. Here is what the trades show.')) :
         verdict === 'good' ? Z('：表现稳定。还是建议换一段期间再跑一次确认。', ': it holds up. Still worth re-running on another period to confirm.') : Z('：好坏参半，下面几点可以试着改善。', ': mixed. A few things below may help.'));
     if (cl.length < 20) push('只有 ' + cl.length + ' 笔已结束的交易，样本太少，结果很不可靠。少用一两个进场条件或拉长期间。', 'Only ' + cl.length + ' closed trades: too few to trust. Drop a condition or use a longer period.',
       CB.from || CB.to ? { k: 'period' } : null, Z('期间改成全部', 'Use the whole period'));
