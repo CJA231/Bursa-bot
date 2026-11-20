@@ -104,6 +104,15 @@ def universe_names(path):
     return {r["symbol"].split(".")[0]: r.get("name") or r["symbol"].split(".")[0] for r in rows if isinstance(r, dict) and r.get("symbol")}
 
 
+def daily_codes(out_dir):
+    """<报告目录>/stock/ 里有哪些股票 (终端的组合回测要知道「全市场」有哪些可以载入)"""
+    d = os.path.join(os.path.dirname(os.path.abspath(out_dir)), "stock")
+    try:
+        return sorted(f[:-5] for f in os.listdir(d) if f.endswith(".json") and not f.startswith("."))
+    except OSError:
+        return []
+
+
 def build(stocks, market, backtest, board, focus_new, state, updated, tz_label, ledger_path, changes_path, pool_index_path,
           mcaps=None, report_url="../", out_dir=None, watchlist_path=os.path.join("data", "watchlist.json")):
     out_dir = out_dir or TERM_DIR
@@ -134,6 +143,7 @@ def build(stocks, market, backtest, board, focus_new, state, updated, tz_label, 
         "board": [{k: b.get(k) for k in ("date", "code", "name", "title", "link", "cat", "signal")} for b in (board or [])[:BOARD_MAX]],
         "changes": changes,
         "names": universe_names(watchlist_path),
+        "daily": daily_codes(out_dir),  # 有 2 年日线 (stock/<代码>.json) 的股票：组合回测「全市场」用
     }
     with open(os.path.join(out_dir, "data.json"), "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
