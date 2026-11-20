@@ -213,6 +213,14 @@ pre::-webkit-scrollbar { display: none; }
 .sens-f { display: flex; gap: 6px; flex-wrap: wrap; }
 .sens-f select { flex: 1; min-width: 160px; font: inherit; font-size: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r, 0px) + 6px); padding: 6px 10px; }
 .sens-f .ok { padding: 6px 12px; border: 1px solid var(--acc); color: var(--acc); background: none; border-radius: calc(var(--r, 0px) + 6px); font: inherit; cursor: pointer; }
+.dg-v { margin: 0; padding: 8px 10px; border-left: 3px solid var(--acc); background: var(--bg2); }
+.dg-v.dg-bad { border-left-color: var(--dn); }
+.dg-v.dg-good { border-left-color: var(--up); }
+.dg-s { display: grid; gap: 4px; }
+.dg-r { display: grid; grid-template-columns: minmax(84px, 120px) 1fr; gap: 8px; padding: 3px 0; border-bottom: 1px dotted var(--line); }
+.dg-i { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
+.dg-i li { line-height: 1.55; }
+.dg-i .more { margin-top: 4px; padding-left: 0; }
 .tpl-save { display: flex; gap: 6px; }
 .tpl-save input { flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r, 0px) + 6px); padding: 7px 10px; }
 .tpl-save .ok { flex: none; padding: 6px 12px; border: 1px solid var(--acc); color: var(--acc); background: none; border-radius: calc(var(--r, 0px) + 6px); font: inherit; cursor: pointer; }

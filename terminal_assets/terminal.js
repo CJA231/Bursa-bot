@@ -741,7 +741,7 @@
     var tail = m[3] === 'none' ? Z(' ' + q.w + ' 天', ' ' + q.w + 'd') : m[4] && q.w > 1 ? Z(' (近 ' + q.w + ' 天)', ' (last ' + q.w + 'd)') : '';
     return [opndLbl(q.l), sym + (right ? ' ' + right : '') + tail + (q.d > 1 ? Z(' · 连 ' + q.d + ' 天', ' · ' + q.d + 'd in a row') : '')];
   }
-  if (window.BTERM_TEST) window.BTERM_TEST.bt = { IND: IND, ctx: cbCtx, ser: cbSer, opnd: opnd, test: cbTest, cond: cbCond, conds: cbConds, exits: function (j) { return cbExits(j); }, stock: function () { return cbStock.apply(null, arguments); }, swing: function (X, k) { return swingLows(X, k); }, cands: function () { return cbCands.apply(null, arguments); }, port: function () { return cbPort.apply(null, arguments); }, mc: function () { return cbMC.apply(null, arguments); } };  // 只给自动测试用
+  if (window.BTERM_TEST) window.BTERM_TEST.bt = { IND: IND, ctx: cbCtx, ser: cbSer, opnd: opnd, test: cbTest, cond: cbCond, conds: cbConds, exits: function (j) { return cbExits(j); }, stock: function () { return cbStock.apply(null, arguments); }, swing: function (X, k) { return swingLows(X, k); }, cands: function () { return cbCands.apply(null, arguments); }, done: function () { cbDone(); }, port: function () { return cbPort.apply(null, arguments); }, mc: function () { return cbMC.apply(null, arguments); } };  // 只给自动测试用
   var XS = {  // [中文, English, 参数 [key, 中文, English, 默认, 最小, 最大, 步长, 单位], 分组]
     stop: ['止损', 'Stop loss', [['v', '从进场价跌', 'Drop from entry', 10, 0.5, 90, 0.5, '%']], 'risk'],
     trail: ['移动止损', 'Trailing stop', [['v', '从持仓最高点回落', 'Drop from highest high', 10, 0.5, 90, 0.5, '%']], 'risk'],
@@ -1060,13 +1060,14 @@
     var codes = cbUni();
     if (!codes.length) { CB.err = CB.uni === 'custom' ? T('先加至少一支股票') : Z('没有股票资料', 'No stock data'); render(); return; }
     if (!CB.conds.length) { CB.err = Z('至少加一个进场条件', 'Add at least one entry condition'); render(); return; }
-    CB.busy = true; CB.err = ''; CB.sens = null; CB.load = { d: 0, n: codes.length }; CB.tlim = 60; render();  // 旧结果留着，算好再换
+    CB.busy = true; CB.again = false; CB.err = ''; CB.sens = null; CB.load = { d: 0, n: codes.length }; CB.tlim = 60; cbDone();  // 旧结果留着，算好再换
     cbLoadAll(codes, function (d, n) { CB.load = { d: d, n: n }; var bt = document.querySelector('[data-cb="run"]'); if (bt) bt.textContent = Z('载入资料 ', 'Loading data ') + d + '/' + n + '…'; }).then(function (all) {
       CB.load = null; var bt = document.querySelector('[data-cb="run"]'); if (bt) bt.textContent = Z('计算中…', 'Running…');
       setTimeout(function () {
         var opt = cbOpt(), P = cbCands(codes, all, CB.exits, opt), mc = cbMC(P, opt);
         CB.res = { mc: mc, rep: mc.rep, trades: mc.rep.trades, exits: JSON.parse(JSON.stringify(CB.exits)), first: P.first, last: P.last, n: P.n, cost: opt.cost, opt: opt };
-        CB.data = { codes: codes, all: all }; CB.busy = false; cbSave(); render();
+        CB.data = { codes: codes, all: all }; CB.busy = false; cbSave();
+        if (CB.again) { CB.again = false; cbRun(); } else cbDone();
       }, 30);
     });
   }
@@ -1081,10 +1082,88 @@
         var mc = cbMC(cbCands(CB.data.codes, CB.data.all, ex, opt), opt, Math.min(opt.runs, 20));
         return { val: val, n: mc.n, win: mc.win, ret: mc.ret.med, dd: mc.dd.med, loss: mc.loss };
       });
-      CB.sens = { k: k, rows: rows, key: sp[0], cur: q[sp[0]] }; render();
+      CB.sens = { k: k, rows: rows, key: sp[0], cur: q[sp[0]] }; cbDone();
     }, 30);
   }
-  function cbRe() { if (CB.res && !CB.busy && (CB.uni !== 'custom' || CB.codes.length) && CB.conds.length) cbRun(); }  // 已经跑过：改了设定就自动重算
+  // ---------- 策略诊断：列出现在的策略，再从回测结果找出可以改进的地方 (每一项可以一键试试，会重新回测) ----------
+  function cbStrat() {
+    var uni = { market: Z('全市场', 'Whole market'), pool: Z('股票池', 'Pool'), custom: Z('自选', 'Custom') }[CB.uni];
+    return { entry: CB.conds.map(function (q) { return cbLbl(q).join(' '); }), exit: CB.exits.map(function (q) { return xLbl(q).join(' ').trim(); }),
+      cap: Z(CB.slots + ' 笔 × RM' + CB.size.toLocaleString('en'), CB.slots + ' × RM' + CB.size.toLocaleString('en')) + ' · ' + (CB.pick === 'rand' ? Z('随机挑', 'random picks') : Z('成交额大的先', 'highest turnover first')),
+      uni: uni + (CB.uni !== 'custom' ? ' ' + cbUniN() : ' ' + CB.codes.length) + Z(' 支', '') + (CB.minpx ? Z(' · 不买低于 RM', ' · skip below RM') + CB.minpx.toFixed(2) : ''),
+      period: (CB.from || Z('最早', 'earliest')) + ' ~ ' + (CB.to || Z('最新', 'latest')) };
+  }
+  function cbHas(f) { return CB.conds.some(function (q) { return !q.t && f(q); }); }
+  function cbDiag(r) {
+    var a = r.rep, mc = r.mc, tr = a.trades, cl = tr.filter(function (t) { return t.reason !== 'open'; });
+    var wn = cl.filter(function (t) { return t.pl > 0; }), ls = cl.filter(function (t) { return t.pl <= 0; });
+    var avg = function (arr, f) { return arr.length ? arr.reduce(function (s, t) { return s + f(t); }, 0) / arr.length : null; };
+    var aw = avg(wn, function (t) { return t.net; }), al = avg(ls, function (t) { return t.net; }), payoff = aw != null && al ? aw / -al : null;
+    var win = cl.length ? wn.length / cl.length * 100 : 0;
+    var stopK = r.exits.map(function (q, k) { return q.t === 'stop' ? k : -1; }).filter(function (k) { return k >= 0; })[0];
+    var stopTr = stopK == null ? [] : cl.filter(function (t) { return t.reason === 'x' + stopK; }), stopPl = stopTr.reduce(function (s, t) { return s + t.pl; }, 0);
+    var p90 = (function () { if (wn.length < 5) return null; var m = wn.map(function (t) { return -t.mae; }).sort(function (x, y) { return x - y; }); return m[Math.min(m.length - 1, Math.floor(m.length * 0.9))]; })();
+    var give = avg(wn, function (t) { return t.mfe - t.ret; });
+    var low = cl.filter(function (t) { return t.entry < 0.3; }), lowPl = low.reduce(function (s, t) { return s + t.pl; }, 0);
+    var trend = cbHas(function (q) { return (q.r && /^(ema|sma|wma|hma)$/.test(q.r.k) && q.r.p[0] >= 50 && /^(gt|ge)$/.test(q.op)) || (q.l.k === 'adx' && q.op === 'gt'); });
+    var items = [], push = function (zh, en, act, al2) { items.push({ txt: Z(zh, en), act: act || null, lbl: act ? al2 : '' }); };
+    var med = mc.ret.med, loss = mc.loss, dd = mc.runs > 1 ? mc.dd.med : a.mdd;
+    var verdict = med < 0 || loss > 50 ? 'bad' : med > 10 && loss < 25 && dd > -25 ? 'good' : 'mixed';
+    var vtxt = Z('中位数 ' + pct(med, 1) + '、亏钱机率 ' + loss.toFixed(0) + '%、中位最大回撤 ' + pct(dd, 1), 'Median ' + pct(med, 1) + ', chance of a loss ' + loss.toFixed(0) + '%, median max drawdown ' + pct(dd, 1)) +
+      (verdict === 'bad' ? Z('：这个策略在随机挑选下站不住，下面是从交易里看到的问题。', ': this strategy does not hold up under random picks. Here is what the trades show.') :
+        verdict === 'good' ? Z('：表现稳定。还是建议换一段期间再跑一次确认。', ': it holds up. Still worth re-running on another period to confirm.') : Z('：好坏参半，下面几点可以试着改善。', ': mixed. A few things below may help.'));
+    if (cl.length < 20) push('只有 ' + cl.length + ' 笔已结束的交易，样本太少，结果很不可靠。少用一两个进场条件或拉长期间。', 'Only ' + cl.length + ' closed trades: too few to trust. Drop a condition or use a longer period.',
+      CB.from || CB.to ? { k: 'period' } : null, Z('期间改成全部', 'Use the whole period'));
+    if (mc.runs > 1 && mc.ret.hi - mc.ret.lo > 40) push('随机 ' + mc.runs + ' 次的收益从 ' + pct(mc.ret.lo, 0) + ' 到 ' + pct(mc.ret.hi, 0) + '，同一天信号太多 (没空位错过 ' + a.missed + ' 个)，结果很看挑到哪一支。条件要更严，让信号变少、变准。',
+      'Random runs range from ' + pct(mc.ret.lo, 0) + ' to ' + pct(mc.ret.hi, 0) + ': too many signals per day (' + a.missed + ' missed), so results depend on which stock gets picked. Tighten the entry so signals are fewer and better.',
+      !trend ? { k: 'addc', q: { l: { k: 'close' }, op: 'gt', r: { k: 'ema', p: [50] } } } : { k: 'pick', v: 'tov' }, !trend ? Z('加「收盘价 > EMA(50)」', 'Add “Close > EMA(50)”') : Z('改成成交额大的先', 'Pick highest turnover first'));
+    if (stopTr.length >= Math.max(3, cl.length * 0.35) && stopPl < 0) push(Math.round(stopTr.length / cl.length * 100) + '% 的交易是止损出场，合计 ' + (stopPl < 0 ? '-' : '+') + 'RM' + Math.abs(Math.round(stopPl)).toLocaleString('en') + '：常常一进场就反向。加一个趋势过滤，只在大趋势向上时进场。',
+      Math.round(stopTr.length / cl.length * 100) + '% of trades hit the stop, totalling RM' + Math.round(stopPl).toLocaleString('en') + ': entries often reverse straight away. Add a trend filter so you only enter in an uptrend.',
+      !trend ? { k: 'addc', q: { l: { k: 'close' }, op: 'gt', r: { k: 'ema', p: [50] } } } : !cbHas(function (q) { return q.l.k === 'adx'; }) ? { k: 'addc', q: { l: { k: 'adx', o: 'adx' }, op: 'gt', v: 20 } } : null,
+      !trend ? Z('加「收盘价 > EMA(50)」', 'Add “Close > EMA(50)”') : Z('加「ADX > 20」', 'Add “ADX > 20”'));
+    if (win < 40 && payoff != null && payoff < 1.5) push('胜率 ' + win.toFixed(0) + '%、盈亏比 ' + payoff.toFixed(2) + '：赢的不够多，赚的也不够大。进场时要求放量确认。',
+      'Win rate ' + win.toFixed(0) + '%, payoff ' + payoff.toFixed(2) + ': not enough winners, and wins are not big enough. Require volume confirmation on entry.',
+      !cbHas(function (q) { return q.l.k === 'rvol'; }) ? { k: 'addc', q: { l: { k: 'rvol', p: [20] }, op: 'ge', v: 1.5 } } : null, Z('加「相对量 ≥ 1.5」', 'Add “Relative volume ≥ 1.5”'));
+    if (stopK != null && p90 != null) {
+      var sv = r.exits[stopK].v, nv = Math.min(20, Math.ceil(p90 + 1));
+      if (sv > p90 + 3) push('九成赢单的浮亏不超过 ' + p90.toFixed(1) + '%，止损 ' + sv + '% 太宽，输的单会亏太多。', '90% of winners dipped less than ' + p90.toFixed(1) + '%, so a ' + sv + '% stop is too wide and losers lose too much.', { k: 'stop', v: nv }, Z('止损改成 ' + nv + '%', 'Set stop to ' + nv + '%'));
+      else if (sv < p90 - 1) push('一成赢单中途跌超过 ' + p90.toFixed(1) + '%，止损 ' + sv + '% 会把这些后来会赚的单先砍掉。', '10% of winners dipped more than ' + p90.toFixed(1) + '%; a ' + sv + '% stop cuts them before they recover.', { k: 'stop', v: nv }, Z('止损改成 ' + nv + '%', 'Set stop to ' + nv + '%'));
+    }
+    if (give != null && give > 8) {
+      var sk = r.exits.map(function (q, k) { return q.t === 'swing' && q.k > 1 ? k : -1; }).filter(function (k) { return k >= 0; })[0], hasTr = r.exits.some(function (q) { return q.t === 'trail'; });
+      push('赚钱的单平均回吐 ' + give.toFixed(1) + '% 才出场：出场太慢。', 'Winners give back ' + give.toFixed(1) + '% on average before exiting: exits are too slow.',
+        sk != null ? { k: 'swingk', i: sk } : !hasTr ? { k: 'addx', q: { t: 'trail', v: 10 } } : null, sk != null ? Z('回调低点强度改成 1', 'Swing-low strength 1') : Z('加「移动止损 10%」', 'Add “Trailing stop 10%”'));
+    }
+    if (low.length >= Math.max(3, cl.length * 0.3) && lowPl < 0) { var mp = CB.minpx < 0.3 ? 0.3 : 0.5;
+      push(low.length + ' 笔是 RM0.30 以下的股票，合计 -RM' + Math.abs(Math.round(lowPl)).toLocaleString('en') + '：价格低，跳一格就是好几个百分点。', low.length + ' trades were below RM0.30, totalling -RM' + Math.abs(Math.round(lowPl)).toLocaleString('en') + ': at low prices one tick is several percent.',
+        { k: 'minpx', v: mp }, Z('不买低于 RM' + mp.toFixed(2), 'Skip below RM' + mp.toFixed(2))); }
+    if (dd < -25 && CB.slots < 10) { var ns = Math.min(10, CB.slots * 2), nz = Math.max(1000, Math.round(CB.slots * CB.size / ns / 1000) * 1000);
+      push('中位最大回撤 ' + pct(dd, 1) + '：资金太集中在少数几笔。同样的本金分成更多笔。', 'Median max drawdown ' + pct(dd, 1) + ': capital is concentrated in too few positions. Split the same capital into more positions.',
+        { k: 'cap', slots: ns, size: nz }, Z(ns + ' 笔 × RM' + nz.toLocaleString('en'), ns + ' × RM' + nz.toLocaleString('en'))); }
+    if (a.days.length > 40 && a.avgHeld / CB.slots < 0.4) push('空位常常空着 (平均持仓 ' + a.avgHeld.toFixed(1) + ' / ' + CB.slots + ')：信号太少，资金闲着。可以放宽一个条件或扩大股票范围。',
+      'Slots are often empty (avg ' + a.avgHeld.toFixed(1) + ' / ' + CB.slots + '): too few signals, capital sits idle. Loosen a condition or widen the stock scope.',
+      CB.uni !== 'market' ? { k: 'uni', v: 'market' } : null, Z('股票范围改成全市场', 'Use the whole market'));
+    return { verdict: verdict, vtxt: vtxt, items: items.slice(0, 6), stats: { 胜率: +win.toFixed(1), 盈亏比: payoff == null ? null : +payoff.toFixed(2), 止损出场笔数: stopTr.length, 九成赢单浮亏不超过: p90, 赢单平均回吐: give == null ? null : +give.toFixed(1) } };
+  }
+  function cbFix(i) {
+    var f = CB.dx && CB.dx[i]; if (!f) return;
+    if (f.k === 'addc') CB.conds.push(cbCond(f.q));
+    else if (f.k === 'addx') CB.exits.push(xCond(f.q));
+    else if (f.k === 'stop') CB.exits.forEach(function (q) { if (q.t === 'stop') q.v = f.v; });
+    else if (f.k === 'swingk') { if (CB.exits[f.i]) CB.exits[f.i].k = 1; }
+    else if (f.k === 'minpx') CB.minpx = f.v;
+    else if (f.k === 'cap') { CB.slots = f.slots; CB.size = f.size; }
+    else if (f.k === 'pick') CB.pick = f.v;
+    else if (f.k === 'uni') CB.uni = f.v;
+    else if (f.k === 'period') { CB.from = ''; CB.to = ''; }
+    CB.pop = null; cbSave(); render(); cbRe();
+  }
+  function cbAskAI() {  // 把策略 + 结果 + 诊断交给 AI，问它怎么改 (用户自己选的模型 / 密钥)
+    AI.open = true; if (SY.open) { SY.open = false; acctRender(); } aiRender();
+    if (aiReady()) aiAsk(Z('根据这次回测的资料，这个策略表现不好的主要原因是什么？请具体建议进场条件、出场条件和资金设定可以怎么调整，并说明理由。只讨论回测设定，不要给个股买卖建议。',
+      'Based on this backtest, what are the main reasons this strategy underperforms? Suggest concrete changes to the entry conditions, exit conditions and capital settings, with reasons. Only discuss the backtest settings, not whether to buy or sell any stock.'));
+  }
+  function cbRe() { if (!CB.res || !(CB.uni !== 'custom' || CB.codes.length) || !CB.conds.length) return; if (CB.busy) { CB.again = true; return; } cbRun(); }  // 已经跑过：改了设定就自动重算 (正在算就等算完再算一次)  // 已经跑过：改了设定就自动重算
   function cbAdd(codes) { codes.forEach(function (c) { if (c && CB.codes.indexOf(c) < 0 && CB.codes.length < 30) CB.codes.push(c); }); CB.q = ''; cbSave(); render(); }
   function cbPreset(k) {
     var last = D.date || new Date().toISOString().slice(0, 10), d = new Date(last + 'T00:00:00Z');
@@ -1210,10 +1289,17 @@
     var tgt = b.closest('.pill') || b, x = tgt.getBoundingClientRect().left - bar.getBoundingClientRect().left;
     pop.style.marginLeft = Math.max(0, Math.min(x, bar.clientWidth - pop.offsetWidth)) + 'px';
   }
-  function pageCustom() {
+  function cbRunBtn() { return '<button type="button" class="run" data-cb="run"' + (CB.busy ? ' disabled' : '') + '>' + (CB.busy ? (CB.load ? Z('载入资料 ', 'Loading data ') + CB.load.d + '/' + CB.load.n + '…' : Z('计算中…', 'Running…')) : Z('▶ 运行回测', '▶ Run backtest')) + '</button>' + (CB.err ? '<p class="dn">' + esc(CB.err) + '</p>' : ''); }
+  function pageCustom() { return cbBar() + '<div id="cb-run">' + cbRunBtn() + '</div><div id="cb-res">' + cbResHtml() + '</div>'; }
+  // 背景重算完成：正在回测编辑框里打字就只换结果和运行按钮，不重画编辑框 (不然打到一半的内容会不见)
+  function cbDone() {
+    var ae = document.activeElement, res = document.getElementById('cb-res'), run = document.getElementById('cb-run');
+    if (ae && ae.closest && ae.closest('#cbpop') && res && run && S.page === 'bt' && !S.code) { res.innerHTML = cbResHtml(); run.innerHTML = cbRunBtn(); } else render();
+  }
+  function cbResHtml() {
     var pos = (D.bt && D.bt.position) || 20000, R = function (v) { return isNum(v) ? v / 100 * pos : null; };
     var name = function (c) { return ST[c] ? ST[c].name : NAMES[c] || c; };
-    var h = cbBar() + '<button type="button" class="run" data-cb="run"' + (CB.busy ? ' disabled' : '') + '>' + (CB.busy ? (CB.load ? Z('载入资料 ', 'Loading data ') + CB.load.d + '/' + CB.load.n + '…' : Z('计算中…', 'Running…')) : Z('▶ 运行回测', '▶ Run backtest')) + '</button>' + (CB.err ? '<p class="dn">' + esc(CB.err) + '</p>' : '');
+    var h = '';
     var r = CB.res;
     if (r) {
       var a = r.rep, mc = r.mc, o = r.opt, K = function (v) { return (v < 0 ? '-' : '+') + 'RM' + Math.abs(Math.round(v)).toLocaleString('en'); };
@@ -1232,6 +1318,17 @@
         '<tr><td>' + Z('总收益', 'Return') + '</td><td class="n ' + cls(mc.ret.lo) + '">' + pc(mc.ret.lo) + '</td><td class="n ' + cls(mc.ret.med) + '">' + pc(mc.ret.med) + '</td><td class="n ' + cls(mc.ret.hi) + '">' + pc(mc.ret.hi) + '</td></tr>' +
         '<tr><td>' + Z('最大回撤', 'Max drawdown') + '</td><td class="n dn">' + pc(mc.dd.lo) + '</td><td class="n dn">' + pc(mc.dd.med) + '</td><td class="n dn">' + pc(mc.dd.hi) + '</td></tr>' +
         '<tr><td>' + Z('亏钱的机率', 'Chance of a loss') + '</td><td class="n" colspan="3">' + mc.loss.toFixed(0) + '%</td></tr></tbody></table></div>');
+      // 策略诊断
+      var dg = cbDiag(r), st = cbStrat(); CB.dx = dg.items.map(function (x) { return x.act; });
+      var row = function (k, v) { return '<div class="dg-r"><span class="dim">' + k + '</span><span>' + v + '</span></div>'; };
+      h += pn(Z('策略诊断', 'Strategy check'), '',
+        '<p class="dg-v dg-' + dg.verdict + '">' + esc(dg.vtxt) + '</p>' +
+        '<div class="dg-s">' + row(Z('进场 (全部成立)', 'Entry (all)'), st.entry.map(esc).join('<br>')) + row(Z('出场 (任一)', 'Exit (any)'), st.exit.map(esc).join('<br>')) +
+          row(Z('资金', 'Capital'), esc(st.cap)) + row(Z('股票', 'Stocks'), esc(st.uni)) + row(Z('期间', 'Period'), esc(st.period)) + '</div>' +
+        (dg.items.length ? '<ol class="dg-i">' + dg.items.map(function (x, i) { return '<li>' + esc(x.txt) + (x.act ? '<br><button type="button" class="more" data-cb="fix" data-v="' + i + '">' + Z('试试：', 'Try: ') + esc(x.lbl) + ' →</button>' : '') + '</li>'; }).join('') + '</ol>'
+          : '<p class="dim">' + Z('交易资料里没有看到明显的问题。', 'Nothing obvious stands out in the trades.') + '</p>') +
+        '<p class="dim">' + Z('「试试」会改设定并重新回测，自己比较前后结果。在同一段资料上改太多次，容易只是刚好适合过去，最好再换一段期间验证。', '“Try” changes the setting and re-runs; compare the results yourself. Tuning many times on the same data tends to fit the past, so confirm on another period.') + '</p>' +
+        '<button type="button" class="more" data-cb="askai">✦ ' + Z('问 AI 怎么改进', 'Ask AI how to improve') + '</button>');
       // 每月：开仓 / 平仓 / 平均持仓 / 当月盈亏 / 月底资金
       if (a.days.length > 20) {
         var mo = {}, order = [];
@@ -1305,6 +1402,8 @@
     else if (a === 'sens') { var sel = document.getElementById('cb-sx'); if (sel) cbSens(+sel.value); }
     else if (a === 'tmore') { CB.tlim += 60; render(); }
     else if (a === 'uni') { CB.uni = v; cbSave(); render(); cbRe(); }
+    else if (a === 'fix') cbFix(+v);
+    else if (a === 'askai') cbAskAI();
     else if (a === 'capv') { var cv = v.split(':'); CB[cv[0]] = cv[0] === 'pick' ? cv[1] : +cv[1]; cbSave(); render(); cbRe(); }
   }
   try { S.bt = localStorage.getItem('bterm_btmode') === 'custom' ? 'custom' : 'ledger'; } catch (e) { S.bt = 'ledger'; }
@@ -1847,6 +1946,14 @@
       if (S.page === 'cal' && IPO) c.待上市新股 = IPO.filter(function (r) { return !r.listing || r.listing > today(); }).map(function (r) { return { 代码: r.code, 简称: r.ticker, 名称: r.name, 板块: r.board, 招股价: r.price, 截止认购: r.close, 抽签: r.ballot, 上市: r.listing, 行业: r.sector }; });
       if (S.page === 'cal' && CAL) c.日历 = CAL.filter(function (e) { return e.date >= today(); }).slice(0, 30).map(function (e) { return e.date + ' ' + e.name + ' ' + (CAL_T[e.type] || [])[1] + ' ' + (e.what || ''); });
       if (S.page === 'watch') c.观察列表 = curFolder().codes.map(function (x) { return ST[x] ? brief(ST[x]) : nameOf(x) + ' ' + x; });
+      if (S.page === 'bt' && S.bt === 'custom' && CB.res) {  // 自定义回测：策略设定 + 组合结果 + 诊断
+        var R0 = CB.res, A0 = R0.rep, M0 = R0.mc, G0 = cbDiag(R0), X0 = {};
+        A0.trades.forEach(function (t) { var k = t.reason === 'open' ? T('持仓中') : xLbl(R0.exits[+t.reason.slice(1)] || {}).join(' '); var g = X0[k] || (X0[k] = { 笔数: 0, 合计RM: 0 }); g.笔数++; g.合计RM += Math.round(t.pl); });
+        c.回测 = { 策略: cbStrat(), 资金曲线: { 起始: A0.cap, 期末: Math.round(A0.final), 总收益百分比: +A0.ret.toFixed(2), 最大回撤百分比: +A0.mdd.toFixed(2), 年化: A0.cagr == null ? null : +A0.cagr.toFixed(2) },
+          交易: { 笔数: A0.n, 持仓中: A0.open, 平均持有天数: A0.hold, 平均持仓: +A0.avgHeld.toFixed(2), 满仓天数百分比: +A0.full.toFixed(0), 没空位错过信号: A0.missed },
+          随机分布: M0.runs > 1 ? { 次数: M0.runs, 收益最差5: +M0.ret.lo.toFixed(1), 收益中位: +M0.ret.med.toFixed(1), 收益最好5: +M0.ret.hi.toFixed(1), 回撤中位: +M0.dd.med.toFixed(1), 亏钱机率: +M0.loss.toFixed(0) } : null,
+          出场原因: X0, 指标: G0.stats, 程序诊断: G0.items.map(function (x) { return x.txt; }) };
+      }
     }
     return c;
   }
@@ -1855,6 +1962,7 @@
     if (S.page === 'ann') return [T('今天最值得留意的公告有哪些'), T('把这些公告按类型整理一下')];
     if (S.page === 'cal') return [T('接下来两周有哪些重要日期'), T('哪些公司快要除息')];
     if (S.page === 'watch') return [T('整理我观察列表里股票今天的表现')];
+    if (S.page === 'bt' && S.bt === 'custom' && CB.res) return [Z('这个回测策略可以怎么改进', 'How could this backtest strategy be improved'), Z('解释这次回测的结果', 'Explain these backtest results')];
     return [T('今天大盘的情况怎么样'), T('成交额最大的几支股票在发生什么'), T('解释一下今天信号股符合的条件')];
   }
   // AI 回答的可视化：标题、分点、表格 (数字栏位画长条)、涨跌 % 上色、RM 金额突出、提到的股票简称可以点开个股页
