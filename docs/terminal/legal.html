@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Terms &amp; Conditions · Bursa Bot</title>
+<link rel="stylesheet" href="terminal.css?v=77761444">
+<style>
+  .legal { max-width: 780px; margin: 0 auto; padding: 20px 16px 60px; line-height: 1.75; }
+  .legal h1 { font-size: 19px; color: var(--acc); margin: 8px 0 2px; }
+  .legal h2 { font-size: 14px; color: var(--acc); margin: 26px 0 6px; padding-bottom: 3px; border-bottom: 1px solid var(--line); }
+  .legal p, .legal li { font-size: 13px; }
+  .legal ol, .legal ul { padding-left: 1.4em; margin: 4px 0; }
+  .legal ol.sub { list-style: none; padding-left: 0; }
+  .legal ol.sub > li { padding-left: 2.6em; text-indent: -2.6em; margin: 4px 0; }
+  .legal .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; position: static; }
+  .legal .top a, .legal .top button { color: var(--acc2); font: inherit; background: none; border: 0; cursor: pointer; }
+  .legal .co { border: 1px solid var(--line); padding: 10px 12px; margin: 10px 0 4px; font-size: 12.5px; }
+  .legal .toc { columns: 2; column-gap: 24px; font-size: 12.5px; padding-left: 2.4em; }
+  .legal .caps { text-transform: uppercase; font-size: 12.5px; }
+  .legal .note { font-size: 12px; }
+  @media (max-width: 560px) { .legal .toc { columns: 1; } }
+  [data-l="zh"] { display: none; }
+  html[data-lang="zh"] [data-l="en"] { display: none; }
+  html[data-lang="zh"] [data-l="zh"] { display: block; }
+  @media print { .legal .top { display: none; } }
+</style>
+<script>
+  // 语言跟终端版 / 标准报告共用 (localStorage bursa_lang)；没设定时按浏览器语言
+  (function () { var l = null; try { l = localStorage.getItem('bursa_lang'); } catch (e) {}
+    if (l !== 'en') l = 'zh';  // 跟终端版一样，默认中文
+    document.documentElement.dataset.lang = l; document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en'; })();
+</script>
+</head>
+<body>
+<div class="legal">
+  <div class="top"><a href="./">← bursa.term</a><button type="button" onclick="try{localStorage.setItem('bursa_lang',document.documentElement.dataset.lang==='zh'?'en':'zh')}catch(e){};location.reload()">English / 中文</button></div>
+
+  <!-- ===================================================== ENGLISH (governing version) ===================================================== -->
+  <section data-l="en">
+    <h1>Terms and Conditions of Use, Disclaimer and Notice of Rights</h1>
+    <p class="dim">Effective date: 18 November 2026 · Last updated: 19 November 2026</p>
+    <div class="co">
+      <b>[COMPANY NAME] SDN. BHD.</b> (Registration No. [202X01XXXXXX (XXXXXXX-X)])<br>
+      Registered address: [Registered address], Malaysia<br>
+      Email: [legal@yourdomain.com]
+    </div>
+    <p class="note dim">Please read these Terms carefully. By accessing or using the Platform you agree to be bound by them. If you do not agree, you must not use the Platform.</p>
+
+    <ol class="toc">
+      <li><a href="#e1">Definitions and Interpretation</a></li><li><a href="#e2">Acceptance of these Terms</a></li>
+      <li><a href="#e3">Nature of the Platform — No Investment Advice</a></li><li><a href="#e4">Regulatory Status</a></li>
+      <li><a href="#e5">Risk Disclosure</a></li><li><a href="#e6">Data, Sources and Third-Party Content</a></li>
+      <li><a href="#e7">Automated and AI-Generated Content</a></li><li><a href="#e8">Corporate Pages (IR / ESG)</a></li>
+      <li><a href="#e9">Permitted Use and Prohibited Conduct</a></li><li><a href="#e10">Intellectual Property — All Rights Reserved</a></li>
+      <li><a href="#e11">Disclaimer of Warranties</a></li><li><a href="#e12">Limitation of Liability</a></li>
+      <li><a href="#e13">Indemnity</a></li><li><a href="#e14">Personal Data and Privacy</a></li>
+      <li><a href="#e15">Third-Party Links and Services</a></li><li><a href="#e16">Availability, Suspension and Changes</a></li>
+      <li><a href="#e17">Amendments to these Terms</a></li><li><a href="#e18">Governing Law and Jurisdiction</a></li>
+      <li><a href="#e19">General Provisions</a></li><li><a href="#e20">Language</a></li><li><a href="#e21">Contact</a></li>
+    </ol>
+
+    <h2 id="e1">1. Definitions and Interpretation</h2>
+    <ol class="sub">
+      <li>1.1 In these Terms: <b>“Company”</b>, <b>“we”</b>, <b>“us”</b> and <b>“our”</b> mean [COMPANY NAME] SDN. BHD. (Registration No. [202X01XXXXXX (XXXXXXX-X)]), a private company limited by shares incorporated in Malaysia; <b>“Platform”</b> means the Bursa Bot websites, including the standard report, the terminal edition, the desktop widget, the IR / ESG pages and embeddable widgets, all downloadable files and any related services; <b>“Content”</b> means all information, data, signals, screens, charts, backtests, calendars, summaries, reports, text, software and other material made available on the Platform; <b>“User”</b> and <b>“you”</b> mean any person who accesses or uses the Platform.</li>
+      <li>1.2 Headings are for convenience only. Words in the singular include the plural and vice versa. “Including” means “including without limitation”.</li>
+    </ol>
+
+    <h2 id="e2">2. Acceptance of these Terms</h2>
+    <ol class="sub">
+      <li>2.1 These Terms form a legally binding agreement between you and the Company, concluded by electronic means in accordance with the Electronic Commerce Act 2006. Your access to or use of the Platform constitutes your acceptance of these Terms.</li>
+      <li>2.2 If you use the Platform on behalf of an organisation, you represent that you are authorised to bind that organisation to these Terms.</li>
+      <li>2.3 You must be at least 18 years of age, or have the consent of a parent or guardian, to use the Platform.</li>
+    </ol>
+
+    <h2 id="e3">3. Nature of the Platform — No Investment Advice</h2>
+    <ol class="sub">
+      <li>3.1 The Platform is an information and research tool. Content is compiled from publicly available information and generated by predefined rules and automated processes, for general information, research and educational purposes only.</li>
+      <li>3.2 <b>Nothing on the Platform constitutes investment advice, a recommendation, an offer, an invitation or a solicitation to buy, sell, subscribe for or hold any security, derivative or other financial product</b>, nor an opinion on the merits of any investment. Signals, screens, “risk lines”, reference levels, backtests, simulated portfolios, markers (such as 📌 or ⚠) and any other Content describe data and rule outcomes only.</li>
+      <li>3.3 Content does not take into account your investment objectives, financial situation, knowledge, experience or particular needs. You are solely responsible for your investment decisions and should seek advice from a person licensed by the Securities Commission Malaysia before making any investment decision.</li>
+      <li>3.4 No fiduciary, advisory or client relationship is created between you and the Company by your use of the Platform.</li>
+    </ol>
+
+    <h2 id="e4">4. Regulatory Status</h2>
+    <ol class="sub">
+      <li>4.1 The Company does <b>not</b> hold a Capital Markets Services Licence and is <b>not</b> a registered person under the Capital Markets and Services Act 2007 (“CMSA”), and does not carry on the regulated activities of dealing in securities, investment advice, fund management or financial planning.</li>
+      <li>4.2 The Platform is not affiliated with, endorsed, sponsored or approved by Bursa Malaysia Berhad, the Securities Commission Malaysia, FTSE Russell or any listed issuer.</li>
+      <li>4.3 Where Content may be regarded as relating to a regulated activity, it is provided on an impersonal, general basis to the public and is not tailored to any person.</li>
+    </ol>
+
+    <h2 id="e5">5. Risk Disclosure</h2>
+    <ol class="sub">
+      <li>5.1 Investing in securities involves substantial risk. Prices may fall as well as rise, and you may lose all of your capital. Small-capitalisation, ACE Market, LEAP Market and newly listed securities may be particularly volatile and illiquid.</li>
+      <li>5.2 Past performance, including backtested, simulated or hypothetical results, is not indicative of future results. Backtests and simulations rely on simplified assumptions and do not reflect actual execution prices, liquidity, slippage, taxes, stamp duty, clearing fees, brokerage or other costs.</li>
+      <li>5.3 Market data may be delayed. Intraday information is not real-time and must not be relied upon for trading.</li>
+    </ol>
+
+    <h2 id="e6">6. Data, Sources and Third-Party Content</h2>
+    <ol class="sub">
+      <li>6.1 Content is derived from third-party and public sources, including Yahoo Finance (prices and financial statements), company announcements published on Bursa Malaysia (obtained via KLSE Screener), prospectuses, company websites and reports, and Google News. The Company does not control these sources.</li>
+      <li>6.2 Third-party data may be delayed, incomplete, inaccurate or changed without notice. In the event of any inconsistency, the original announcement, report or filing published by the issuer on Bursa Malaysia or on its own website prevails.</li>
+      <li>6.3 All trade names, trade marks and logos referred to on the Platform (including Bursa Malaysia, FTSE Bursa Malaysia KLCI, Yahoo, KLSE Screener, Google, DeepSeek and TradingView) belong to their respective owners and are used for identification only. Charts use TradingView Lightweight Charts™ under the Apache License 2.0.</li>
+    </ol>
+
+    <h2 id="e7">7. Automated and AI-Generated Content</h2>
+    <ol class="sub">
+      <li>7.1 Certain Content — including company summaries, announcement tags, corporate-action calendars, business-segment updates, sustainability (ESG) extractions, translations and the on-page assistant — is produced wholly or partly by automated systems and artificial-intelligence models. Such Content may contain errors, omissions, misinterpretations or outdated information.</li>
+      <li>7.2 The Company applies filters and verification steps (for example, requiring extracted figures to match a quotation from the cited page), but does not guarantee the accuracy or completeness of automated Content. Automated Content describes facts only and does not express the Company’s view on any security or issuer.</li>
+      <li>7.3 The Company may correct Content at its discretion without notice or marking. A correction does not constitute advice or an opinion.</li>
+      <li>7.4 Questions you submit to the on-page assistant are processed by third-party AI service providers. You must not submit personal, confidential or sensitive information.</li>
+    </ol>
+
+    <h2 id="e8">8. Corporate Pages (IR / ESG)</h2>
+    <ol class="sub">
+      <li>8.1 Investor-relations and sustainability pages compile an issuer’s public disclosures. Disclosure checklists indicate only whether an item was located by automated search in the issuer’s report (“found”, “partly”, “not found”). They are <b>not</b> an ESG rating, score, ranking, assurance, audit or compliance opinion, including in relation to the National Sustainability Reporting Framework or IFRS S1 / S2.</li>
+      <li>8.2 Peer comparisons present disclosed figures side by side and do not rank or rate issuers.</li>
+      <li>8.3 Issuers who embed Platform widgets on their own websites remain responsible for their own disclosures and obligations under the Bursa Malaysia Listing Requirements.</li>
+    </ol>
+
+    <h2 id="e9">9. Permitted Use and Prohibited Conduct</h2>
+    <ol class="sub">
+      <li>9.1 Subject to these Terms, the Company grants you a limited, personal, revocable, non-exclusive and non-transferable licence to access and view the Platform for your own non-commercial use.</li>
+      <li>9.2 You must not, without the Company’s prior written consent: (a) copy, reproduce, republish, redistribute, sell, sublicense or commercially exploit any Content; (b) scrape, crawl, harvest or systematically extract Content or data by automated means; (c) frame or mirror the Platform (other than through the official embeddable widgets as provided); (d) reverse engineer, decompile or create derivative works from the Platform’s software, strategies or methods; (e) remove or alter any copyright, trade mark or other proprietary notice; (f) use the Platform to provide investment advice or any regulated service to others; (g) interfere with, overload or attempt to gain unauthorised access to the Platform or its infrastructure; or (h) use the Platform for any unlawful purpose.</li>
+    </ol>
+
+    <h2 id="e10">10. Intellectual Property — All Rights Reserved</h2>
+    <ol class="sub">
+      <li>10.1 The Platform and all Content, including software, source code, screening strategies and parameters, algorithms, data compilations, reports, page designs, layouts and the Bursa Bot name, are owned by or licensed to the Company and are protected by the Copyright Act 1987 and other applicable intellectual-property laws of Malaysia and international treaties.</li>
+      <li>10.2 <b>© 2026 [COMPANY NAME] SDN. BHD.. All rights reserved.</b> No right, title or licence is granted to you except as expressly set out in Clause 9.1. The fact that any part of the Platform or its source repository is publicly viewable does not grant any licence to use it.</li>
+      <li>10.3 Third-party components, data and marks remain subject to their own licences and terms (see the NOTICE file published with the Platform).</li>
+      <li>10.4 Any unauthorised use may give rise to civil and/or criminal liability, and the Company reserves all rights and remedies available at law and in equity.</li>
+    </ol>
+
+    <h2 id="e11">11. Disclaimer of Warranties</h2>
+    <p class="caps">To the maximum extent permitted by law, the Platform and all Content are provided on an “as is” and “as available” basis, without any representation, warranty or condition of any kind, whether express, implied or statutory, including any warranty of accuracy, completeness, timeliness, reliability, merchantability, fitness for a particular purpose, non-infringement, or that the Platform will be uninterrupted, secure or free of errors or harmful components.</p>
+    <p class="note">Nothing in these Terms excludes any guarantee or right that cannot lawfully be excluded under the Consumer Protection Act 1999 or other applicable law. Where the Consumer Protection Act 1999 applies, these Terms apply only to the extent permitted by that Act.</p>
+
+    <h2 id="e12">12. Limitation of Liability</h2>
+    <ol class="sub">
+      <li>12.1 To the maximum extent permitted by law, the Company and its directors, officers, employees, agents and licensors shall not be liable for any loss or damage, whether direct, indirect, incidental, special, consequential or exemplary, including trading or investment losses, loss of profit, loss of opportunity, loss of data or loss of goodwill, arising out of or in connection with your access to, use of, inability to use or reliance on the Platform or any Content, whether in contract, tort (including negligence), breach of statutory duty or otherwise, even if advised of the possibility of such loss.</li>
+      <li>12.2 Where liability cannot be excluded, the Company’s aggregate liability to you shall not exceed the amount (if any) paid by you to the Company for the Platform in the twelve (12) months preceding the event giving rise to the claim, or RM100, whichever is greater.</li>
+      <li>12.3 Nothing in these Terms limits liability for fraud, or for any liability that cannot be limited under applicable law.</li>
+    </ol>
+
+    <h2 id="e13">13. Indemnity</h2>
+    <p>You agree to indemnify and hold harmless the Company and its directors, officers, employees and agents from and against all claims, liabilities, losses, damages, costs and expenses (including reasonable legal fees) arising from your breach of these Terms, your misuse of the Platform or Content, or your violation of any law or the rights of any third party.</p>
+
+    <h2 id="e14">14. Personal Data and Privacy</h2>
+    <ol class="sub">
+      <li>14.1 The Company processes personal data, if any, in accordance with the Personal Data Protection Act 2010 (as amended).</li>
+      <li>14.2 An account is optional. If you do not sign in, the Platform does not intentionally collect your name, email address or other identifying information, and preferences such as watchlists, language, theme and custom backtest settings are stored only in your own browser (local storage) and are not transmitted to the Company. To work offline, the terminal stores its pages and the latest public market data in your browser’s cache; you may delete this at any time by clearing the site data.</li>
+      <li>14.3 <b>Sign-in and cross-device synchronisation.</b> If you choose to sign in with a Google account, Google provides the Company with your email address, display name and a unique account identifier; the Company does not receive your Google password. The Company stores your email address, that identifier and the data you synchronise (watchlists, theme, language, chart style and custom backtest settings) on Cloudflare infrastructure, which may be located outside Malaysia, solely to provide the synchronisation service and to determine your plan (free or paid). AI keys, passcodes and sign-in credentials are never synchronised. A sign-in lasts up to 30 days on each device. You may at any time use “Delete cloud data” in the account panel to delete the synchronised data from the Company’s storage (copies on your devices are not affected); residual copies in the infrastructure provider’s backups may persist for a limited period under its policies. Your use of Google sign-in is also subject to Google’s terms and privacy policy. Features, limits and fees of paid plans are as stated at the time of purchase. If you subscribe to Plus, Stripe processes your payment under its own terms and privacy policy; the Company stores only your email address, your Stripe customer identifier and the date your Plus ends.</li>
+      <li>14.4 When you use the on-page assistant, your question and the Content displayed on the page are transmitted for processing to the third-party AI provider you select (such as DeepSeek, OpenAI, Google or Anthropic), either through a relay you configure or directly from your browser using your own API key. API keys you enter are stored only in your own browser; they are not transmitted to the Company and are not synchronised across devices. The provider processes your request, and charges any fees for your usage, under its own terms and privacy policy, and may do so outside Malaysia. The Company is not responsible for the provider’s handling of your data or for charges incurred on your keys.</li>
+      <li>14.5 The Platform is hosted on third-party infrastructure (including GitHub Pages and Cloudflare), which may log technical information such as IP addresses for security and operational purposes under their own privacy policies.</li>
+      <li>14.6 Requests to access, correct or delete personal data, or other privacy enquiries, may be sent to [legal@yourdomain.com].</li>
+    </ol>
+
+    <h2 id="e15">15. Third-Party Links and Services</h2>
+    <p>The Platform contains links to third-party websites, including Bursa Malaysia, KLSE Screener, issuer websites and news publishers. These links are provided for convenience only. The Company does not control and is not responsible for the content, availability, accuracy or privacy practices of any third-party website or service, and accessing them is at your own risk.</p>
+
+    <h2 id="e16">16. Availability, Suspension and Changes</h2>
+    <p>The Company may at any time, without notice or liability, modify, suspend or discontinue all or any part of the Platform or any Content, restrict access to any User, or update data sources and methodologies. Scheduled updates may be delayed or may not run.</p>
+    <p><b>Paid plan (Plus).</b> Plus is an optional subscription that increases the number of watchlists and stocks synchronised across devices; it does not provide investment advice or different Content. The price and billing period are shown before you pay. Online payments are processed by Stripe; the Company does not receive or store your card or bank details. A subscription renews automatically at the end of each monthly or yearly period until you cancel it through “Manage subscription” in the account panel; Plus then remains active until the end of the period already paid for. The Company may also grant Plus manually, for example after a bank transfer. Except where the law requires otherwise (including the Consumer Protection Act 1999), payments are not refundable; if the Company discontinues Plus during a paid period, it will refund the unused part of that period.</p>
+
+    <h2 id="e17">17. Amendments to these Terms</h2>
+    <p>The Company may amend these Terms at any time by publishing the amended version on the Platform with a revised “Last updated” date. Amendments take effect upon publication. Your continued use of the Platform after publication constitutes acceptance of the amended Terms.</p>
+
+    <h2 id="e18">18. Governing Law and Jurisdiction</h2>
+    <p>These Terms are governed by and construed in accordance with the laws of Malaysia. You irrevocably submit to the exclusive jurisdiction of the courts of Malaysia sitting in Kuala Lumpur in respect of any dispute arising out of or in connection with these Terms or the Platform.</p>
+
+    <h2 id="e19">19. General Provisions</h2>
+    <ol class="sub">
+      <li>19.1 <b>Severability.</b> If any provision of these Terms is held invalid, illegal or unenforceable, it shall be modified to the minimum extent necessary, and the remaining provisions shall continue in full force and effect.</li>
+      <li>19.2 <b>No waiver.</b> No failure or delay by the Company in exercising any right shall operate as a waiver of that right.</li>
+      <li>19.3 <b>Entire agreement.</b> These Terms constitute the entire agreement between you and the Company regarding the Platform and supersede all prior understandings, save for any separate written agreement signed by the Company (for example, a commercial subscription or licence), which shall prevail to the extent of any inconsistency.</li>
+      <li>19.4 <b>Assignment.</b> You may not assign or transfer your rights under these Terms. The Company may assign its rights and obligations to any successor or affiliate.</li>
+      <li>19.5 <b>Force majeure.</b> The Company shall not be liable for any failure or delay caused by events beyond its reasonable control, including failures of third-party data sources, hosting or network providers.</li>
+      <li>19.6 <b>Survival.</b> Clauses 3, 4, 5, 7, 8, 10, 11, 12, 13, 18 and 19 survive any termination of your use of the Platform.</li>
+    </ol>
+
+    <h2 id="e20">20. Language</h2>
+    <p>These Terms are published in English and Chinese. The Chinese version is a translation for convenience only. In the event of any conflict or inconsistency, the English version prevails.</p>
+
+    <h2 id="e21">21. Contact</h2>
+    <p>[COMPANY NAME] SDN. BHD. (Registration No. [202X01XXXXXX (XXXXXXX-X)])<br>[Registered address], Malaysia<br>Email: [legal@yourdomain.com]</p>
+    <p class="dim">© 2026 [COMPANY NAME] SDN. BHD.. All rights reserved.</p>
+  </section>
+
+  <!-- ===================================================== 中文 (翻译，以英文版为准) ===================================================== -->
+  <section data-l="zh">
+    <h1>使用条款与条件、免责声明及权利声明</h1>
+    <p class="dim">生效日期：2026 年 11 月 18 日 · 最后更新：2026 年 11 月 19 日 · 本中文版为翻译，如有任何不一致，以英文版为准。</p>
+    <div class="co">
+      <b>[COMPANY NAME] SDN. BHD.</b> (公司注册号 [202X01XXXXXX (XXXXXXX-X)])<br>
+      注册地址：[Registered address], Malaysia<br>
+      电邮：[legal@yourdomain.com]
+    </div>
+    <p class="note dim">请仔细阅读本条款。访问或使用本平台即表示你同意受本条款约束；如不同意，请勿使用本平台。</p>
+
+    <ol class="toc">
+      <li><a href="#c1">定义与解释</a></li><li><a href="#c2">接受条款</a></li><li><a href="#c3">平台性质：不构成投资建议</a></li>
+      <li><a href="#c4">监管地位</a></li><li><a href="#c5">风险披露</a></li><li><a href="#c6">资料来源与第三方内容</a></li>
+      <li><a href="#c7">自动及 AI 生成内容</a></li><li><a href="#c8">企业页面 (IR / ESG)</a></li><li><a href="#c9">许可使用与禁止行为</a></li>
+      <li><a href="#c10">知识产权：保留一切权利</a></li><li><a href="#c11">免责 (不作保证)</a></li><li><a href="#c12">责任限制</a></li>
+      <li><a href="#c13">弥偿</a></li><li><a href="#c14">个人资料与隐私</a></li><li><a href="#c15">第三方链接与服务</a></li>
+      <li><a href="#c16">服务提供、暂停与变更</a></li><li><a href="#c17">条款修订</a></li><li><a href="#c18">管辖法律与司法管辖</a></li>
+      <li><a href="#c19">一般条款</a></li><li><a href="#c20">语言</a></li><li><a href="#c21">联系方式</a></li>
+    </ol>
+
+    <h2 id="c1">1. 定义与解释</h2>
+    <ol class="sub">
+      <li>1.1 本条款中：<b>「本公司」</b>、<b>「我们」</b>指 [COMPANY NAME] SDN. BHD. (公司注册号 [202X01XXXXXX (XXXXXXX-X)])，一家在马来西亚注册成立的股份有限私人公司；<b>「本平台」</b>指 Bursa Bot 网站，包括标准报告、终端版、桌面小工具、IR / ESG 页面及可嵌入小工具、所有可下载文件及相关服务；<b>「内容」</b>指本平台提供的一切资讯、数据、信号、筛选结果、图表、回测、日历、摘要、报告、文字、软件及其他材料；<b>「用户」</b>、<b>「你」</b>指访问或使用本平台的任何人。</li>
+      <li>1.2 标题仅为方便阅读。单数包括复数，反之亦然。「包括」指「包括但不限于」。</li>
+    </ol>
+
+    <h2 id="c2">2. 接受条款</h2>
+    <ol class="sub">
+      <li>2.1 本条款是你与本公司之间具法律约束力的协议，依《2006 年电子商务法令》(Electronic Commerce Act 2006) 以电子方式订立。你访问或使用本平台即构成接受本条款。</li>
+      <li>2.2 如你代表任何机构使用本平台，即表示你获授权使该机构受本条款约束。</li>
+      <li>2.3 你必须年满 18 岁，或已取得父母或监护人同意，方可使用本平台。</li>
+    </ol>
+
+    <h2 id="c3">3. 平台性质：不构成投资建议</h2>
+    <ol class="sub">
+      <li>3.1 本平台是资讯与研究工具。内容根据公开资料整理，并由预设规则及自动化流程生成，仅供一般资讯、研究及学习用途。</li>
+      <li>3.2 <b>本平台的任何内容均不构成投资建议、推荐、要约、邀请或招揽，买入、卖出、认购或持有任何证券、衍生工具或其他金融产品</b>，亦不构成对任何投资价值的意见。信号、筛选结果、「风险线」、参考位、回测、模拟组合、标记 (例如 📌 或 ⚠) 及其他内容，只描述数据和规则的结果。</li>
+      <li>3.3 内容并未考虑你的投资目标、财务状况、知识、经验或特定需要。你须自行负责所有投资决定，并应在作出投资决定前，咨询获马来西亚证券监督委员会发牌的人士。</li>
+      <li>3.4 你使用本平台，不会令你与本公司之间产生任何受托、顾问或客户关系。</li>
+    </ol>
+
+    <h2 id="c4">4. 监管地位</h2>
+    <ol class="sub">
+      <li>4.1 本公司<b>并未</b>持有《2007 年资本市场与服务法令》(CMSA) 下的资本市场服务执照，亦<b>不是</b>该法令下的注册人士，不从事证券交易、投资建议、基金管理或理财规划等受监管活动。</li>
+      <li>4.2 本平台与马来西亚交易所 (Bursa Malaysia Berhad)、马来西亚证券监督委员会、FTSE Russell 或任何上市公司均无关联，亦未获其认可、赞助或批准。</li>
+      <li>4.3 如任何内容可能被视为与受监管活动有关，该内容是以非个人化、一般性的方式向公众提供，并非针对任何特定人士。</li>
+    </ol>
+
+    <h2 id="c5">5. 风险披露</h2>
+    <ol class="sub">
+      <li>5.1 投资证券涉及重大风险，价格可升可跌，你可能损失全部本金。小市值、创业板 (ACE)、LEAP 板及新上市证券的波动和流动性风险可能特别高。</li>
+      <li>5.2 过往表现 (包括回测、模拟或假设结果) 不代表未来表现。回测和模拟基于简化假设，并未反映实际成交价、流动性、滑价、税项、印花税、结算费、佣金或其他成本。</li>
+      <li>5.3 市场数据可能延迟。盘中资讯并非实时，不得作为交易依据。</li>
+    </ol>
+
+    <h2 id="c6">6. 资料来源与第三方内容</h2>
+    <ol class="sub">
+      <li>6.1 内容来自第三方及公开来源，包括 Yahoo Finance (价格和财务报表)、上市公司在马来西亚交易所发布的公告 (经 KLSE Screener 取得)、招股书、公司网站和报告，以及 Google News。本公司无法控制这些来源。</li>
+      <li>6.2 第三方资料可能延迟、不完整、不准确或在没有通知的情况下更改。如有任何不一致，以发行人在马来西亚交易所或其网站发布的原始公告、报告或文件为准。</li>
+      <li>6.3 本平台提及的商号、商标和标志 (包括 Bursa Malaysia、FTSE Bursa Malaysia KLCI、Yahoo、KLSE Screener、Google、DeepSeek 及 TradingView) 均属各自拥有者，仅作识别用途。图表使用 TradingView Lightweight Charts™ (Apache License 2.0)。</li>
+    </ol>
+
+    <h2 id="c7">7. 自动及 AI 生成内容</h2>
+    <ol class="sub">
+      <li>7.1 部分内容，包括公司摘要、公告标记、企业活动日历、业务板块动态、可持续发展 (ESG) 资料抽取、翻译及页面上的问答助手，全部或部分由自动化系统和人工智能模型生成，可能含有错误、遗漏、误解或过时资讯。</li>
+      <li>7.2 本公司设有过滤及核对步骤 (例如要求抽取的数字须与所引用页面的原文相符)，但不保证自动生成内容准确或完整。自动生成内容只陈述事实，不代表本公司对任何证券或发行人的看法。</li>
+      <li>7.3 本公司可酌情更正内容，无须通知或标示。更正不构成建议或意见。</li>
+      <li>7.4 你向问答助手提交的问题会由第三方 AI 服务提供者处理。请勿提交个人、机密或敏感资料。</li>
+    </ol>
+
+    <h2 id="c8">8. 企业页面 (IR / ESG)</h2>
+    <ol class="sub">
+      <li>8.1 投资者关系及可持续发展页面整理发行人的公开披露资料。披露项目检查表只表示自动检索是否在发行人的报告中找到该项目 (「找到」、「部分」、「未找到」)，<b>并非</b> ESG 评级、评分、排名、鉴证、审计或合规意见，包括就国家可持续发展报告框架 (NSRF) 或 IFRS S1 / S2 而言。</li>
+      <li>8.2 同行比较只是并列显示已披露的数字，并不对发行人排名或评级。</li>
+      <li>8.3 在自身网站嵌入本平台小工具的发行人，仍须自行负责其披露及《马来西亚交易所上市条例》下的义务。</li>
+    </ol>
+
+    <h2 id="c9">9. 许可使用与禁止行为</h2>
+    <ol class="sub">
+      <li>9.1 在遵守本条款的前提下，本公司授予你有限、个人、可撤销、非独家及不可转让的许可，供你为自身非商业用途访问及浏览本平台。</li>
+      <li>9.2 未经本公司事先书面同意，你不得：(a) 复制、转载、再发布、再分发、出售、再授权或以商业方式利用任何内容；(b) 以自动化方式抓取 (scraping)、爬取或系统性提取内容或数据；(c) 以框架或镜像方式展示本平台 (使用官方提供的可嵌入小工具除外)；(d) 对本平台的软件、策略或方法进行反向工程、反编译或制作衍生作品；(e) 移除或更改任何版权、商标或其他权利声明；(f) 使用本平台向他人提供投资建议或任何受监管服务；(g) 干扰、使本平台或其基础设施超载，或企图未经授权访问；或 (h) 将本平台用于任何非法目的。</li>
+    </ol>
+
+    <h2 id="c10">10. 知识产权：保留一切权利</h2>
+    <ol class="sub">
+      <li>10.1 本平台及所有内容，包括软件、源代码、筛选策略与参数、算法、数据汇编、报告、页面设计、版面及 Bursa Bot 名称，均由本公司拥有或获授权使用，受《1987 年版权法令》(Copyright Act 1987) 及马来西亚其他适用知识产权法律和国际条约保护。</li>
+      <li>10.2 <b>© 2026 [COMPANY NAME] SDN. BHD.，保留一切权利 (All rights reserved)。</b>除第 9.1 条明确规定者外，本公司并无授予你任何权利、所有权或许可。本平台或其源代码仓库任何部分可公开浏览，并不代表授予任何使用许可。</li>
+      <li>10.3 第三方组件、数据及商标仍受其各自的许可及条款约束 (见本平台发布的 NOTICE 文件)。</li>
+      <li>10.4 任何未经授权的使用可能引致民事及 / 或刑事责任，本公司保留法律及衡平法下的一切权利和补救。</li>
+    </ol>
+
+    <h2 id="c11">11. 免责 (不作保证)</h2>
+    <p>在法律允许的最大范围内，本平台及所有内容均按「现状」及「现有」基础提供，不附带任何明示、默示或法定的陈述、保证或条件，包括对准确性、完整性、及时性、可靠性、适销性、特定用途适用性、不侵权，或本平台不会中断、安全、没有错误或有害成分的任何保证。</p>
+    <p class="note">本条款不排除依《1999 年消费者保护法令》(Consumer Protection Act 1999) 或其他适用法律不能合法排除的任何保证或权利；如该法令适用，本条款只在该法令允许的范围内适用。</p>
+
+    <h2 id="c12">12. 责任限制</h2>
+    <ol class="sub">
+      <li>12.1 在法律允许的最大范围内，本公司及其董事、高级职员、雇员、代理人和许可人，对因你访问、使用、无法使用或依赖本平台或任何内容而引起或与之相关的任何损失或损害 (不论直接、间接、附带、特殊、后果性或惩罚性，包括交易或投资亏损、利润损失、机会损失、数据损失或商誉损失)，无论基于合约、侵权 (包括疏忽)、违反法定责任或其他原因，即使已获告知可能发生该等损失，概不负责。</li>
+      <li>12.2 如责任不能被排除，本公司对你的累计责任，不超过你在引起索偿事件前十二 (12) 个月内就本平台向本公司支付的金额 (如有) 或 RM100，以较高者为准。</li>
+      <li>12.3 本条款不限制对欺诈的责任，或依适用法律不能限制的任何责任。</li>
+    </ol>
+
+    <h2 id="c13">13. 弥偿</h2>
+    <p>对于因你违反本条款、滥用本平台或内容，或违反任何法律或第三方权利而引起的一切索偿、责任、损失、损害、成本及开支 (包括合理律师费)，你同意向本公司及其董事、高级职员、雇员和代理人作出弥偿，并使其免受损害。</p>
+
+    <h2 id="c14">14. 个人资料与隐私</h2>
+    <ol class="sub">
+      <li>14.1 本公司依《2010 年个人资料保护法令》(Personal Data Protection Act 2010，经修订) 处理个人资料 (如有)。</li>
+      <li>14.2 账户为自愿性质。你不登录时，本平台不会刻意收集你的姓名、电邮或其他可识别身份的资料；观察列表、语言、主题及自定义回测等设定只储存在你自己的浏览器 (localStorage)，不会传送给本公司。为了离线使用，终端版会把页面和最新的公开市场数据存在你的浏览器缓存里；你可随时清除网站资料将其删除。</li>
+      <li>14.3 <b>登录与跨设备同步。</b>若你选择以 Google 账户登录，Google 会向本公司提供你的电邮地址、显示名称及一个唯一的账户识别码；本公司不会取得你的 Google 密码。本公司会把你的电邮地址、该识别码及你同步的资料 (观察列表、主题、语言、图表样式及自定义回测设定) 储存于 Cloudflare 的基础设施 (可能位于马来西亚境外)，仅用于提供同步服务及判定你的方案 (免费或付费)。AI 密钥、通行码及登录凭证一律不会同步。每台设备的登录最长有效 30 天。你可随时在账号面板使用「删除云端资料」，从本公司的储存中删除同步资料 (你设备上的资料不受影响)；基础设施提供者的备份中可能依其政策在有限期间内留有剩余副本。你使用 Google 登录亦受 Google 的条款及隐私政策约束。付费方案的功能、上限及费用以购买时所列为准。若你订阅 Plus，Stripe 依其自身条款及隐私政策处理你的付款；本公司只储存你的电邮地址、Stripe 客户识别码及 Plus 的到期日。</li>
+      <li>14.4 使用问答助手时，你的问题及页面上显示的内容会经你设定的中转服务，或以你自己的 API 密钥从你的浏览器直接，传送给你所选的第三方 AI 服务提供者 (例如 DeepSeek、OpenAI、Google 或 Anthropic) 处理。你输入的 API 密钥只储存在你自己的浏览器，不会传送给本公司，也不会跨设备同步。该提供者依其自身的条款及隐私政策处理你的请求并就你的用量收费，并可能在马来西亚境外处理。本公司对提供者如何处理你的资料，或你的密钥产生的费用，概不负责。</li>
+      <li>14.5 本平台托管于第三方基础设施 (包括 GitHub Pages 及 Cloudflare)，其可能依其自身的隐私政策，为安全及营运目的记录 IP 地址等技术资料。</li>
+      <li>14.6 查阅、更正或删除个人资料的请求，或其他隐私查询，请发送至 [legal@yourdomain.com]。</li>
+    </ol>
+
+    <h2 id="c15">15. 第三方链接与服务</h2>
+    <p>本平台含有第三方网站的链接，包括马来西亚交易所、KLSE Screener、发行人网站及新闻机构，仅为方便而提供。本公司无法控制，亦不对任何第三方网站或服务的内容、可用性、准确性或隐私做法负责；访问该等网站的风险由你自行承担。</p>
+
+    <h2 id="c16">16. 服务提供、暂停与变更</h2>
+    <p>本公司可随时修改、暂停或终止本平台或任何内容的全部或部分、限制任何用户的访问，或更新资料来源和方法，无须通知亦不承担责任。排定的更新可能延迟或未有执行。</p>
+    <p><b>付费方案 (Plus)。</b>Plus 为自愿订阅的服务，提高跨设备同步的观察列表及股票数量；Plus 不提供投资建议，亦不提供不同的内容。价格及收费周期于付款前列明。在线付款由 Stripe 处理，本公司不会取得或储存你的信用卡或银行资料。订阅于每个月度或年度周期结束时自动续订，直至你在账号面板的「管理订阅」取消为止；取消后，Plus 维持至已付款周期结束。本公司亦可手动开通 Plus (例如收到银行转账后)。除法律另有规定 (包括《1999 年消费人保护法令》) 外，已付款项不予退还；若本公司在已付款周期内终止 Plus，将退还该周期未使用部分的款项。</p>
+
+    <h2 id="c17">17. 条款修订</h2>
+    <p>本公司可随时在本平台发布修订后的条款并更新「最后更新」日期，以修订本条款。修订自发布时生效。修订发布后你继续使用本平台，即表示接受修订后的条款。</p>
+
+    <h2 id="c18">18. 管辖法律与司法管辖</h2>
+    <p>本条款受马来西亚法律管辖并据其解释。就本条款或本平台引起或相关的任何争议，你不可撤销地服从设于 Kuala Lumpur 的马来西亚法院的专属司法管辖。</p>
+
+    <h2 id="c19">19. 一般条款</h2>
+    <ol class="sub">
+      <li>19.1 <b>可分割性。</b>本条款任何规定如被裁定无效、违法或不可执行，该规定须在最小必要范围内修改，其余规定继续完全有效。</li>
+      <li>19.2 <b>不放弃权利。</b>本公司未有或延迟行使任何权利，不构成放弃该权利。</li>
+      <li>19.3 <b>完整协议。</b>本条款构成你与本公司之间就本平台的完整协议，并取代先前的一切理解；但本公司签署的任何另行书面协议 (例如商业订阅或许可协议) 在不一致的范围内优先适用。</li>
+      <li>19.4 <b>转让。</b>你不得转让本条款下的权利。本公司可将其权利与义务转让予任何继承人或关联公司。</li>
+      <li>19.5 <b>不可抗力。</b>对于超出本公司合理控制范围的事件 (包括第三方资料来源、托管或网络服务的故障) 所造成的任何失误或延迟，本公司概不负责。</li>
+      <li>19.6 <b>继续有效。</b>第 3、4、5、7、8、10、11、12、13、18 及 19 条在你停止使用本平台后继续有效。</li>
+    </ol>
+
+    <h2 id="c20">20. 语言</h2>
+    <p>本条款以英文及中文发布。中文版仅为方便阅读的翻译；如有任何冲突或不一致，以英文版为准。</p>
+
+    <h2 id="c21">21. 联系方式</h2>
+    <p>[COMPANY NAME] SDN. BHD. (公司注册号 [202X01XXXXXX (XXXXXXX-X)])<br>[Registered address], Malaysia<br>电邮：[legal@yourdomain.com]</p>
+    <p class="dim">© 2026 [COMPANY NAME] SDN. BHD.，保留一切权利 (All rights reserved)。</p>
+  </section>
+</div>
+</body>
+</html>
