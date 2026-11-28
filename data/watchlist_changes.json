@@ -1,0 +1,768 @@
+{
+  "updated": "2026-11-28",
+  "count": 1101,
+  "events": [
+    {
+      "date": "2026-11-28",
+      "type": "new",
+      "symbol": "03023.KL",
+      "name": "SMILE"
+    },
+    {
+      "date": "2026-11-27",
+      "type": "new",
+      "symbol": "0485.KL",
+      "name": "0485.KL"
+    },
+    {
+      "date": "2026-11-27",
+      "type": "new",
+      "symbol": "7203.KL",
+      "name": "WANGZNG"
+    },
+    {
+      "date": "2026-11-26",
+      "type": "new",
+      "symbol": "03057.KL",
+      "name": "SANCY"
+    },
+    {
+      "date": "2026-11-26",
+      "type": "new",
+      "symbol": "03071.KL",
+      "name": "NOESIS"
+    },
+    {
+      "date": "2026-11-26",
+      "type": "new",
+      "symbol": "5359.KL",
+      "name": "IOIPG Malaysia Real Estate Investment Trust"
+    },
+    {
+      "date": "2026-11-26",
+      "type": "new",
+      "symbol": "7108PA.KL",
+      "name": "PERDANA-PA"
+    },
+    {
+      "date": "2026-11-26",
+      "type": "new",
+      "symbol": "8117PA.KL",
+      "name": "PGF-PA"
+    },
+    {
+      "date": "2026-11-26",
+      "type": "new",
+      "symbol": "9687.KL",
+      "name": "IDEAL"
+    },
+    {
+      "date": "2026-11-26",
+      "type": "removed",
+      "symbol": "5167.KL",
+      "name": "TURBO"
+    },
+    {
+      "date": "2026-11-26",
+      "type": "removed",
+      "symbol": "7245PA.KL",
+      "name": "CITAGLB-PA"
+    },
+    {
+      "date": "2026-11-25",
+      "type": "new",
+      "symbol": "0483.KL",
+      "name": "0483.KL"
+    },
+    {
+      "date": "2026-11-25",
+      "type": "new",
+      "symbol": "5165.KL",
+      "name": "DFCITY"
+    },
+    {
+      "date": "2026-11-25",
+      "type": "new",
+      "symbol": "6297.KL",
+      "name": "BOXPAK"
+    },
+    {
+      "date": "2026-11-25",
+      "type": "removed",
+      "symbol": "03071.KL",
+      "name": "NOESIS"
+    },
+    {
+      "date": "2026-11-25",
+      "type": "removed",
+      "symbol": "7003.KL",
+      "name": "Y&G"
+    },
+    {
+      "date": "2026-11-25",
+      "type": "removed",
+      "symbol": "7048.KL",
+      "name": "ATLAN"
+    },
+    {
+      "date": "2026-11-25",
+      "type": "removed",
+      "symbol": "7108PA.KL",
+      "name": "PERDANA-PA"
+    },
+    {
+      "date": "2026-11-24",
+      "type": "new",
+      "symbol": "5198.KL",
+      "name": "AFUJIYA"
+    },
+    {
+      "date": "2026-11-24",
+      "type": "removed",
+      "symbol": "6297.KL",
+      "name": "BOXPAK"
+    },
+    {
+      "date": "2026-11-24",
+      "type": "removed",
+      "symbol": "7066PA.KL",
+      "name": "YONGTAI-PA"
+    },
+    {
+      "date": "2026-11-24",
+      "type": "removed",
+      "symbol": "7722.KL",
+      "name": "ASIABRN"
+    },
+    {
+      "date": "2026-11-24",
+      "type": "removed",
+      "symbol": "9687.KL",
+      "name": "IDEAL"
+    },
+    {
+      "date": "2026-11-21",
+      "type": "new",
+      "symbol": "0158.KL",
+      "name": "SCC"
+    },
+    {
+      "date": "2026-11-21",
+      "type": "new",
+      "symbol": "0174.KL",
+      "name": "EVD"
+    },
+    {
+      "date": "2026-11-21",
+      "type": "new",
+      "symbol": "0199.KL",
+      "name": "TRIMODE"
+    },
+    {
+      "date": "2026-11-21",
+      "type": "new",
+      "symbol": "0356.KL",
+      "name": "PEOPLE"
+    },
+    {
+      "date": "2026-11-21",
+      "type": "new",
+      "symbol": "5035.KL",
+      "name": "KNUSFOR"
+    },
+    {
+      "date": "2026-11-21",
+      "type": "new",
+      "symbol": "5081.KL",
+      "name": "EIG"
+    },
+    {
+      "date": "2026-11-21",
+      "type": "new",
+      "symbol": "9628.KL",
+      "name": "LEBTECH"
+    },
+    {
+      "date": "2026-11-20",
+      "type": "new",
+      "symbol": "03019.KL",
+      "name": "MPSOL"
+    },
+    {
+      "date": "2026-11-20",
+      "type": "new",
+      "symbol": "3441.KL",
+      "name": "JOHAN"
+    },
+    {
+      "date": "2026-11-20",
+      "type": "new",
+      "symbol": "5105.KL",
+      "name": "CANONE"
+    },
+    {
+      "date": "2026-11-20",
+      "type": "new",
+      "symbol": "5358.KL",
+      "name": "Big Caring Group Bhd"
+    },
+    {
+      "date": "2026-11-20",
+      "type": "new",
+      "symbol": "6068.KL",
+      "name": "PCCS"
+    },
+    {
+      "date": "2026-11-20",
+      "type": "new",
+      "symbol": "7025.KL",
+      "name": "WOODLAN"
+    },
+    {
+      "date": "2026-11-20",
+      "type": "new",
+      "symbol": "7099.KL",
+      "name": "MAYU"
+    },
+    {
+      "date": "2026-11-20",
+      "type": "new",
+      "symbol": "7132.KL",
+      "name": "SMISCOR"
+    },
+    {
+      "date": "2026-11-19",
+      "type": "new",
+      "symbol": "03072.KL",
+      "name": "MILOLO"
+    },
+    {
+      "date": "2026-11-19",
+      "type": "new",
+      "symbol": "6602.KL",
+      "name": "BCB"
+    },
+    {
+      "date": "2026-11-19",
+      "type": "removed",
+      "symbol": "0170.KL",
+      "name": "KANGER"
+    },
+    {
+      "date": "2026-11-19",
+      "type": "removed",
+      "symbol": "0174.KL",
+      "name": "EVD"
+    },
+    {
+      "date": "2026-11-19",
+      "type": "removed",
+      "symbol": "3441.KL",
+      "name": "JOHAN"
+    },
+    {
+      "date": "2026-11-19",
+      "type": "removed",
+      "symbol": "5187.KL",
+      "name": "HBGLOB"
+    },
+    {
+      "date": "2026-11-19",
+      "type": "removed",
+      "symbol": "5198.KL",
+      "name": "AFUJIYA"
+    },
+    {
+      "date": "2026-11-19",
+      "type": "removed",
+      "symbol": "7025.KL",
+      "name": "WOODLAN"
+    },
+    {
+      "date": "2026-11-18",
+      "type": "new",
+      "symbol": "0482.KL",
+      "name": "MyDCD Berhad"
+    },
+    {
+      "date": "2026-11-18",
+      "type": "new",
+      "symbol": "5022.KL",
+      "name": "PAOS"
+    },
+    {
+      "date": "2026-11-18",
+      "type": "new",
+      "symbol": "5267.KL",
+      "name": "XINHWA"
+    },
+    {
+      "date": "2026-11-18",
+      "type": "new",
+      "symbol": "7091.KL",
+      "name": "UNIMECH"
+    },
+    {
+      "date": "2026-11-18",
+      "type": "new",
+      "symbol": "8605.KL",
+      "name": "FIHB"
+    },
+    {
+      "date": "2026-11-18",
+      "type": "removed",
+      "symbol": "0158.KL",
+      "name": "SCC"
+    },
+    {
+      "date": "2026-11-18",
+      "type": "removed",
+      "symbol": "0199.KL",
+      "name": "TRIMODE"
+    },
+    {
+      "date": "2026-11-18",
+      "type": "removed",
+      "symbol": "5081.KL",
+      "name": "EIG"
+    },
+    {
+      "date": "2026-11-18",
+      "type": "removed",
+      "symbol": "5105.KL",
+      "name": "CANONE"
+    },
+    {
+      "date": "2026-11-18",
+      "type": "removed",
+      "symbol": "6068.KL",
+      "name": "PCCS"
+    },
+    {
+      "date": "2026-11-18",
+      "type": "removed",
+      "symbol": "6602.KL",
+      "name": "BCB"
+    },
+    {
+      "date": "2026-11-17",
+      "type": "new",
+      "symbol": "0160.KL",
+      "name": "HHHCORP"
+    },
+    {
+      "date": "2026-11-17",
+      "type": "new",
+      "symbol": "0232.KL",
+      "name": "VOLCANO"
+    },
+    {
+      "date": "2026-11-17",
+      "type": "new",
+      "symbol": "03039.KL",
+      "name": "RTSTECH"
+    },
+    {
+      "date": "2026-11-17",
+      "type": "new",
+      "symbol": "0481.KL",
+      "name": "KEB Berhad"
+    },
+    {
+      "date": "2026-11-17",
+      "type": "new",
+      "symbol": "7053.KL",
+      "name": "SEEHUP"
+    },
+    {
+      "date": "2026-11-17",
+      "type": "new",
+      "symbol": "7323.KL",
+      "name": "KEN"
+    },
+    {
+      "date": "2026-11-17",
+      "type": "new",
+      "symbol": "9962.KL",
+      "name": "GMUTUAL"
+    },
+    {
+      "date": "2026-11-17",
+      "type": "removed",
+      "symbol": "7528.KL",
+      "name": "DKLS"
+    },
+    {
+      "date": "2026-11-17",
+      "type": "removed",
+      "symbol": "8605.KL",
+      "name": "FIHB"
+    },
+    {
+      "date": "2026-11-16",
+      "type": "removed",
+      "symbol": "03050.KL",
+      "name": "SUNMOW"
+    },
+    {
+      "date": "2026-11-16",
+      "type": "removed",
+      "symbol": "0356.KL",
+      "name": "PEOPLE"
+    },
+    {
+      "date": "2026-11-16",
+      "type": "removed",
+      "symbol": "6904.KL",
+      "name": "SUBUR"
+    },
+    {
+      "date": "2026-11-16",
+      "type": "removed",
+      "symbol": "7217.KL",
+      "name": "EMETALL"
+    },
+    {
+      "date": "2026-11-15",
+      "type": "removed",
+      "symbol": "5267.KL",
+      "name": "XINHWA"
+    },
+    {
+      "date": "2026-11-14",
+      "type": "new",
+      "symbol": "03071.KL",
+      "name": "NOESIS"
+    },
+    {
+      "date": "2026-11-14",
+      "type": "new",
+      "symbol": "5167.KL",
+      "name": "TURBO"
+    },
+    {
+      "date": "2026-11-14",
+      "type": "new",
+      "symbol": "7245PA.KL",
+      "name": "CITAGLB-PA"
+    },
+    {
+      "date": "2026-11-14",
+      "type": "removed",
+      "symbol": "0232.KL",
+      "name": "VOLCANO"
+    },
+    {
+      "date": "2026-11-14",
+      "type": "removed",
+      "symbol": "7091.KL",
+      "name": "UNIMECH"
+    },
+    {
+      "date": "2026-11-14",
+      "type": "removed",
+      "symbol": "7099.KL",
+      "name": "MAYU"
+    },
+    {
+      "date": "2026-11-14",
+      "type": "removed",
+      "symbol": "7323.KL",
+      "name": "KEN"
+    },
+    {
+      "date": "2026-11-13",
+      "type": "new",
+      "symbol": "7145PA.KL",
+      "name": "TXCD-PA"
+    },
+    {
+      "date": "2026-11-13",
+      "type": "removed",
+      "symbol": "0075.KL",
+      "name": "LYC"
+    },
+    {
+      "date": "2026-11-13",
+      "type": "removed",
+      "symbol": "0160.KL",
+      "name": "HHHCORP"
+    },
+    {
+      "date": "2026-11-13",
+      "type": "removed",
+      "symbol": "03021.KL",
+      "name": "ETH"
+    },
+    {
+      "date": "2026-11-13",
+      "type": "removed",
+      "symbol": "03061.KL",
+      "name": "TPTEC"
+    },
+    {
+      "date": "2026-11-13",
+      "type": "removed",
+      "symbol": "03065.KL",
+      "name": "LPCGRP"
+    },
+    {
+      "date": "2026-11-13",
+      "type": "removed",
+      "symbol": "5040.KL",
+      "name": "MERIDIAN"
+    },
+    {
+      "date": "2026-11-13",
+      "type": "removed",
+      "symbol": "6114.KL",
+      "name": "MKH"
+    },
+    {
+      "date": "2026-11-13",
+      "type": "removed",
+      "symbol": "7203.KL",
+      "name": "WANGZNG"
+    },
+    {
+      "date": "2026-11-13",
+      "type": "removed",
+      "symbol": "7219PA.KL",
+      "name": "AIZO-PA"
+    },
+    {
+      "date": "2026-11-13",
+      "type": "removed",
+      "symbol": "9962.KL",
+      "name": "GMUTUAL"
+    },
+    {
+      "date": "2026-11-11",
+      "type": "new",
+      "symbol": "0150PA.KL",
+      "name": "FINTEC-PA"
+    },
+    {
+      "date": "2026-11-11",
+      "type": "new",
+      "symbol": "0165PA.KL",
+      "name": "XOX-PA"
+    },
+    {
+      "date": "2026-11-11",
+      "type": "new",
+      "symbol": "2682.KL",
+      "name": "PARKWD"
+    },
+    {
+      "date": "2026-11-11",
+      "type": "new",
+      "symbol": "0006.KL",
+      "name": "PINEAPP"
+    },
+    {
+      "date": "2026-11-11",
+      "type": "new",
+      "symbol": "0480.KL",
+      "name": "0480.KL"
+    },
+    {
+      "date": "2026-11-11",
+      "type": "new",
+      "symbol": "5065.KL",
+      "name": "ORNA"
+    },
+    {
+      "date": "2026-11-07",
+      "type": "new",
+      "symbol": "5198.KL",
+      "name": "AFUJIYA"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "renamed",
+      "symbol": "0823EA.KL",
+      "name": "EQ8C50",
+      "old": "PAM-C50"
+    },
+    {
+      "date": "2026-10-24",
+      "type": "renamed",
+      "symbol": "9008.KL",
+      "name": "TEGRA",
+      "old": "OMESTI"
+    },
+    {
+      "date": "2026-10-23",
+      "type": "new",
+      "symbol": "0479.KL",
+      "name": "0479.KL"
+    },
+    {
+      "date": "2026-10-22",
+      "type": "new",
+      "symbol": "0478.KL",
+      "name": "NWE Resources Group Berhad"
+    },
+    {
+      "date": "2026-10-17",
+      "type": "new",
+      "symbol": "0472.KL",
+      "name": "EGH International Berhad"
+    },
+    {
+      "date": "2026-10-15",
+      "type": "new",
+      "symbol": "0477.KL",
+      "name": "ECOSYS"
+    },
+    {
+      "date": "2026-10-12",
+      "type": "renamed",
+      "symbol": "5216.KL",
+      "name": "DATASONIC",
+      "old": "NEXG"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "0103.KL",
+      "name": "MNC"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "0122.KL",
+      "name": "AIM"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "0309.KL",
+      "name": "AGRICOR"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "0473.KL",
+      "name": "EVOCOM"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "0475.KL",
+      "name": "GBBOND"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "0476.KL",
+      "name": "SLGC Berhad"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "2305.KL",
+      "name": "AYER"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "5009.KL",
+      "name": "WTHORSE"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "5533.KL",
+      "name": "OCB"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "5789PA.KL",
+      "name": "LBS-PA"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "7108PA.KL",
+      "name": "PERDANA-PA"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "7221.KL",
+      "name": "BSLCORP"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "7240.KL",
+      "name": "IHB"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "7382.KL",
+      "name": "GLBHD"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "7617.KL",
+      "name": "MAGNA"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "8664PA.KL",
+      "name": "SPSETIA-PA"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "new",
+      "symbol": "9997.KL",
+      "name": "PENSONI"
+    },
+    {
+      "date": "2026-10-09",
+      "type": "renamed",
+      "symbol": "0050.KL",
+      "name": "WTS",
+      "old": "SYSTECH"
+    }
+  ],
+  "missing": {
+    "0150PA.KL": [
+      "2026-11-25",
+      4,
+      "FINTEC-PA"
+    ],
+    "7053.KL": [
+      "2026-11-25",
+      4,
+      "SEEHUP"
+    ],
+    "0165PA.KL": [
+      "2026-11-26",
+      3,
+      "XOX-PA"
+    ],
+    "03072.KL": [
+      "2026-11-27",
+      2,
+      "MILOLO"
+    ],
+    "5267.KL": [
+      "2026-11-28",
+      1,
+      "XINHWA"
+    ],
+    "7374.KL": [
+      "2026-11-28",
+      1,
+      "TIENWAH"
+    ]
+  }
+}
